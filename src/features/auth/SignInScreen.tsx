@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import {
   AuthHeader,
   SocialAuthButtons,
@@ -9,42 +9,58 @@ import {
   AuthButton,
   AuthFooterLink,
 } from '@/components/auth';
-import { spacing } from '@/theme';
+import { useThemeColors, spacing, typography } from '@/theme';
 
 interface SignInScreenProps {
   onNavigateSignUp: () => void;
   onNavigateForgotPassword: () => void;
-  onSubmitSignIn?: (email: string) => void;
+  onSubmitSignIn?: (email: string, password: string) => void;
+  onSocialPress?: (provider: 'google' | 'github' | 'microsoft') => void;
   loading?: boolean;
   disabled?: boolean;
-  simulateError?: boolean;
+  errorMessage?: string | null;
 }
 
 export const SignInScreen: React.FC<SignInScreenProps> = ({
   onNavigateSignUp,
   onNavigateForgotPassword,
   onSubmitSignIn,
+  onSocialPress,
   loading = false,
   disabled = false,
-  simulateError = false,
+  errorMessage = null,
 }) => {
-  const [email, setEmail] = useState('user@chatboxai.com');
-  const [password, setPassword] = useState('Password123!');
+  const colors = useThemeColors();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'github' | 'microsoft' | null>(null);
 
   const handleSignIn = () => {
-    onSubmitSignIn?.(email);
+    setValidationError(null);
+    if (!email.trim()) {
+      setValidationError('Please enter your email address');
+      return;
+    }
+    if (!password) {
+      setValidationError('Please enter your password');
+      return;
+    }
+    onSubmitSignIn?.(email.trim(), password);
   };
 
-  const handleSocialPress = (provider: 'google' | 'github' | 'microsoft') => {
+  const handleSocialPress = async (provider: 'google' | 'github' | 'microsoft') => {
     setLoadingProvider(provider);
-    setTimeout(() => {
+    try {
+      if (onSocialPress) {
+        await onSocialPress(provider);
+      }
+    } finally {
       setLoadingProvider(null);
-    }, 1500);
+    }
   };
 
-  const emailError = simulateError ? 'Invalid email address or account not found' : undefined;
-  const passwordError = simulateError ? 'Incorrect password. Please try again.' : undefined;
+  const activeError = validationError || errorMessage;
 
   return (
     <View style={styles.container}>
@@ -53,6 +69,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
         title="Welcome back"
         subtitle="Sign in to your ChatBox AI account to continue"
       />
+
+      {/* Global Error Banner */}
+      {activeError ? (
+        <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
+          <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
+            {activeError}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Social Provider Buttons */}
       <SocialAuthButtons
@@ -69,8 +94,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
         label="Email address"
         placeholder="name@example.com"
         value={email}
-        onChangeText={setEmail}
-        error={emailError}
+        onChangeText={(text) => {
+          setEmail(text);
+          if (validationError) setValidationError(null);
+        }}
         disabled={disabled || loading}
       />
 
@@ -78,8 +105,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
       <PasswordInput
         label="Password"
         value={password}
-        onChangeText={setPassword}
-        error={passwordError}
+        onChangeText={(text) => {
+          setPassword(text);
+          if (validationError) setValidationError(null);
+        }}
         disabled={disabled || loading}
       />
 
@@ -114,6 +143,18 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+  },
+  errorBanner: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  errorBannerText: {
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
+    fontWeight: typography.fontWeight.medium as any,
   },
   forgotLink: {
     marginTop: -spacing.xs,

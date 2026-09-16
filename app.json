@@ -2,6 +2,7 @@
   "expo": {
     "name": "Chatboxai_APK",
     "slug": "Chatboxai_APK",
+    "scheme": "chatboxai",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,6 +11,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.chatboxai.app",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#18181b",
         "foregroundImage": "./assets/android-icon-foreground.png",

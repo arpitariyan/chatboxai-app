@@ -46,7 +46,7 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
 const styles = StyleSheet.create({
   button: {
     width: '100%',
-    height: 46,
+    height: 50,
     borderRadius: radius.control,
     alignItems: 'center',
     justifyContent: 'center',
@@ -57,5 +57,6 @@ const styles = StyleSheet.create({
   text: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
+    letterSpacing: -0.1,
   },
 });

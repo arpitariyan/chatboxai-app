@@ -29,10 +29,10 @@ export const AuthCard: React.FC<AuthCardProps> = ({ children, style, ...rest }) 
 const styles = StyleSheet.create({
   card: {
     width: '100%',
-    maxWidth: 420,
-    borderRadius: 16,
+    maxWidth: 440,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: spacing.xl,
+    padding: spacing.lg + 2,
     alignSelf: 'center',
     borderCurve: radius.borderCurve,
   },

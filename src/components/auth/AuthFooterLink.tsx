@@ -51,6 +51,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   text: {
-    fontSize: 12,
+    fontSize: 13,
+    letterSpacing: -0.1,
   },
 });

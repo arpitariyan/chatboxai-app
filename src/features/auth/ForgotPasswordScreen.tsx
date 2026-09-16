@@ -1,71 +1,230 @@
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { IconAlertCircle, IconCheck } from '@tabler/icons-react-native';
 import {
   AuthHeader,
   AuthInput,
+  PasswordInput,
   AuthButton,
   AuthFooterLink,
 } from '@/components/auth';
-import { spacing } from '@/theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { useThemeColors, spacing, typography, radius } from '@/theme';
 
 interface ForgotPasswordScreenProps {
   onNavigateSignIn: () => void;
-  onSubmitSendResetLink?: (email: string) => void;
   loading?: boolean;
   disabled?: boolean;
-  simulateError?: boolean;
 }
 
 export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   onNavigateSignIn,
-  onSubmitSendResetLink,
-  loading = false,
+  loading: externalLoading = false,
   disabled = false,
-  simulateError = false,
 }) => {
-  const [email, setEmail] = useState('user@chatboxai.com');
+  const colors = useThemeColors();
+  const { requestPasswordResetOtp, confirmPasswordResetOtp } = useAuth();
 
-  const handleSendLink = () => {
-    onSubmitSendResetLink?.(email);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [email, setEmail] = useState<string>('');
+  const [otp, setOtp] = useState<string>('');
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
+
+  const [localLoading, setLocalLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+
+  const isLoading = externalLoading || localLoading;
+
+  // Step 1: Send OTP to Email via Resend API & Appwrite mfa_otps
+  const handleSendOtp = async () => {
+    setError(null);
+    setDevOtp(null);
+
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    setLocalLoading(true);
+    try {
+      const res = await requestPasswordResetOtp(email.trim());
+      if (res?.devOtp) {
+        setDevOtp(res.devOtp);
+      }
+      setStep(2);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send reset code. Please try again.');
+    } finally {
+      setLocalLoading(false);
+    }
   };
 
-  const emailError = simulateError
-    ? 'We could not find an account associated with this email address'
-    : undefined;
+  // Step 2: Verify OTP & Reset Password
+  const handleResetPassword = async () => {
+    setError(null);
+
+    const cleanOtp = otp.replace(/\D/g, '').slice(0, 6);
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setError('Please enter the full 6-digit reset code');
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      setError('New password must be at least 6 characters long');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match. Please check and try again.');
+      return;
+    }
+
+    setLocalLoading(true);
+    try {
+      await confirmPasswordResetOtp(email.trim(), cleanOtp, newPassword);
+      setStep(3);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reset password. Please check your OTP.');
+    } finally {
+      setLocalLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      {/* Brand & Page Header */}
+      {/* Dynamic Header */}
       <AuthHeader
-        title="Reset your password"
-        subtitle="Enter your email address and we'll send you a password reset link."
+        title={step === 3 ? 'Password reset complete' : 'Reset your password'}
+        subtitle={
+          step === 1
+            ? 'Enter your email to receive a 6-digit reset code'
+            : step === 2
+            ? `We sent a 6-digit code to ${email}`
+            : 'You can now sign in with your new password'
+        }
       />
 
-      {/* Email Input */}
-      <AuthInput
-        label="Email address"
-        placeholder="name@example.com"
-        value={email}
-        onChangeText={setEmail}
-        error={emailError}
-        disabled={disabled || loading}
-      />
+      {/* Global Error Banner */}
+      {error ? (
+        <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
+          <IconAlertCircle size={16} color="#f87171" style={{ marginRight: 6 }} />
+          <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
+            {error}
+          </Text>
+        </View>
+      ) : null}
 
-      {/* Primary Submit CTA */}
-      <AuthButton
-        title="Send reset link"
-        onPress={handleSendLink}
-        loading={loading}
-        disabled={disabled}
-      />
+      {/* STEP 1: Enter Email */}
+      {step === 1 && (
+        <>
+          <AuthInput
+            label="Email address"
+            placeholder="name@example.com"
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (error) setError(null);
+            }}
+            disabled={disabled || isLoading}
+          />
 
-      {/* Secondary Navigation */}
-      <AuthFooterLink
-        linkText="Back to sign in"
-        onPress={onNavigateSignIn}
-        align="center"
-        style={styles.backLink}
-      />
+          <AuthButton
+            title={isLoading ? 'Sending code...' : 'Send reset code'}
+            onPress={handleSendOtp}
+            loading={isLoading}
+            disabled={disabled || !email.trim()}
+          />
+        </>
+      )}
+
+      {/* STEP 2: Enter 6-digit OTP Code & New Password */}
+      {step === 2 && (
+        <>
+          {devOtp ? (
+            <View style={[styles.devBanner, { backgroundColor: '#36240d', borderColor: '#854d0e' }]}>
+              <Text style={[styles.devBannerText, { color: '#fef08a' }]}>
+                [Dev Mode] Your OTP code is: <Text style={{ fontWeight: '700' }}>{devOtp}</Text>
+              </Text>
+            </View>
+          ) : null}
+
+          <AuthInput
+            label="6-Digit Reset Code"
+            placeholder="• • • • • •"
+            value={otp}
+            onChangeText={(text) => {
+              const numeric = text.replace(/\D/g, '').slice(0, 6);
+              setOtp(numeric);
+              if (error) setError(null);
+            }}
+            keyboardType="number-pad"
+            disabled={disabled || isLoading}
+          />
+
+          <PasswordInput
+            label="New Password"
+            value={newPassword}
+            onChangeText={(text) => {
+              setNewPassword(text);
+              if (error) setError(null);
+            }}
+            disabled={disabled || isLoading}
+          />
+
+          <PasswordInput
+            label="Confirm New Password"
+            value={confirmPassword}
+            onChangeText={(text) => {
+              setConfirmPassword(text);
+              if (error) setError(null);
+            }}
+            disabled={disabled || isLoading}
+          />
+
+          <AuthButton
+            title={isLoading ? 'Resetting password...' : 'Reset password'}
+            onPress={handleResetPassword}
+            loading={isLoading}
+            disabled={disabled || otp.length !== 6 || !newPassword || !confirmPassword}
+          />
+
+          <View style={{ marginTop: spacing.xs }}>
+            <AuthFooterLink
+              linkText="Resend reset code"
+              onPress={handleSendOtp}
+              align="center"
+            />
+          </View>
+        </>
+      )}
+
+      {/* STEP 3: Reset Success Confirmation */}
+      {step === 3 && (
+        <View style={styles.successContainer}>
+          <View style={[styles.successBadge, { backgroundColor: '#22543d' }]}>
+            <IconCheck size={28} color="#4ade80" />
+          </View>
+          <Text style={[styles.successText, { color: colors.ink }]}>
+            Your password has been successfully reset!
+          </Text>
+          <AuthButton
+            title="Sign in now"
+            onPress={onNavigateSignIn}
+          />
+        </View>
+      )}
+
+      {/* Back to Sign In Link */}
+      {step < 3 && (
+        <AuthFooterLink
+          linkText="Back to sign in"
+          onPress={onNavigateSignIn}
+          align="center"
+          style={styles.backLink}
+        />
+      )}
     </View>
   );
 };
@@ -73,6 +232,51 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+  },
+  errorBanner: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  errorBannerText: {
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
+    fontWeight: typography.fontWeight.medium as any,
+  },
+  devBanner: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+  },
+  devBannerText: {
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+  },
+  successContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  successBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  successBadgeText: {
+    color: '#4ade80',
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  successText: {
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
   },
   backLink: {
     marginTop: spacing.lg,

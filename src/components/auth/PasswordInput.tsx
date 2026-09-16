@@ -95,12 +95,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   label: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: typography.fontWeight.medium,
     marginBottom: 6,
+    letterSpacing: -0.1,
   },
   inputContainer: {
-    height: 46,
+    height: 50,
     borderRadius: radius.control,
     borderWidth: 1,
     paddingHorizontal: spacing.md,
@@ -116,6 +117,7 @@ const styles = StyleSheet.create({
   },
   toggleButton: {
     paddingLeft: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   toggleText: {
     fontSize: 12,

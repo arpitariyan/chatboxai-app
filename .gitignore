@@ -2,12 +2,14 @@
 
 # dependencies
 node_modules/
+chatboxai_website_copy/
 
 # Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
+.vscode/
 
 # Native
 .kotlin/
@@ -31,6 +33,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript

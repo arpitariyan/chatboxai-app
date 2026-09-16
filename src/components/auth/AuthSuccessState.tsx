@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { IconCheck } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { AuthButton } from './AuthButton';
 
@@ -21,7 +22,7 @@ export const AuthSuccessState: React.FC<AuthSuccessStateProps> = ({
       {/* Subtle Success Visual Badge */}
       <View style={[styles.iconBox, { backgroundColor: colors.inset, borderColor: colors.line }]}>
         <View style={[styles.checkCircle, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.checkMark, { color: colors.primaryForeground }]}>✓</Text>
+          <IconCheck size={16} color={colors.primaryForeground} strokeWidth={2.5} />
         </View>
       </View>
 

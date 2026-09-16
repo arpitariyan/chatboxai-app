@@ -33,14 +33,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   heroLogo: {
-    width: 150,
-    height: 52,
-    marginBottom: spacing.sm,
+    width: 160,
+    height: 56,
+    marginBottom: spacing.md,
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: typography.fontWeight.bold,
     textAlign: 'center',
+    letterSpacing: -0.4,
     marginBottom: 6,
   },
   subtitle: {
@@ -48,6 +49,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.normal,
     textAlign: 'center',
     lineHeight: 20,
-    maxWidth: 290,
+    maxWidth: 310,
   },
 });
+

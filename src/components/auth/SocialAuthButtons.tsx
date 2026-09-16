@@ -52,8 +52,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
               {
                 backgroundColor: colors.inset,
                 borderColor: colors.line,
-                opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
-                transform: [{ scale: pressed ? 0.988 : 1 }],
+                opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+                transform: [{ scale: pressed ? 0.985 : 1 }],
               },
             ]}
           >
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   button: {
-    height: 46,
+    height: 50,
     borderRadius: radius.control,
     borderWidth: 1,
     flexDirection: 'row',
@@ -97,18 +97,19 @@ const styles = StyleSheet.create({
     borderCurve: radius.borderCurve,
   },
   iconWrapper: {
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.sm,
   },
   iconImage: {
-    width: 20,
-    height: 20,
+    width: 22,
+    height: 22,
   },
   buttonText: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
+    letterSpacing: -0.1,
   },
 });
