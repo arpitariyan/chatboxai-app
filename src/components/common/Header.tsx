@@ -1,27 +1,21 @@
 import React from 'react';
-import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { StyleSheet, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   IconMenu2,
-  IconChevronDown,
   IconEdit,
   IconDotsVertical,
-  IconSparkles,
 } from '@tabler/icons-react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { useThemeColors, spacing, radius } from '@/theme';
 
 interface HeaderProps {
-  currentModel?: string;
   onOpenDrawer: () => void;
-  onOpenModelSelector: () => void;
   onNewChat: () => void;
   onOpenOptionsMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  currentModel = 'ChatBox AI Pro',
   onOpenDrawer,
-  onOpenModelSelector,
   onNewChat,
   onOpenOptionsMenu,
 }) => {
@@ -39,59 +33,23 @@ export const Header: React.FC<HeaderProps> = ({
       ]}
     >
       <View style={styles.headerRow}>
-        {/* Left Segmented Pill: [ Menu Button | Divider | ChatBox AI Pro ▾ ] */}
-        <View
-          style={[
-            styles.segmentedPill,
+        {/* Left Action: Menu Toggle */}
+        <Pressable
+          onPress={onOpenDrawer}
+          hitSlop={8}
+          accessibilityLabel="Open navigation menu"
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.iconButton,
             {
-              backgroundColor: colors.surface,
+              backgroundColor: pressed ? colors.hover : colors.surface,
               borderColor: colors.line,
+              opacity: pressed ? 0.75 : 1,
             },
           ]}
         >
-          {/* Action 1: Menu / Drawer Toggle */}
-          <Pressable
-            onPress={onOpenDrawer}
-            hitSlop={6}
-            accessibilityLabel="Open navigation menu"
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.segmentedButton,
-              styles.menuAction,
-              {
-                backgroundColor: pressed ? colors.hover : 'transparent',
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <IconMenu2 size={19} color={colors.ink} />
-          </Pressable>
-
-          {/* Hairline Divider */}
-          <View style={[styles.pillDivider, { backgroundColor: colors.line }]} />
-
-          {/* Action 2: Model Selector / ChatBox AI Pro */}
-          <Pressable
-            onPress={onOpenModelSelector}
-            hitSlop={6}
-            accessibilityLabel="Select AI Model"
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.segmentedButton,
-              styles.modelAction,
-              {
-                backgroundColor: pressed ? colors.hover : 'transparent',
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <IconSparkles size={14} color={colors.accent} />
-            <Text style={[styles.modelName, { color: colors.ink }]} numberOfLines={1}>
-              {currentModel}
-            </Text>
-            <IconChevronDown size={13} color={colors.ink2} />
-          </Pressable>
-        </View>
+          <IconMenu2 size={22} color={colors.ink} strokeWidth={2} />
+        </Pressable>
 
         {/* Right Segmented Pill: [ New Chat | Divider | Options (⋮) ] */}
         <View
@@ -126,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Action 2: Options / Settings Menu */}
           <Pressable
-            onPress={onOpenOptionsMenu || onOpenModelSelector}
+            onPress={onOpenOptionsMenu}
             hitSlop={6}
             accessibilityLabel="More options"
             accessibilityRole="button"
@@ -170,25 +128,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderCurve: radius.borderCurve,
   },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderCurve: radius.borderCurve,
+  },
   segmentedButton: {
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  menuAction: {
-    paddingHorizontal: 12,
-  },
-  modelAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    gap: 6,
-  },
-  modelName: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: -0.2,
-    maxWidth: 130,
   },
   iconAction: {
     paddingHorizontal: 11,

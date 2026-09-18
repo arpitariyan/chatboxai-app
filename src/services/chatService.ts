@@ -23,6 +23,7 @@ export interface ConversationItem {
   docId: string;
 }
 
+
 export interface ChatMessageRecord {
   id: string;
   libId: string;
@@ -426,6 +427,23 @@ export const chatService = {
     } catch (error: any) {
       console.error('[chatService] Error adding chat message:', error?.message || error);
       return null;
+    }
+  },
+
+  /**
+   * Update liked/disliked status of a specific message
+   */
+  async updateMessageFeedback(messageId: string, field: 'liked' | 'disliked', value: boolean): Promise<boolean> {
+    if (!DB_ID || !messageId) return false;
+
+    try {
+      await databases.updateDocument(DB_ID, CHATS_COLLECTION_ID, messageId, {
+        [field]: value ? 'true' : 'false'
+      });
+      return true;
+    } catch (error: any) {
+      console.error(`[chatService] Error updating feedback for ${messageId}:`, error?.message || error);
+      return false;
     }
   },
 

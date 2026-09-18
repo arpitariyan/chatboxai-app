@@ -14,8 +14,6 @@ export const AppShell: React.FC = () => {
 
   const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
-  const [currentModel, setCurrentModel] = useState('ChatBox AI Pro');
   const [activeLibId, setActiveLibId] = useState<string | null>(null);
   const [chatSessionId, setChatSessionId] = useState(() => Date.now().toString());
   // Incremented whenever a new conversation is created — triggers Drawer history refresh
@@ -47,27 +45,32 @@ export const AppShell: React.FC = () => {
     setDrawerRefreshTrigger(0);
   }, [currentUser?.email]);
 
-  const handleSelectModel = (model: ModelOption) => {
-    setCurrentModel(model.name);
-  };
+  // ── All callbacks are stable (useCallback with no deps or only setter deps) ──
+  // This prevents them from being new functions on every AppShell render,
+  // which would otherwise propagate down and force child re-mounts.
 
-  const handleNewChat = () => {
+  const handleNewChat = React.useCallback(() => {
     setActiveLibId(null);
     setChatSessionId(Date.now().toString());
     setActiveView('chat');
-  };
+  }, []);
 
-  const handleSelectChatHistory = (libId: string) => {
+  const handleSelectChatHistory = React.useCallback((libId: string) => {
     setActiveLibId(libId);
     setChatSessionId(libId);
     setActiveView('chat');
-  };
+  }, []);
 
-  const handleConversationCreated = (libId: string) => {
+  const handleConversationCreated = React.useCallback((libId: string) => {
     setActiveLibId(libId);
     // Notify Drawer to refresh its history list (new conversation just saved to Appwrite)
     setDrawerRefreshTrigger((prev) => prev + 1);
-  };
+  }, []);
+
+  const handleOpenDrawer = React.useCallback(() => setIsDrawerOpen(true), []);
+  const handleCloseDrawer = React.useCallback(() => setIsDrawerOpen(false), []);
+  const handleOpenSettings = React.useCallback(() => setActiveView('settings'), []);
+  const handleBackFromSettings = React.useCallback(() => setActiveView('chat'), []);
 
   // key derived from user email — React fully unmounts Drawer when user changes,
   // ensuring zero stale state (conversations, rename/delete modals, etc.) leaks between accounts.
@@ -78,9 +81,7 @@ export const AppShell: React.FC = () => {
       {/* Top Header */}
       {activeView === 'chat' && (
         <Header
-          currentModel={currentModel}
-          onOpenDrawer={() => setIsDrawerOpen(true)}
-          onOpenModelSelector={() => setIsModelSelectorOpen(true)}
+          onOpenDrawer={handleOpenDrawer}
           onNewChat={handleNewChat}
         />
       )}
@@ -90,14 +91,10 @@ export const AppShell: React.FC = () => {
         <ChatScreen
           key={chatSessionId}
           activeLibId={activeLibId}
-          currentModel={currentModel}
-          onSelectModel={handleSelectModel}
           onConversationCreated={handleConversationCreated}
-          isModelSelectorOpen={isModelSelectorOpen}
-          onCloseModelSelector={() => setIsModelSelectorOpen(false)}
         />
       ) : (
-        <SettingsScreen onBack={() => setActiveView('chat')} />
+        <SettingsScreen onBack={handleBackFromSettings} />
       )}
 
       {/* Slide-over Navigation Drawer.
@@ -105,10 +102,10 @@ export const AppShell: React.FC = () => {
       <Drawer
         key={drawerKey}
         visible={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
+        onClose={handleCloseDrawer}
         onSelectNewChat={handleNewChat}
         onSelectChatHistory={handleSelectChatHistory}
-        onOpenSettings={() => setActiveView('settings')}
+        onOpenSettings={handleOpenSettings}
         refreshTrigger={drawerRefreshTrigger}
       />
     </View>

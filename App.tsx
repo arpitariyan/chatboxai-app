@@ -1,11 +1,21 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ActivityIndicator, LogBox } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { AuthContainer } from '@/features/auth';
 import { AppShell } from '@/features/chat';
 import { getColors } from '@/theme';
+
+// Ignore non-fatal API key fallback warnings from showing up in the LogBox UI
+LogBox.ignoreLogs([
+  '[groq] API key failed',
+  '[openrouter] API key failed',
+  '[google] API key failed',
+  '[replicate] API key failed',
+  '[nvidia] API key failed',
+  '[ChatboxAI] Auto fallback'
+]);
 
 function MainAppContent() {
   const colors = getColors('dark', 'violet');
