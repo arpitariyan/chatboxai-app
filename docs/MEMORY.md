@@ -253,6 +253,10 @@ src/features/auth/
   - Extended [`src/contexts/AuthContext.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/contexts/AuthContext.tsx) with `requestSignUpOtp` and `confirmSignUpOtp`.
   - Updated [`src/features/auth/SignUpScreen.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/features/auth/SignUpScreen.tsx) with Step 1 (Registration form) and Step 2 (6-digit confirmation code verification screen with dev fallback hint, 60s resend cooldown timer, and auto-login transition upon verification).
   - Existing users can sign in directly from the Sign-In screen without mandatory OTP, while all new user sign-ups require verification.
+- **Selective Text Copy via Long-Press**:
+  - Created `TextSelectionSheet.tsx` which parses markdown into a single contiguous `selectable={true}` Text tree, solving React Native's boundary limitations for partial text selection.
+  - Updated [`ChatBubble.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/ChatBubble.tsx) to handle `onLongPress` on both User and Assistant capsules, spawning the bottom sheet for fine-grained text highlighting and copying.
+  - Re-integrated `requestAnimationFrame` typewriter streaming logic and `thinking` persistence in `MessageItem` after git checkout reset.
 - **Complete Vector Icon Replacement Across Entire APK**:
   - Installed `@expo/vector-icons` and replaced 100% of raw text glyphs and emojis across every component with crisp, native `Ionicons`:
     - [`src/components/common/Header.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/common/Header.tsx): `menu-outline`, `chevron-down`, `create-outline`, `ellipsis-vertical`.
@@ -844,7 +848,7 @@ src/
 #### Verification
 - Re-ran `npx tsc --noEmit`. Passed with 0 errors. Missing NPM dependencies `axios` and `zustand` were correctly added to `package.json`.
 
-### Session 19 � Navbar & Model Selector Refinement
+### Session 19 � Navbar & Model Selector Refinement
 - **Header Simplification:** Removed the 'ChatBox AI Pro' pill button from the top navigation (Header.tsx) for a cleaner look. Kept only the stylish menu toggle button.
 - **Model Selector UI Update:** Replaced model descriptions with brand logos/icons in the model selector sheet (ModelSelector.tsx). Copied corresponding images from the web project to ssets/images/models/ and mapped them by provider/name.
 - **Cleanup:** Removed unused currentModel, ModelSelectorSheet, and related props/states from AppShell.tsx and ChatScreen.tsx.
@@ -861,7 +865,8 @@ px tsc --noEmit and LLM Fallback behaves as an isolated unit.
 
 ### Session 20 Update - Replicate Native Fallback
 - **Replicate API Support:** Analyzed the models-registry.ts and website's .env.local to securely bring EXPO_PUBLIC_REPLICATE_API_KEY into the APK's .env configuration.
-- **Replicate Fallback Implementation:** Added eplicate as a primary provider within LLMFallbackService.ts. Implemented the website's behavior where if Replicate API keys (1 or 2) fail or are unavailable, the system safely routes the Replicate request through OpenRouter as a final failsafe.
+- **Replicate Fallback Implementation:** Added 
+eplicate as a primary provider within LLMFallbackService.ts. Implemented the website's behavior where if Replicate API keys (1 or 2) fail or are unavailable, the system safely routes the Replicate request through OpenRouter as a final failsafe.
 
 ### Session 20 Update - Groq Keys Integration
 - **Groq API Keys Integration:** Added all 7 Groq API keys (EXPO_PUBLIC_GROQ_API_KEY_2 to 7) from website's .env.local to mobile APK's .env.
@@ -879,19 +884,20 @@ px tsc --noEmit cleanly.
 
 #### Root Causes Found and Fixed
 
-1. **Scroll jump during manual scroll (root cause):** Animated.createAnimatedComponent(KeyboardAvoidingView) was called inside the ChatScreen render body. React treats each call as a *new component type*, so every parent re-render caused React to fully unmount+remount the entire subtree including the ScrollView � resetting scroll position to 0. Fixed by hoisting this to module scope (outside the component). The ScrollView is now never remounted on re-renders.
+1. **Scroll jump during manual scroll (root cause):** Animated.createAnimatedComponent(KeyboardAvoidingView) was called inside the ChatScreen render body. React treats each call as a *new component type*, so every parent re-render caused React to fully unmount+remount the entire subtree including the ScrollView � resetting scroll position to 0. Fixed by hoisting this to module scope (outside the component). The ScrollView is now never remounted on re-renders.
 
-2. **handleScroll closure instability:** handleScroll had showScrollDown state in its useCallback deps array. This meant each time the FAB visibility changed, a new handleScroll function was created and passed to onScroll, which briefly reset the ScrollView's event handler. Fixed by introducing showScrollDownRef and removing the state dep from the callback � the function is now permanently stable.
+2. **handleScroll closure instability:** handleScroll had showScrollDown state in its useCallback deps array. This meant each time the FAB visibility changed, a new handleScroll function was created and passed to onScroll, which briefly reset the ScrollView's event handler. Fixed by introducing showScrollDownRef and removing the state dep from the callback � the function is now permanently stable.
 
 3. **Conflicting keyboard handling on Android:** An Animated.Value was being used as paddingBottom on a KeyboardAvoidingView with ehavior=undefined. This produced incorrect layout calculations and competed with the OS-level djustResize behavior. Fixed by splitting iOS (uses KeyboardAvoidingView behavior='padding') and Android (plain View, OS handles it via manifest).
 
-4. **Unnecessary generateResponse re-creation:** useChatGeneration's generateResponse had onConversationCreated and selectedModel in its deps, both of which could change on every render. Fixed by storing both in refs; generateResponse now has only userEmail as a dep � its identity is stable across renders.
+4. **Unnecessary generateResponse re-creation:** useChatGeneration's generateResponse had onConversationCreated and selectedModel in its deps, both of which could change on every render. Fixed by storing both in refs; generateResponse now has only userEmail as a dep � its identity is stable across renders.
 
 5. **Concurrent generation calls not guarded:** Added isGeneratingRef boolean guard to prevent double-sends if a button is pressed twice rapidly.
 
 6. **AppShell inline callbacks:** All callback props (handleNewChat, handleConversationCreated, etc.) were plain arrow functions, re-created on every AppShell render. Converted all to useCallback with empty/stable deps.
 
-7. **aiResponse/sourceList race:** esetGeneration() was called in the same render cycle that set iResponse, clearing sourceList before ChatScreen's effect could read it. Fixed with sourceListRef so the effect always reads the current value regardless of reset timing.
+7. **aiResponse/sourceList race:** 
+esetGeneration() was called in the same render cycle that set iResponse, clearing sourceList before ChatScreen's effect could read it. Fixed with sourceListRef so the effect always reads the current value regardless of reset timing.
 
 #### Verification
 - 
@@ -936,3 +942,317 @@ Restored the original Android layout height diff + Keyboard offset logic to manu
   - **Removed:** Stripped the groq provider string from unsupported models (e.g., Llama 3.3 70B, Llama 3.1 8B Turbo, Qwen 3.6 27B).
   - **Kept:** Ensured existing supported Groq models remained properly configured (ALLAM 2 7B, Groq Compound, Groq Compound Mini, GPT-OSS 20B).
   - **Added:** Appended new supported Groq models strictly without duplication (meta-llama/llama-prompt-guard-2-22m, meta-llama/llama-prompt-guard-2-86m, openai/gpt-oss-120b, openai/gpt-oss-safeguard-20b, qwen/qwen3.8-27b).
+
+### Session 45 - LLM Fallback Bypass and Regenerate Versioning UI Fixes
+
+#### LLM Fallback Override
+- **Issue:** The LLM auto-fallback sequence (AUTO_CHAIN) was failing because missing keys for NVIDIA and blocked keys for Gemini were disrupting the generation flow entirely.
+- **Fix:** Implemented a direct bypass in useChatGeneration.ts when modelId === 'auto'. It now forcibly resolves to chatboxai/gpt-oss-20b (which successfully uses the active Groq keys), ensuring the app always has a working fallback model. Also, restored groq as a provider for Llama 3.3 70B in models-registry.ts so manual selection works seamlessly.
+
+#### AI Response Feedback (Like/Dislike) & Text-to-Speech (TTS)
+- **TTS Integration:** Removed the "Share" action and replaced it with a Speaker button on ChatBubble. Integrated expo-speech and a custom preprocessTTS utility to read the active AI response aloud cleanly.
+- **Feedback Integration:** Connected the Like/Dislike thumbs actions on ChatBubble directly to chatService.updateMessageFeedback(), allowing users to persist ratings for individual answers to the database.
+
+#### Regenerate Versioning Grouping Logic
+- **Issue:** When a user clicked "Regenerate" on an older AI message, the new generated answer created a database record with a newer $createdAt timestamp. Because ChatScreen.tsx history loading relied strictly on contiguous chronological records, it rendered the regenerated response as a completely separate, new question at the bottom of the chat, breaking the conversation context.
+- **Fix:** 
+  - Refactored ChatScreen.tsx history loading to parse records using a userQueryToIndex Map. This allows newer regeneration records to securely map back to and group inside the original question, accurately constructing the version history.
+  - Stabilized dynamic appending in ChatScreen.tsx by preserving the original 	arget.id. This prevents the React key from mutating, which solved severe UI remounting/flickering issues.
+  - Updated ChatBubble.tsx to compute a dynamic \activeId based on the currently displayed version (e.g. < 2/2 >). All actions (Regenerate, TTS, Like, Dislike) now explicitly target the active database record instead of bleeding into the original answer.
+
+### Session 46 - Mobile UI Polish (Table Rendering, Sources Panel, Brand Icons)
+
+#### Table Rendering Fixes
+- **Consistent Borders**: Replaced \StyleSheet.hairlineWidth\ with \1\ for all table borders, fixing a common Android rendering issue where borders appear invisible on high-density screens.
+- **Header Separators**: Added explicit \orderBottomWidth: 1\ to the table header row.
+- **Double-Border Fix**: The outer \	ableContainer\ now handles the outer 1px border. Inner cell and row right/bottom borders are selectively applied (using \!isLastCol\ and \!isLastRow\) to prevent doubling at the edges.
+
+#### Sources Bottom Sheet Overhaul
+- **Removed Duplicate Sources**: Eliminated the floating \SourceChips\ row above the action buttons in \ChatBubble.tsx\. Sources are now exclusively opened via the new "Sources N" pill button in the action toolbar.
+- **Touch Architecture Fix**: Rewrote \SourcesBottomSheet.tsx\ to use a flex layout overlay. The backdrop \Pressable\ now strictly fills the space *above* the panel. The ScrollView inside the panel naturally owns its own touches, completely fixing the bug where scrolling through sources would accidentally close the panel.
+- **Animations**: Added a proper close animation loop, ensuring the sheet and backdrop fade out smoothly before the modal unmounts.
+
+#### SVG Brand Icon Expansion
+- **Static Icons**: Expanded the static \ICON_MAP\ in \SvglIcon.tsx\ to ~23 pixel-perfect inline icons for common tech domains (Discord, Telegram, GitHub, Google, Vercel, Next.js, TypeScript, etc.) requiring zero network requests.
+- **SVGL API Integration**: Integrated the official SVGL API (\https://api.svgl.app\) as a dynamic fallback for unknown domains. Implemented an in-memory cache (\API_CACHE\) and a deduping \PENDING\ set to prevent duplicate network calls.
+- **Flexible Resolving**: Implemented robust domain matching (e.g. \docs.github.com\ maps correctly to \github.com\, and overrides map \stackoverflow\ to \stack overflow\ for accurate API hits).
+- **Globe Fallback**: Any domains that fail the SVGL lookup instantly default to a clean, generic globe SVG.
+
+#### Table Grid Alignment Fix (Session 46 Addition)
+- **Calculated Column Widths**: Fixed the critical bug where columns were misaligned across rows and horizontal row borders appeared broken/split. This occurred because lexDirection: 'row' allowed cells in different rows to take different widths based on content, resulting in unequal row widths.
+- **Dynamic Width Injection**: Implemented a dynamic colWidths pre-calculation in MarkdownAnswer.tsx that iterates through all rows and headers to determine the maximum string length per column. It clamps widths between 100px and 280px and assigns the exact width to every cell in the column, effectively creating a perfect HTML-style grid layout natively in React Native.
+
+#### Table Markdown Formatting Fix
+- **Inline Table Markdown**: Fixed an issue where tags inside table cells (like **bold** or links) were being rendered as raw text instead of actual styled markdown.
+- **Hoisted renderInline**: Converted the parseInlineMarkdown and 
+enderInline functions into standard hoisted declarations, allowing TableBlock to securely pass all table cell contents through the markdown token generator before rendering. This ensures bold texts, italics, inline code, and URLs render perfectly inside the new aligned grid.
+
+
+### Session 47 - Plan-Aware Auto Model Routing
+
+#### Auto Model Selection Update
+- **Issue:** The Auto model selection in \useChatGeneration.ts\ was hardcoded to a single fallback model (\gpt-oss-20b\), ignoring the user's plan tier and not providing random, varied routing.
+- **Fix:** 
+  - Updated \useChatGeneration.ts\ to accept \userPlan\ via its options.
+  - Replaced the hardcoded Auto logic with a dynamic selection algorithm that fetches all models (from \AIModelsOption\ or \DEEP_RESEARCH_MODELS\ depending on search mode).
+  - Filtered models based on plan eligibility (Free plan only gets non-Pro, non-Max models; Pro gets up to Pro tier, Max gets all).
+  - Selected a random eligible model for the current request.
+  - Excluded the 'Auto' placeholder itself and locked models from the random pool.
+  - Updated `ChatScreen.tsx` to pass `userProfile?.plan` through to `useChatGeneration`, ensuring plan-aware Auto routing executes globally across Home and Conversation views.
+
+---
+
+### Session 48 — UI Refinements, Add Menu Sheet & Effort Logic
+
+**Date:** 2026-09-19
+
+---
+
+#### 48.1 — Scroll-to-Bottom FAB Redesign (`ChatScreen.tsx`)
+
+- **Centered horizontally:** Wrapper changed from `right: 20` (corner-pinned) to `left: 0, right: 0, alignItems: 'center'` — now perfectly centered above the Composer.
+- **Polish:** Button shrunk from 44×44 to 36×36, background changed to translucent dark glass `rgba(28,28,30,0.85)` with crisp white border `rgba(255,255,255,0.15)`.
+- **Arrow icon:** Size `18`, color `#e4e4e7`, strokeWidth `2.5` — refined and crisp.
+- **Shadow softened:** Elevation reduced from 5 → 3, shadowOpacity from 0.25 → 0.2 for a more restrained premium feel.
+- **Bottom position:** Adjusted from 90 → 120 to sit comfortably above the Composer bar.
+- **`pointerEvents`:** Changed to `'box-none'` on wrapper so touches pass through when FAB is hidden.
+
+---
+
+#### 48.2 — Model Selector Centering (`Composer.tsx`)
+
+- **Absolute centering pattern:** `modelSelectorWrapper` uses `position: 'absolute', left: 0, right: 0, alignItems: 'center'` with `pointerEvents: 'box-none'` so the ModelSelector button floats perfectly centered while the Search/Research toggles (`justifyContent: 'flex-end'`) stay right-aligned without affecting center position.
+- **Top controls min-height:** Set `minHeight: 38` and `marginBottom: spacing.xs` for stable layout during mode transitions.
+- **`zIndex: 10`** added to `topControls` to ensure the ModelSelector sits above scroll content.
+
+---
+
+#### 48.3 — New Dependencies Installed
+
+```
+expo-image-picker   (SDK 57 compatible)
+expo-document-picker (SDK 57 compatible)
+```
+
+Installed via `npx expo install expo-image-picker expo-document-picker`.
+
+---
+
+#### 48.4 — `useModelStore.ts` — Effort Level State
+
+- Added `EffortLevel` type: `'Low' | 'Medium' | 'High' | 'Extra High'`
+- Added `effortLevel: EffortLevel` to store state (default: `'Low'`)
+- Added `setEffortLevel(level: EffortLevel)` setter
+- Both `selectedModel` and `effortLevel` now stored in refs inside `useChatGeneration` for stable closures without re-creating `generateResponse`.
+
+---
+
+#### 48.5 — `providers.ts` — Effort Injection & Multimodal Support
+
+- **`LLMContentPart` type added:** Supports `{ type: 'text', text: string }` and `{ type: 'image_url', image_url: { url, detail } }` for multimodal messages.
+- **`LLMMessage.content`** type widened to `string | LLMContentPart[]` to allow vision/image inputs.
+- **Effort system prompt injection:** `getEffortSystemSuffix(effortLevel)` appends a reasoning instruction suffix to the system prompt:
+  - `Low` → no suffix
+  - `Medium` → "Think carefully before responding…"
+  - `High` → "Think step-by-step and reason deeply…"
+  - `Extra High` → "Apply maximum reasoning effort. Break down the problem methodically…"
+- **Google provider updated:** Converts multimodal content parts to `inlineData` format for Gemini's API. Supports base64 image URIs.
+- **Temperature auto-tuning:** Effort level also reduces temperature: Low = 0.7, Medium = 0.6, High/Extra High = 0.5.
+
+---
+
+#### 48.6 — `useChatGeneration.ts` — Attachment & Effort Integration
+
+- **`ChatAttachment` interface exported:**
+  ```ts
+  export interface ChatAttachment {
+    uri: string;
+    name: string;
+    mimeType: string;
+    type: 'image' | 'file';
+    data?: string; // base64 data URI for images, extracted text for files
+  }
+  ```
+- **`generateResponse` signature updated:** Now accepts optional `attachments?: ChatAttachment[]` as 4th argument.
+- **`buildMessages` updated:** 
+  - If image attachments exist → builds multimodal `LLMContentPart[]` array for the user message.
+  - If file attachments exist → appends their text content inline to the query string.
+- **Effort level:** Read from `effortLevelRef` and passed to `LLMFallbackService.routeRequest` options as `effortLevel`.
+
+---
+
+#### 48.7 — `AttachmentSheet.tsx` → `AddMenuSheet` — Full Redesign
+
+**Component renamed from `AttachmentSheet` to `AddMenuSheet` (exported as `AddMenuSheet`).**
+
+**Layout matches design reference (ChatGPT-style "Add to chat" sheet):**
+
+- **Top grid (3 columns):** Camera · Photos · Files — each tile is a `Pressable` square with an icon box and label underneath.
+- **List rows:** Effort · Web Search · Create Image · Memory — standard 56px tall rows with left icon, text block, and right control.
+- **Effort sub-picker:** Expands inline below the Effort row. Shows all 4 levels with `IconCheck` on the active selection. Collapses on selection.
+- **Web Search:** `Switch` toggle (UI only — logic placeholder).
+- **Create Image:** Chevron row → shows "Coming Soon" alert (UI only).
+- **Memory:** `Switch` toggle (UI only — logic placeholder).
+
+**Camera & Photos (working):**
+- `launchCameraAsync` with `mediaTypes: 'images'` (new API, non-deprecated).
+- `launchImageLibraryAsync` with `allowsMultipleSelection: true`, `selectionLimit: 4`.
+- Images converted to base64 data URIs for LLM multimodal input.
+
+**Files (working):**
+- `DocumentPicker.getDocumentAsync` with allowed MIME types: PDF, plain text, markdown, JSON, HTML, CSV.
+- Text/JSON files: content extracted via `fetch(uri).text()` and passed as `data` string.
+
+**Design system compliance (Session 48.8 redesign):**
+- All icon colors → `colors.ink` (white in dark mode) — no per-icon accent colors.
+- All surfaces → `colors.surface` / `colors.inset` tokens.
+- All borders → `colors.line` token.
+- Switch tracks → `colors.ink` (active), `colors.inset` (inactive).
+- All border radii → `radius.xl` with `borderCurve: 'continuous'`.
+- All spacing → `spacing.*` tokens only — no hardcoded values.
+- Typography → `typography.fontSize.*` and `typography.fontWeight.*` tokens only.
+- **Fixed deprecated API:** `ImagePicker.MediaTypeOptions.Images` → `'images'` string literal (non-deprecated).
+
+---
+
+#### 48.8 — `Composer.tsx` — Attachment Chips UI
+
+- **New props added:**
+  - `pendingAttachments?: ChatAttachment[]` — array of selected attachments from the sheet.
+  - `onClearAttachment?: (uri: string) => void` — removes a single chip by URI.
+- **`onSend` signature updated:** Now passes `attachments` as third argument.
+- **Attachment strip:** Horizontal `ScrollView` rendered above the composer bar when `pendingAttachments.length > 0`.
+  - Image attachments → rendered as 32×32 thumbnail previews.
+  - File attachments → rendered as file icon.
+  - Each chip has an ✕ `Pressable` remove button.
+- **Send button activation:** Activates on attachment alone (even with no text typed).
+- **Placeholder text:** Changes to "Add a message..." when attachments are present.
+- **Attachments cleared** automatically after `onSend` call (managed in `ChatScreen.tsx`).
+
+---
+
+#### 48.9 — `ChatScreen.tsx` — Full Wiring
+
+- **`pendingAttachments` state:** `useState<ChatAttachment[]>([])` — managed at `ChatScreen` level.
+- **`handleAttachmentsSelected`:** Merges incoming attachments by URI deduplication into `pendingAttachments`.
+- **`handleClearAttachment`:** Removes single attachment by URI from state.
+- **`handleSendMessage` updated:** Accepts optional `attachments?: ChatAttachment[]`, builds display text for the user bubble (falls back to file names if no text), clears `pendingAttachments` after send.
+- **`ConversationContent`:** `ContentProps` interface updated with `pendingAttachments` and `onClearAttachment`. Props thread down to `Composer`.
+- **Import changed:** `AttachmentSheet` → `AddMenuSheet` from same file path.
+- **Sheet wired:** `AddMenuSheet` receives `onAttachmentsSelected={handleAttachmentsSelected}`.
+
+---
+
+#### 48.10 — Rules for Future Agents
+
+- **Never re-add per-icon accent colors** to the Add Menu sheet. All icons must use `colors.ink` per the design system anti-drift rules.
+- **TypeScript:** All changes in this session passed `npx tsc --noEmit` with 0 errors.
+
+---
+
+### Session 49 — Thinking Mode Implementation
+
+**Date:** 2026-09-19
+
+---
+
+#### 49.1 — `useModelStore.ts` — Thinking Mode State
+
+- Added `thinkingMode: boolean` to the global store, defaulting to `true`.
+- Added `setThinkingMode: (enabled: boolean) => void`.
+
+#### 49.2 — `AttachmentSheet.tsx` (`AddMenuSheet`) — Thinking Mode Toggle
+
+- Inserted a new row below "Effort" for "Thinking Mode".
+- Used `IconBrain` from `@tabler/icons-react-native` for the icon, matching `colors.ink` to adhere to the design system.
+- Connected the `Switch` component directly to `thinkingMode` and `setThinkingMode` from `useModelStore`.
+- Kept "Memory" visually distinct by re-assigning it `IconHistory`.
+
+#### 49.3 — `providers.ts` — System Prompt Injection
+
+- Added `thinkingMode?: boolean` to `LLMOptions`.
+- Created `getThinkingModeSuffix()`:
+  - If `true`: Injects the strict `<think>` / `</think>` prompt instruction ("THINKING MODE ENABLED...").
+  - If `false`: Injects the base prompt ("Return only the final answer.").
+- Refactored `callOpenAICompat` and `callGoogleProvider` to combine `systemBase`, `effortSuffix`, and `thinkingSuffix` into a unified enriched system prompt.
+
+#### 49.4 — `useChatGeneration.ts` — Backend Wiring
+
+- Extracted `thinkingMode` from `useModelStore`.
+- Added `thinkingModeRef` to avoid stale closures, similar to `effortLevelRef` and `selectedModelRef`.
+- Passed `thinkingMode: currentThinkingMode` into `LLMFallbackService.routeRequest`.
+
+#### 49.5 — UI Side: `ChatBubble.tsx` & `preprocessTTS.ts`
+
+- `ChatBubble.tsx`: Added regex replacement on the `message.content` string passed to `<MarkdownAnswer />` to aggressively strip out `<think>...</think>` (and unterminated `<think>...$`) blocks. This ensures the reasoning output is strictly contained within `<ThinkingBlock>` and doesn't bleed out into the standard markdown renderer.
+- `preprocessTTS.ts`: Added an additional `.replace(/<think>[\s\S]*$/gi, '')` pattern to catch and strip unterminated thinking blocks if the user triggers Text-To-Speech while the block is still streaming.
+
+#### 49.6 — Rules for Future Agents
+
+- **Always use `mediaTypes: 'images'`** (string literal) in `expo-image-picker` — `MediaTypeOptions` is deprecated in SDK 57.
+- **Effort level** is global state in `useModelStore`. Read it from `effortLevelRef` inside `generateResponse` to avoid stale closures.
+- **Attachments flow:** `AddMenuSheet` → `ChatScreen.pendingAttachments` → `Composer` (display chips) → `handleSendMessage` → `generateResponse(query, type, history, attachments)` → `buildMessages` (multimodal) → `LLMFallbackService`.
+- **Never re-add per-icon accent colors** to the Add Menu sheet. All icons must use `colors.ink` per the design system anti-drift rules.
+- **TypeScript:** All changes in this session passed `npx tsc --noEmit` with 0 errors.
+
+---
+
+## 50. Thinking / Reasoning — Complete Decoupling (Sept 19, 2026)
+
+### Problem Fixed
+The previous architecture parsed `<think>` tags on-the-fly inside `ChatBubble.tsx` and stored the raw, tag-polluted string directly in the `aiResp` Appwrite column. This caused three bugs:
+1. **Unclosed tags** caused the final answer to disappear into the reasoning block.
+2. **TTS** read the thinking trace aloud.
+3. **Copy-to-clipboard** included raw `<think>` tags.
+
+### Architecture Change: Pre-parse at Generation Time
+
+```
+LLM response (raw)
+   └─► parseAiResponse()           ← src/utils/parseAiResponse.ts
+         ├─ thinking: string        → useChatGeneration: setAiThinking()
+         └─ finalAnswer: string     → useChatGeneration: setAiResponse()
+                                       DB: saved as aiResp (CLEAN, no tags)
+```
+
+**Persistence (Option A):** When sources or reasoning exist, the `searchResult` column stores a JSON wrapper: `{ "sources": [...], "reasoning": "..." }`. On history reload, `ChatScreen.tsx` unpacks this wrapper to restore the `thinking` field.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/utils/parseAiResponse.ts` | **NEW** — Robust 3-case parser (closed tag, unclosed tag, no tag). |
+| `src/components/chat/ChatBubble.tsx` | `MessageItem` now has `thinking?: string`. Reads from field directly. Legacy regex fallback for old DB rows. |
+| `src/hooks/useChatGeneration.ts` | Calls `parseAiResponse` after LLM call. Saves only `finalAnswer` to DB. Exposes `aiThinking`. |
+| `src/features/chat/ChatScreen.tsx` | Consumes `aiThinking`, stores in `aiThinkingRef`. Passes `thinking` to `MessageItem`. History loader unpacks Option-A wrapper. |
+| `src/utils/preprocessTTS.ts` | Removed `<think>` stripping regexes (content is now guaranteed clean). |
+
+### Rules for Future Agents
+- **`message.content` is ALWAYS clean prose** — no `<think>` tags. Legacy safety strip only.
+- **`message.thinking` is the reasoning trace.** Only render inside `<ThinkingBlock />`. Never in TTS, copy, or DB save.
+- **`aiResp` column in Appwrite is ALWAYS clean prose.** Never write raw LLM output directly; always pass through `parseAiResponse` first.
+- **`searchResult` column** may be a plain array (old rows) OR an Option-A wrapper `{ sources, reasoning }`. Always check both shapes.
+- **TypeScript:** All changes passed `npx tsc --noEmit --skipLibCheck` with 0 errors.
+
+---
+
+# 51. Progressive Response Streaming UI Upgrade (Sept 19, 2026)
+
+## Context
+The LLM response was previously rendered instantly in one sudden block because the underlying provider API (via REST) fetches the entire response synchronously. To align the mobile app's UX with the web version (and standards like ChatGPT/Claude), we implemented a simulated progressive streaming effect locally in the UI.
+
+## What Was Done
+
+1. **Local Typewriter Effect (`ChatBubble.tsx`)**:
+   - Introduced `requestAnimationFrame` to animate the appearance of text for new messages.
+   - If a message is flagged with `isStreaming: true`, it progressively types out `displayedThinking` first, and once complete, it types out `displayedFinal`.
+   - The streaming pulse dot (`●`) now properly hides only *after* the animation is fully complete.
+
+2. **In-Flight Reasoning State (`ChatScreen.tsx` & `ThinkingBlock.tsx`)**:
+   - Replaced the generic "Generating response..." loading text with a more natural "Preparing answer...".
+   - When **Thinking Mode** is active and the network request is pending, we now render a pulsing, un-expandable `<ThinkingBlock>` instead of a generic ActivityIndicator. This provides immediate visual feedback that "Reasoning" is actively taking place before the text even arrives.
+   - `ThinkingBlock` received an `isLoading` prop that triggers a React Native Animated looping sequence (opacity 1.0 -> 0.5) on the header.
+
+## Rules for Future Agents
+- **`isStreaming` Flag**: In `ChatScreen.tsx`, newly generated messages are appended with `isStreaming: true`. This triggers the local animation in `ChatBubble.tsx`. Messages loaded from DB history do not have this flag and will render instantly.
+- **Animation Performance**: We use `requestAnimationFrame` rather than `setInterval` to maintain 60FPS. The slicing math accurately calculates offsets so `MarkdownAnswer` does not receive broken markdown tags during the final-content phase (because it only streams the final content after thinking is fully complete).

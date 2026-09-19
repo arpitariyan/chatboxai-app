@@ -1,8 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { LLMFallbackService } from '../services/llm/LLMFallbackService';
-import { LLMMessage } from '../services/llm/providers';
+import { LLMMessage, LLMContentPart } from '../services/llm/providers';
 import { useModelStore } from '../stores/useModelStore';
 import { chatService, generateUUID } from '../services/chatService';
+import { AIModelsOption, DEEP_RESEARCH_MODELS } from '../config/models';
+import { parseAiResponse } from '../utils/parseAiResponse';
+
+// ── Attachment type exposed from this hook ────────────────────────────────────
+export interface ChatAttachment {
+  uri: string;
+  name: string;
+  mimeType: string;
+  type: 'image' | 'file';
+  /** base64 data URI for images, extracted text content for text files */
+  data?: string;
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +34,7 @@ interface UseChatGenerationOptions {
   currentLibId: string | null;
   userEmail: string;
   userId: string;
+  userPlan?: string;
   onConversationCreated?: (libId: string) => void;
 }
 
@@ -30,11 +43,15 @@ interface UseChatGenerationReturn {
   isThinking: boolean;
   progressMessage: string;
   sourceList: SearchResultItem[];
+  /** Clean final answer (no <think> tags) */
   aiResponse: string;
+  /** Extracted reasoning/thinking trace (may be empty) */
+  aiThinking: string;
   generateResponse: (
     query: string,
     searchType: 'chat' | 'search' | 'research',
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+    attachments?: ChatAttachment[],
   ) => Promise<void>;
   reset: () => void;
 }
@@ -106,6 +123,7 @@ function buildMessages(
   query: string,
   sources: SearchResultItem[],
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  attachments: ChatAttachment[] = [],
 ): LLMMessage[] {
   const messages: LLMMessage[] = [];
 
@@ -131,7 +149,33 @@ function buildMessages(
     messages.push({ role: turn.role, content: turn.content });
   }
 
-  messages.push({ role: 'user', content: query });
+  // Build the final user message — multimodal if there are image attachments
+  const imageAttachments = attachments.filter(a => a.type === 'image' && a.data);
+  const fileAttachments = attachments.filter(a => a.type === 'file' && a.data);
+
+  // Append file text content to the query
+  let fullQuery = query;
+  if (fileAttachments.length > 0) {
+    const fileTexts = fileAttachments
+      .map(f => `[File: ${f.name}]\n${f.data}`)
+      .join('\n\n');
+    fullQuery = `${query}\n\n${fileTexts}`;
+  }
+
+  if (imageAttachments.length > 0) {
+    // Multimodal content array
+    const parts: LLMContentPart[] = [{ type: 'text', text: fullQuery }];
+    for (const img of imageAttachments) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: img.data!, detail: 'auto' },
+      });
+    }
+    messages.push({ role: 'user', content: parts });
+  } else {
+    messages.push({ role: 'user', content: fullQuery });
+  }
+
   return messages;
 }
 
@@ -141,6 +185,7 @@ export const useChatGeneration = ({
   currentLibId,
   userEmail,
   userId,
+  userPlan = 'free',
   onConversationCreated,
 }: UseChatGenerationOptions): UseChatGenerationReturn => {
   const [isSearching, setIsSearching] = useState(false);
@@ -148,6 +193,7 @@ export const useChatGeneration = ({
   const [progressMessage, setProgressMessage] = useState('');
   const [sourceList, setSourceList] = useState<SearchResultItem[]>([]);
   const [aiResponse, setAiResponse] = useState('');
+  const [aiThinking, setAiThinking] = useState('');
 
   // Active libId stored in a ref — reading/writing a ref is synchronous and
   // does NOT trigger re-renders, which is what we want here.
@@ -160,12 +206,16 @@ export const useChatGeneration = ({
     onConversationCreatedRef.current = onConversationCreated;
   });
 
-  const { selectedModel } = useModelStore();
-  // Store selectedModel in a ref for the same reason
+  const { selectedModel, effortLevel, thinkingMode } = useModelStore();
+  // Store selectedModel and effortLevel in refs for stable closures
   const selectedModelRef = useRef(selectedModel);
+  const effortLevelRef = useRef(effortLevel);
+  const thinkingModeRef = useRef(thinkingMode);
   useEffect(() => {
     selectedModelRef.current = selectedModel;
-  }, [selectedModel]);
+    effortLevelRef.current = effortLevel;
+    thinkingModeRef.current = thinkingMode;
+  }, [selectedModel, effortLevel, thinkingMode]);
 
   // Sync activeLibIdRef when parent changes activeLibId (e.g. history navigation)
   useEffect(() => {
@@ -181,6 +231,7 @@ export const useChatGeneration = ({
     setProgressMessage('');
     setSourceList([]);
     setAiResponse('');
+    setAiThinking('');
     isGeneratingRef.current = false;
   }, []);
 
@@ -191,7 +242,8 @@ export const useChatGeneration = ({
     async (
       query: string,
       searchType: 'chat' | 'search' | 'research',
-      history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+      history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+      attachments: ChatAttachment[] = []
     ) => {
       if (!userEmail || !query.trim()) return;
       if (isGeneratingRef.current) {
@@ -251,18 +303,44 @@ export const useChatGeneration = ({
 
       // ── Step 4: LLM Generation ────────────────────────────────────────────
       setIsThinking(true);
-      setProgressMessage('Generating response...');
+      setProgressMessage('Preparing answer...');
 
       const model = selectedModelRef.current;
       let modelId =
         (model as any)?.publicId || (model as any)?.modelApi || 'auto';
 
-      // Bypass LLMFallbackService AUTO_CHAIN to guarantee we use a working Groq model
+      // ── Plan-Aware Auto Model Routing ─────────────────────────────────────
       if (modelId === 'auto') {
-        modelId = 'chatboxai/gpt-oss-20b';
+        const plan = userPlan.toLowerCase();
+        const availableModels = searchType === 'research' ? DEEP_RESEARCH_MODELS : AIModelsOption;
+        
+        // Exclude the 'Auto' model itself from the random pool
+        const pool = availableModels.filter((m: any) => {
+          if (m.modelApi === 'auto' || m.publicId === 'auto') return false;
+          
+          const isModelMax = m.accessTier === 'max';
+          const isModelPro = m.isPro || m.accessTier === 'pro';
+
+          if (plan === 'free') {
+            return !isModelPro && !isModelMax;
+          } else if (plan === 'pro') {
+            return !isModelMax;
+          }
+          // 'max' plan can access everything
+          return true;
+        });
+
+        if (pool.length > 0) {
+          const randomModel: any = pool[Math.floor(Math.random() * pool.length)];
+          modelId = randomModel.publicId || randomModel.modelApi;
+        } else {
+          modelId = 'chatboxai/gpt-oss-20b';
+        }
       }
 
-      const messages = buildMessages(query, sources, history);
+      const messages = buildMessages(query, sources, history, attachments);
+      const currentEffortLevel = effortLevelRef.current;
+      const currentThinkingMode = thinkingModeRef.current;
 
       let responseText = '';
       let llmResult: any = null;
@@ -270,7 +348,9 @@ export const useChatGeneration = ({
       try {
         llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
           max_tokens: searchType === 'research' ? 4096 : 2048,
-          temperature: 0.7,
+          temperature: currentEffortLevel === 'Low' ? 0.7 : currentEffortLevel === 'Medium' ? 0.6 : 0.5,
+          effortLevel: currentEffortLevel,
+          thinkingMode: currentThinkingMode,
         });
         responseText = llmResult?.choices?.[0]?.message?.content || '';
       } catch (llmErr: any) {
@@ -281,15 +361,29 @@ export const useChatGeneration = ({
         return;
       }
 
-      // ── Step 5: Persist to Appwrite ───────────────────────────────────────
+      // ── Step 5: Parse thinking vs final answer ────────────────────────────
+      const { thinking, finalAnswer } = parseAiResponse(responseText);
+
+      // ── Step 6: Persist to Appwrite ───────────────────────────────────────
+      // Only save the CLEAN final answer to aiResp (no <think> pollution).
+      // If there are sources, store them alongside the reasoning in a wrapper
+      // so reasoning is persisted and survives a reload (Option A).
       try {
         const resolvedModel = llmResult?.resolvedModel;
+        let searchResultPayload = '';
+        if (sources.length > 0 || thinking) {
+          // Build a wrapper object: { sources: [...], reasoning: '...' }
+          searchResultPayload = JSON.stringify({
+            sources: sources.length > 0 ? sources : [],
+            ...(thinking ? { reasoning: thinking } : {}),
+          });
+        }
         await chatService.addChatMessage({
           libId: libId!,
           userEmail: normalizedEmail,
           userSearchInput: query,
-          aiResp: responseText,
-          searchResult: sources.length > 0 ? JSON.stringify(sources) : '',
+          aiResp: finalAnswer || responseText, // fallback: save raw if parse failed
+          searchResult: searchResultPayload,
           analysisType: searchType === 'chat' ? 'text_only' : 'web_search',
           usedModel: resolvedModel?.provider || model?.name || '',
           modelApi: resolvedModel?.modelApi || (model as any)?.modelApi || '',
@@ -299,10 +393,10 @@ export const useChatGeneration = ({
         console.warn('[useChatGeneration] addChatMessage failed:', dbErr?.message || dbErr);
       }
 
-      // ── Step 6: Surface result to UI ──────────────────────────────────────
-      // Set aiResponse BEFORE clearing isThinking so the ChatScreen effect
-      // that reads both simultaneously sees the complete final state.
-      setAiResponse(responseText);
+      // ── Step 7: Surface result to UI ──────────────────────────────────────
+      // Set both before clearing isThinking so ChatScreen sees complete state.
+      setAiThinking(thinking);
+      setAiResponse(finalAnswer || responseText);
       setIsThinking(false);
       setProgressMessage('');
       isGeneratingRef.current = false;
@@ -317,6 +411,7 @@ export const useChatGeneration = ({
     progressMessage,
     sourceList,
     aiResponse,
+    aiThinking,
     generateResponse,
     reset,
   };

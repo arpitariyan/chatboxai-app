@@ -9,8 +9,9 @@ import {
   Platform,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { IconCopy, IconCheck, IconExternalLink, IconWorld } from '@tabler/icons-react-native';
+import { IconCopy, IconCheck } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
+import { SvglIcon, getDomainFromUrl } from './SvglIcon';
 
 interface MarkdownAnswerProps {
   content: string;
@@ -140,43 +141,109 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
   );
 };
 
-// ── Markdown Table Component matching the web version ──
+// ── Markdown Table Component — correct border model ──
 const TableBlock: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers, rows }) => {
   const colors = useThemeColors();
+
+  // Determine column count (use headers if present, else max row width)
+  const colCount = Math.max(
+    headers.length,
+    ...rows.map((r) => r.length)
+  );
+
+  // Pad rows that are shorter than colCount
+  const paddedRows = rows.map((row) => {
+    if (row.length >= colCount) return row;
+    return [...row, ...Array(colCount - row.length).fill('')];
+  });
+
+  // Calculate fixed widths for each column to ensure perfect alignment
+  // across all rows. This fixes the broken borders and misaligned columns.
+  const colWidths = Array.from({ length: colCount }).map((_, cIdx) => {
+    let maxLen = headers[cIdx] ? headers[cIdx].length : 0;
+    paddedRows.forEach((row) => {
+      const cell = row[cIdx] || '';
+      if (cell.length > maxLen) maxLen = cell.length;
+    });
+    // approx 8px per char + 26px horizontal padding
+    const estimatedWidth = maxLen * 8 + 30;
+    // clamp between 100px and 280px
+    return Math.max(100, Math.min(280, estimatedWidth));
+  });
+
+  const isLastCol = (i: number) => i === colCount - 1;
+  const isLastRow = (i: number) => i === paddedRows.length - 1;
 
   return (
     <ScrollView
       horizontal
-      showsHorizontalScrollIndicator={true}
+      showsHorizontalScrollIndicator
       style={[styles.tableContainer, { borderColor: colors.line }]}
+      contentContainerStyle={styles.tableScrollContent}
     >
-      <View>
+      <View style={styles.tableInner}>
         {/* Header Row */}
         {headers.length > 0 && (
-          <View style={[styles.tableRow, styles.tableHeaderRow, { backgroundColor: colors.surface, borderBottomColor: colors.line }]}>
+          <View
+            style={[
+              styles.tableRow,
+              {
+                backgroundColor: colors.surface,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.line,
+              },
+            ]}
+          >
             {headers.map((h, i) => (
-              <View key={`th-${i}`} style={[styles.tableCell, { borderRightColor: colors.line }]}>
-                <Text style={[styles.tableHeaderText, { color: colors.ink3 }]}>{h.toUpperCase()}</Text>
+              <View
+                key={`th-${i}`}
+                style={[
+                  styles.tableCell,
+                  { width: colWidths[i] },
+                  !isLastCol(i) && { borderRightWidth: 1, borderRightColor: colors.line },
+                ]}
+              >
+                <Text
+                  style={[styles.tableHeaderText, { color: colors.ink3 }]}
+                  numberOfLines={3}
+                >
+                  {renderInline(h.toUpperCase(), colors)}
+                </Text>
               </View>
             ))}
           </View>
         )}
 
         {/* Data Rows */}
-        {rows.map((row, rIdx) => (
+        {paddedRows.map((row, rIdx) => (
           <View
             key={`tr-${rIdx}`}
             style={[
               styles.tableRow,
               {
-                backgroundColor: rIdx % 2 === 1 ? colors.surface : 'transparent',
+                backgroundColor: rIdx % 2 === 1 ? colors.inset : 'transparent',
+              },
+              !isLastRow(rIdx) && {
+                borderBottomWidth: 1,
                 borderBottomColor: colors.line,
               },
             ]}
           >
             {row.map((cell, cIdx) => (
-              <View key={`td-${rIdx}-${cIdx}`} style={[styles.tableCell, { borderRightColor: colors.line }]}>
-                <Text style={[styles.tableCellText, { color: colors.ink }]}>{cell}</Text>
+              <View
+                key={`td-${rIdx}-${cIdx}`}
+                style={[
+                  styles.tableCell,
+                  { width: colWidths[cIdx] },
+                  !isLastCol(cIdx) && { borderRightWidth: 1, borderRightColor: colors.line },
+                ]}
+              >
+                <Text
+                  style={[styles.tableCellText, { color: colors.ink }]}
+                  selectable
+                >
+                  {renderInline(cell, colors)}
+                </Text>
               </View>
             ))}
           </View>
@@ -193,7 +260,7 @@ interface InlineToken {
   url?: string;
 }
 
-const parseInlineMarkdown = (text: string): InlineToken[] => {
+function parseInlineMarkdown(text: string): InlineToken[] {
   if (!text) return [];
 
   const tokens: InlineToken[] = [];
@@ -250,7 +317,7 @@ const getCleanDomain = (rawUrl: string): string => {
   }
 };
 
-const renderInline = (text: string, colors: any, baseStyle?: any) => {
+function renderInline(text: string, colors: any, baseStyle?: any) {
   const tokens = parseInlineMarkdown(text);
 
   return tokens.map((token, idx) => {
@@ -285,7 +352,7 @@ const renderInline = (text: string, colors: any, baseStyle?: any) => {
           </Text>
         );
       case 'raw_url': {
-        const domain = getCleanDomain(token.url || token.text);
+        const domain = getDomainFromUrl(token.url || token.text);
         return (
           <Text
             key={`u-${idx}`}
@@ -294,15 +361,17 @@ const renderInline = (text: string, colors: any, baseStyle?: any) => {
               baseStyle,
               {
                 color: colors.accent,
-                textDecorationLine: 'underline',
+                textDecorationLine: 'none',
               },
             ]}
           >
-            {domain}
+            {'↗ '}{domain}
           </Text>
         );
       }
-      case 'link':
+      case 'link': {
+        const linkDomain = getDomainFromUrl(token.url || '');
+        const linkLabel = token.text && token.text !== token.url ? token.text : linkDomain;
         return (
           <Text
             key={`l-${idx}`}
@@ -311,13 +380,14 @@ const renderInline = (text: string, colors: any, baseStyle?: any) => {
               baseStyle,
               {
                 color: colors.accent,
-                textDecorationLine: 'underline',
+                textDecorationLine: 'none',
               },
             ]}
           >
-            {token.text}
+            {'↗ '}{linkLabel}
           </Text>
         );
+      }
       default:
         return (
           <Text key={`t-${idx}`} style={baseStyle}>
@@ -552,10 +622,10 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
               block.level === 1
                 ? styles.h1
                 : block.level === 2
-                ? styles.h2
-                : block.level === 3
-                ? styles.h3
-                : styles.h4;
+                  ? styles.h2
+                  : block.level === 3
+                    ? styles.h3
+                    : styles.h4;
 
             return (
               <View
@@ -811,31 +881,40 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   tableContainer: {
+    // outer border — use explicit 1px for reliable Android rendering
     borderWidth: 1,
     borderRadius: radius.md,
     marginVertical: 12,
     overflow: 'hidden',
   },
+  tableScrollContent: {
+    // ensures inner View fills at least the ScrollView width
+    flexGrow: 1,
+  },
+  tableInner: {
+    // flex column — rows stack vertically
+    flexDirection: 'column',
+  },
   tableRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-  },
-  tableHeaderRow: {
-    paddingVertical: 2,
+    // bottom border is applied per-row except the last row (inline style)
+    borderBottomWidth: 0,
   },
   tableCell: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 9,
-    borderRightWidth: 1,
-    minWidth: 100,
+    // borderRight applied per-cell via inline style except last col
+    borderRightWidth: 0,
+    minWidth: 110,
+    maxWidth: 240,
   },
   tableHeaderText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
   },
   tableCellText: {
-    fontSize: 13.5,
+    fontSize: 13,
     lineHeight: 19,
   },
 });

@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  IconMenu2,
+  IconMenu,
   IconEdit,
   IconDotsVertical,
 } from '@tabler/icons-react-native';
@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
             },
           ]}
         >
-          <IconMenu2 size={22} color={colors.ink} strokeWidth={2} />
+          <IconMenu size={22} color={colors.ink} strokeWidth={2} />
         </Pressable>
 
         {/* Right Segmented Pill: [ New Chat | Divider | Options (⋮) ] */}

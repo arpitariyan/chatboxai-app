@@ -1,54 +1,83 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { StyleSheet, Text, View, Pressable, Animated } from 'react-native';
 import { IconBrain, IconChevronDown } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
 
 interface ThinkingBlockProps {
   content: string;
   isFinished?: boolean;
+  isLoading?: boolean;
 }
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   content,
   isFinished = true,
+  isLoading = false,
 }) => {
   const colors = useThemeColors();
   const [isOpen, setIsOpen] = useState(!isFinished);
 
   // Auto-close reasoning trace when answer finishes, matching DisplaySummery.jsx
   useEffect(() => {
-    if (isFinished) {
+    if (isFinished && !isLoading) {
       setIsOpen(false);
     }
-  }, [isFinished]);
+  }, [isFinished, isLoading]);
 
-  if (!content || !content.trim()) return null;
+  // Pulse animation for loading state
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (isLoading) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.5,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isLoading, pulseAnim]);
+
+  if (!isLoading && (!content || !content.trim())) return null;
 
   return (
     <View style={styles.container}>
       {/* Header Toggle Button */}
       <Pressable
-        onPress={() => setIsOpen(!isOpen)}
+        onPress={() => !isLoading && setIsOpen(!isOpen)}
         hitSlop={6}
         style={({ pressed }) => [
           styles.headerButton,
           {
-            backgroundColor: pressed ? colors.surface : 'transparent',
-            opacity: pressed ? 0.8 : 1,
+            backgroundColor: pressed && !isLoading ? colors.surface : 'transparent',
+            opacity: pressed && !isLoading ? 0.8 : 1,
           },
         ]}
       >
-        <IconBrain size={16} color={colors.ink3} />
-        <Text style={[styles.headerTitle, { color: colors.ink2 }]}>
-          {isFinished ? 'Reasoning' : 'Thinking…'}
-        </Text>
-        <View style={{ transform: [{ rotate: isOpen ? '0deg' : '-90deg' }] }}>
-          <IconChevronDown size={15} color={colors.ink3} />
-        </View>
+        <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2, opacity: pulseAnim }}>
+          <IconBrain size={16} color={colors.ink3} />
+          <Text style={[styles.headerTitle, { color: colors.ink2 }]}>
+            {isLoading ? 'Preparing reasoning...' : isFinished ? 'Reasoning' : 'Thinking…'}
+          </Text>
+          {!isLoading && (
+            <View style={{ transform: [{ rotate: isOpen ? '0deg' : '-90deg' }] }}>
+              <IconChevronDown size={15} color={colors.ink3} />
+            </View>
+          )}
+        </Animated.View>
       </Pressable>
 
       {/* Expandable Reasoning Body */}
-      {isOpen && (
+      {isOpen && !isLoading && (
         <View style={styles.bodyWrapper}>
           <View style={[styles.indicatorRail, { backgroundColor: colors.lineStrong }]} />
           <View style={styles.contentContainer}>

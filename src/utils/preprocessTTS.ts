@@ -25,8 +25,6 @@ export function stripMarkdownAndMarkup(text: string): string {
   if (!text) return '';
 
   return text
-    // Remove think blocks completely <think>...</think>
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
     // Remove fenced code blocks ```...```
     .replace(/```[\s\S]*?```/g, '')
     // Remove inline code `...`

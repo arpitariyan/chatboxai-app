@@ -7,6 +7,8 @@ import {
   Pressable,
   Keyboard,
   Platform,
+  ScrollView,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -17,23 +19,29 @@ import {
   IconPhone,
   IconWorldSearch,
   IconFlask,
+  IconX,
+  IconFile,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '@/stores/useModelStore';
+import { ChatAttachment } from '@/hooks/useChatGeneration';
 
 interface ComposerProps {
   /** Optional external value — only used for externally-driven clears (e.g. after send).
    *  Do NOT use this to drive every keystroke — that is what caused the 1-char bug.
    *  Leave undefined for fully uncontrolled local state (preferred). */
   externalValue?: string;
-  onSend: (text: string, searchType: 'chat' | 'search' | 'research') => void;
+  onSend: (text: string, searchType: 'chat' | 'search' | 'research', attachments?: ChatAttachment[]) => void;
   onStop?: () => void;
   onOpenAttachments?: () => void;
   onOpenVoice?: () => void;
   onFocus?: () => void;
   isGenerating?: boolean;
   disabled?: boolean;
+  // Attachments are managed externally (from AttachmentSheet)
+  pendingAttachments?: ChatAttachment[];
+  onClearAttachment?: (uri: string) => void;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
@@ -45,6 +53,8 @@ export const Composer: React.FC<ComposerProps> = ({
   onFocus,
   isGenerating = false,
   disabled = false,
+  pendingAttachments = [],
+  onClearAttachment,
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -54,6 +64,7 @@ export const Composer: React.FC<ComposerProps> = ({
   const inputRef = useRef<TextInput>(null);
 
   const hasText = localText.trim().length > 0;
+  const hasContent = hasText || pendingAttachments.length > 0;
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(true);
   const [researchEnabled, setResearchEnabled] = useState(false);
@@ -62,8 +73,8 @@ export const Composer: React.FC<ComposerProps> = ({
   const currentSearchType: 'chat' | 'search' | 'research' = researchEnabled
     ? 'research'
     : searchEnabled
-    ? 'search'
-    : 'chat';
+      ? 'search'
+      : 'chat';
 
   // Sync when parent explicitly clears the field (e.g. externalValue === '')
   useEffect(() => {
@@ -89,11 +100,11 @@ export const Composer: React.FC<ComposerProps> = ({
 
   const handleSend = useCallback(() => {
     const trimmed = localText.trim();
-    if (!trimmed || isGenerating || disabled) return;
-    onSend(trimmed, currentSearchType);
+    if ((!trimmed && pendingAttachments.length === 0) || isGenerating || disabled) return;
+    onSend(trimmed, currentSearchType, pendingAttachments.length > 0 ? pendingAttachments : undefined);
     // Clear local text immediately after send
     setLocalText('');
-  }, [localText, isGenerating, disabled, onSend, currentSearchType]);
+  }, [localText, isGenerating, disabled, onSend, currentSearchType, pendingAttachments]);
 
   return (
     <View
@@ -108,7 +119,9 @@ export const Composer: React.FC<ComposerProps> = ({
       ]}
     >
       <View style={styles.topControls}>
-        <ModelSelector isResearch={researchEnabled} />
+        <View style={styles.modelSelectorWrapper}>
+          <ModelSelector isResearch={researchEnabled} />
+        </View>
         <View style={styles.toggles}>
           <Pressable
             style={[styles.toggleBtn, searchEnabled && !researchEnabled && styles.toggleBtnActive]}
@@ -135,6 +148,44 @@ export const Composer: React.FC<ComposerProps> = ({
         </View>
       </View>
 
+      {/* ── Attachment chips preview ── */}
+      {pendingAttachments.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.attachmentStrip}
+          contentContainerStyle={styles.attachmentStripContent}
+        >
+          {pendingAttachments.map((att) => (
+            <View key={att.uri} style={styles.attachmentChip}>
+              {att.type === 'image' && att.data ? (
+                <Image
+                  source={{ uri: att.data }}
+                  style={styles.attachmentThumb}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.attachmentFileIcon}>
+                  <IconFile size={16} color="#8e8e93" />
+                </View>
+              )}
+              <Text style={styles.attachmentName} numberOfLines={1}>
+                {att.name.length > 16 ? `${att.name.slice(0, 13)}...` : att.name}
+              </Text>
+              {onClearAttachment && (
+                <Pressable
+                  onPress={() => onClearAttachment(att.uri)}
+                  hitSlop={6}
+                  style={styles.attachmentRemoveBtn}
+                >
+                  <IconX size={12} color="#8e8e93" />
+                </Pressable>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
       <View style={styles.composerBar}>
         {/* Left: Attachment Trigger (+) */}
         <Pressable
@@ -156,7 +207,7 @@ export const Composer: React.FC<ComposerProps> = ({
           value={localText}
           onChangeText={setLocalText}
           onFocus={onFocus}
-          placeholder="Ask ChatBox AI..."
+          placeholder={pendingAttachments.length > 0 ? 'Add a message...' : 'Ask ChatBox AI...'}
           placeholderTextColor="#8e8e93"
           editable={!disabled && !isGenerating}
           multiline
@@ -176,7 +227,7 @@ export const Composer: React.FC<ComposerProps> = ({
           >
             <IconSquare size={16} color="#ffffff" fill="#ffffff" />
           </Pressable>
-        ) : hasText ? (
+        ) : hasContent ? (
           <Pressable
             disabled={disabled}
             onPress={handleSend}
@@ -239,8 +290,20 @@ const styles = StyleSheet.create({
   topControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end', // Toggles on the right
     paddingHorizontal: 4,
+    minHeight: 38,
+    position: 'relative',
+    marginBottom: spacing.xs,
+    zIndex: 10,
+  },
+  modelSelectorWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'box-none',
   },
   toggles: {
     flexDirection: 'row',
@@ -270,6 +333,55 @@ const styles = StyleSheet.create({
   toggleTextActive: {
     color: '#3b82f6',
   },
+  // ── Attachment strip ──────────────────────────────────────────────────────
+  attachmentStrip: {
+    maxHeight: 68,
+  },
+  attachmentStripContent: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingHorizontal: 2,
+    paddingBottom: spacing.xs,
+  },
+  attachmentChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 6,
+    gap: 6,
+    maxWidth: 160,
+  },
+  attachmentThumb: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+  },
+  attachmentFileIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    backgroundColor: '#2c2c2e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentName: {
+    flex: 1,
+    color: '#e4e4e7',
+    fontSize: typography.fontSize.xs,
+  },
+  attachmentRemoveBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#3a3a3c',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ── Composer bar ──────────────────────────────────────────────────────────
   composerBar: {
     minHeight: 52,
     maxHeight: 120,

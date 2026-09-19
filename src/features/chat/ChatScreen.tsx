@@ -21,14 +21,15 @@ import {
 } from 'react-native';
 import { IconArrowDown } from '@tabler/icons-react-native';
 import { ChatBubble, MessageItem } from '@/components/chat/ChatBubble';
+import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
 import { Composer } from '@/components/chat/Composer';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
-import { AttachmentSheet } from '@/components/chat/AttachmentSheet';
+import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, typography } from '@/theme';
 import { chatService } from '@/services/chatService';
-import { useChatGeneration } from '@/hooks/useChatGeneration';
+import { useChatGeneration, ChatAttachment } from '@/hooks/useChatGeneration';
 import { useModelStore } from '@/stores/useModelStore';
 
 // ── Hoist this out of the component so it is created exactly ONCE ──────────
@@ -63,6 +64,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
 
   // ── Scroll-down FAB — use a ref for the bool so handleScroll is stable ──
   const showScrollDownRef = useRef(false);
@@ -95,22 +97,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     progressMessage,
     sourceList,
     aiResponse,
+    aiThinking,
     generateResponse,
     reset: resetGeneration,
   } = useChatGeneration({
     currentLibId: currentLibIdState,
     userEmail,
     userId,
+    userPlan: userProfile?.plan || 'free',
     onConversationCreated: handleConversationCreatedStable,
   });
 
-  // ── Track latest aiResponse in a ref so the effect closure is stable ──────
+  // ── Track latest aiResponse and aiThinking in refs (stable closure) ────────
   const aiResponseRef = useRef('');
+  const aiThinkingRef = useRef('');
   const sourceListRef = useRef(sourceList);
   useEffect(() => {
     aiResponseRef.current = aiResponse;
+    aiThinkingRef.current = aiThinking;
     sourceListRef.current = sourceList;
-  }, [aiResponse, sourceList]);
+  }, [aiResponse, aiThinking, sourceList]);
 
   // ── Reset when user account changes ──────────────────────────────────────
   useEffect(() => {
@@ -175,10 +181,22 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             }
 
             if (rec.aiResp) {
+              // Unpack the searchResult field — it may be a plain array of sources
+              // or an Option-A wrapper object { sources: [...], reasoning: '...' }
               let parsedSources: any[] | undefined;
+              let persistedReasoning: string | undefined;
               if (rec.searchResult) {
                 try {
-                  parsedSources = JSON.parse(rec.searchResult as string);
+                  const raw = JSON.parse(rec.searchResult as string);
+                  if (Array.isArray(raw)) {
+                    parsedSources = raw;
+                  } else if (raw && typeof raw === 'object') {
+                    // Option A wrapper
+                    parsedSources = Array.isArray(raw.sources) ? raw.sources : undefined;
+                    persistedReasoning = typeof raw.reasoning === 'string' && raw.reasoning
+                      ? raw.reasoning
+                      : undefined;
+                  }
                 } catch {
                   parsedSources = undefined;
                 }
@@ -193,6 +211,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                     aiMsg.versions = [{
                       id: aiMsg.id,
                       content: aiMsg.content,
+                      thinking: aiMsg.thinking,
                       searchResult: aiMsg.searchResult,
                       modelName: aiMsg.modelName,
                       liked: aiMsg.liked,
@@ -202,6 +221,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   aiMsg.versions.push({
                     id: `${rec.id}-ai`,
                     content: rec.aiResp,
+                    thinking: persistedReasoning,
                     searchResult: parsedSources,
                     modelName: selectedModel?.name || 'ChatBox AI',
                     liked: rec.liked,
@@ -210,6 +230,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   
                   aiMsg.currentVersionIndex = aiMsg.versions.length - 1;
                   aiMsg.content = rec.aiResp;
+                  aiMsg.thinking = persistedReasoning;
                   aiMsg.searchResult = parsedSources;
                   aiMsg.modelName = selectedModel?.name || 'ChatBox AI';
                   aiMsg.liked = rec.liked;
@@ -221,6 +242,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   id: `${rec.id}-ai`,
                   role: 'assistant',
                   content: rec.aiResp,
+                  thinking: persistedReasoning,
                   timestamp: formattedTime,
                   searchResult: parsedSources,
                   modelName: selectedModel?.name || 'ChatBox AI',
@@ -229,6 +251,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 });
               }
             }
+
           }
         }
 
@@ -262,15 +285,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   useEffect(() => {
     if (!isThinking && aiResponse) {
       const currentSources = sourceListRef.current;
+      const currentThinking = aiThinkingRef.current;
       const assistantMessage: MessageItem = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
         content: aiResponse,
+        thinking: currentThinking || undefined,
         timestamp: new Date().toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
         }),
-        isStreaming: false,
+        isStreaming: true, // Trigger local typewriter animation in ChatBubble
         modelName: selectedModel?.name || 'Auto',
         searchResult: currentSources.length > 0 ? currentSources : undefined,
       };
@@ -286,6 +311,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               target.versions = [{
                 id: target.id,
                 content: target.content,
+                thinking: target.thinking,
                 searchResult: target.searchResult,
                 modelName: target.modelName,
                 liked: target.liked,
@@ -295,6 +321,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             target.versions.push({
               id: assistantMessage.id,
               content: assistantMessage.content,
+              thinking: assistantMessage.thinking,
               searchResult: assistantMessage.searchResult,
               modelName: assistantMessage.modelName,
               liked: assistantMessage.liked,
@@ -304,6 +331,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             // DO NOT OVERWRITE target.id HERE! Overwriting it destroys the React key
             // and forces the ChatBubble to unmount and remount, which loses state.
             target.content = assistantMessage.content;
+            target.thinking = assistantMessage.thinking;
             target.searchResult = assistantMessage.searchResult;
             target.modelName = assistantMessage.modelName;
             target.liked = assistantMessage.liked;
@@ -385,20 +413,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     async (
       text: string, 
       searchType: 'chat' | 'search' | 'research' = 'chat',
+      attachments?: ChatAttachment[],
       historyOverride?: Array<{ role: 'user' | 'assistant'; content: string }>
     ) => {
       const messageContent = text.trim();
-      if (!messageContent || isThinking || isSearching) return;
+      if ((!messageContent && (!attachments || attachments.length === 0)) || isThinking || isSearching) return;
 
       if (!currentUser?.email) {
         console.warn('[ChatScreen] Cannot send: not logged in');
         return;
       }
 
+      // Build display content for the user bubble
+      const displayContent = messageContent || (attachments && attachments.length > 0
+        ? `[${attachments.map(a => a.name).join(', ')}]`
+        : '');
+
       const userMessage: MessageItem = {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: messageContent,
+        content: displayContent,
         timestamp: new Date().toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
@@ -407,6 +441,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
       setMessages((prev) => [...prev, userMessage]);
       isNearBottomRef.current = true;
+      // Clear pending attachments after sending
+      setPendingAttachments([]);
 
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -420,7 +456,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           content: m.content,
         }));
 
-      await generateResponse(messageContent, searchType, history);
+      await generateResponse(messageContent || ' ', searchType, history, attachments);
     },
     [isThinking, isSearching, currentUser?.email, generateResponse, messages],
   );
@@ -509,6 +545,18 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleCloseAttachments = useCallback(() => setIsAttachmentOpen(false), []);
   const handleCloseVoice = useCallback(() => setIsVoiceOpen(false), []);
 
+  const handleAttachmentsSelected = useCallback((newAttachments: ChatAttachment[]) => {
+    setPendingAttachments(prev => {
+      const existingUris = new Set(prev.map(a => a.uri));
+      const fresh = newAttachments.filter(a => !existingUris.has(a.uri));
+      return [...prev, ...fresh];
+    });
+  }, []);
+
+  const handleClearAttachment = useCallback((uri: string) => {
+    setPendingAttachments(prev => prev.filter(a => a.uri !== uri));
+  }, []);
+
   const isGenerating = isSearching || isThinking;
 
   return (
@@ -540,16 +588,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           currentUser={currentUser}
           userProfile={userProfile}
           colors={colors}
+          pendingAttachments={pendingAttachments}
+          onClearAttachment={handleClearAttachment}
         />
       </KeyboardWrapper>
 
       {/* Sheets (outside keyboard wrapper to avoid layout issues) */}
-      <AttachmentSheet
+      <AddMenuSheet
         visible={isAttachmentOpen}
         onClose={handleCloseAttachments}
-        onSelectOption={(type) => {
-          console.log('Attachment type selected:', type);
-        }}
+        onAttachmentsSelected={handleAttachmentsSelected}
       />
       <VoiceOverlay visible={isVoiceOpen} onClose={handleCloseVoice} />
     </View>
@@ -641,7 +689,7 @@ interface ContentProps {
   scrollViewRef: React.RefObject<ScrollView | null>;
   isNearBottomRef: React.MutableRefObject<boolean>;
   handleScroll: (e: any) => void;
-  handleSendMessage: (text: string, type: 'chat' | 'search' | 'research') => void;
+  handleSendMessage: (text: string, type: 'chat' | 'search' | 'research', attachments?: ChatAttachment[]) => void;
   handleRegenerate: (id: string) => void;
   handleFeedback: (id: string, field: 'liked' | 'disliked', value: boolean) => void;
   handleVersionChange: (id: string, direction: 'prev' | 'next') => void;
@@ -653,6 +701,8 @@ interface ContentProps {
   currentUser: any;
   userProfile: any;
   colors: any;
+  pendingAttachments: ChatAttachment[];
+  onClearAttachment: (uri: string) => void;
 }
 
 const ConversationContent: React.FC<ContentProps> = ({
@@ -678,7 +728,10 @@ const ConversationContent: React.FC<ContentProps> = ({
   currentUser,
   userProfile,
   colors,
+  pendingAttachments,
+  onClearAttachment,
 }) => {
+  const { thinkingMode } = useModelStore();
   const isEmptyChat = !isLoadingHistory && messages.length === 0;
 
   return (
@@ -740,10 +793,18 @@ const ConversationContent: React.FC<ContentProps> = ({
             ))}
             {(isSearching || isThinking) && (
               <View style={styles.thinkingContainer}>
-                <ActivityIndicator size="small" color={colors.accent} />
-                <Text style={[styles.thinkingText, { color: colors.ink2 }]}>
-                  {progressMessage || 'Thinking...'}
-                </Text>
+                {(isThinking && thinkingMode) ? (
+                  // Show Reasoning style loader if thinking mode is active
+                  <ThinkingBlock content="" isFinished={false} isLoading={true} />
+                ) : (
+                  // Standard loader for web search or normal generation
+                  <>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                    <Text style={[styles.thinkingText, { color: colors.ink2 }]}>
+                      {progressMessage || 'Thinking...'}
+                    </Text>
+                  </>
+                )}
               </View>
             )}
           </View>
@@ -764,7 +825,7 @@ const ConversationContent: React.FC<ContentProps> = ({
                 }),
               },
             ],
-            pointerEvents: showScrollDown ? 'auto' : 'none',
+            pointerEvents: showScrollDown ? 'box-none' : 'none',
           },
         ]}
       >
@@ -772,9 +833,9 @@ const ConversationContent: React.FC<ContentProps> = ({
           style={({ pressed }) => [
             styles.scrollDownButton,
             {
-              backgroundColor: colors.inset,
-              borderColor: colors.line,
-              transform: [{ scale: pressed ? 0.94 : 1 }],
+              backgroundColor: 'rgba(28, 28, 30, 0.85)',
+              borderColor: 'rgba(255, 255, 255, 0.15)',
+              transform: [{ scale: pressed ? 0.92 : 1 }],
             },
           ]}
           onPress={() => {
@@ -782,7 +843,7 @@ const ConversationContent: React.FC<ContentProps> = ({
             isNearBottomRef.current = true;
           }}
         >
-          <IconArrowDown size={20} color={colors.ink} strokeWidth={2} />
+          <IconArrowDown size={18} color="#e4e4e7" strokeWidth={2.5} />
         </Pressable>
       </Animated.View>
 
@@ -794,6 +855,8 @@ const ConversationContent: React.FC<ContentProps> = ({
         onOpenVoice={handleOpenVoice}
         onFocus={handleComposerFocus}
         isGenerating={isGenerating}
+        pendingAttachments={pendingAttachments}
+        onClearAttachment={onClearAttachment}
       />
     </View>
   );
@@ -859,21 +922,23 @@ const styles = StyleSheet.create({
   },
   scrollDownWrapper: {
     position: 'absolute',
-    bottom: 100,
-    right: 20,
+    bottom: 120,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
     zIndex: 20,
   },
   scrollDownButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });

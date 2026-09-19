@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { StyleSheet, Text, View, Pressable, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import {
@@ -16,6 +16,7 @@ import { preprocessTextForTTS } from '@/utils/preprocessTTS';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownAnswer } from './MarkdownAnswer';
+import { TextSelectionSheet } from './TextSelectionSheet';
 import { SourceChips } from './SourceChips';
 import { ImagePreviewList } from './ImagePreviewList';
 
@@ -23,6 +24,7 @@ export interface MessageItem {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   timestamp?: string;
   isStreaming?: boolean;
   searchResult?: any;
@@ -32,6 +34,7 @@ export interface MessageItem {
   versions?: {
     id: string;
     content: string;
+    thinking?: string;
     searchResult?: any;
     modelName?: string;
     liked?: boolean | string;
@@ -58,12 +61,58 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   const colors = useThemeColors();
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showTextSelection, setShowTextSelection] = useState(false);
+
+  // Animation state (replicates DisplaySummery.jsx typewriter effect)
+  const [shouldAnimate, setShouldAnimate] = useState(() => message.isStreaming === true);
+  const [displayedContent, setDisplayedContent] = useState(() => 
+    message.isStreaming ? '' : message.content
+  );
+
+  useEffect(() => {
+    if (!message.isStreaming) {
+      setShouldAnimate(false);
+      setDisplayedContent(message.content);
+      return;
+    }
+
+    setShouldAnimate(true);
+    let currentLength = displayedContent.length;
+    const targetText = message.content;
+    let animationFrameId: number;
+    let lastUpdateTime = Date.now();
+
+    const updateText = () => {
+      const now = Date.now();
+      if (now - lastUpdateTime >= 16) {
+        if (currentLength < targetText.length) {
+          const charsToAdd = Math.max(1, Math.floor((targetText.length - currentLength) / 5));
+          currentLength = Math.min(targetText.length, currentLength + charsToAdd);
+          setDisplayedContent(targetText.substring(0, currentLength));
+          lastUpdateTime = now;
+        }
+      }
+      
+      if (currentLength < targetText.length) {
+        animationFrameId = requestAnimationFrame(updateText);
+      } else if (!message.isStreaming) {
+         setShouldAnimate(false);
+      } else {
+         animationFrameId = requestAnimationFrame(updateText);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(updateText);
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [message.content, message.isStreaming]);
 
   const isLiked = message.liked === true || message.liked === 'true';
   const isDisliked = message.disliked === true || message.disliked === 'true';
 
   // Extract thinking / reasoning block from <think>...</think>
   const thinkingContent = useMemo(() => {
+    if (message.thinking) return message.thinking.trim();
     if (!message.content || message.role !== 'assistant') return '';
     const match = message.content.match(/<think>([\s\S]*?)<\/think>/i);
     if (match) return match[1].trim();
@@ -71,13 +120,21 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     const openMatch = message.content.match(/<think>([\s\S]*)$/i);
     if (openMatch) return openMatch[1].trim();
     return '';
-  }, [message.content, message.role]);
+  }, [message.content, message.role, message.thinking]);
+
+  // Clean the content for copying and text selection
+  const fullFinalContent = useMemo(() => {
+    return message.content
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<think>[\s\S]*$/gi, '')
+      .trim();
+  }, [message.content]);
 
   const handleCopy = async () => {
     try {
-      await Clipboard.setStringAsync(message.content);
+      await Clipboard.setStringAsync(fullFinalContent);
       setCopied(true);
-      onCopy?.(message.content);
+      onCopy?.(fullFinalContent);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.warn('Failed to copy message:', err);
@@ -131,7 +188,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     return (
       <View style={styles.userWrapper}>
         <Pressable
-          onLongPress={handleCopy}
+          onLongPress={() => setShowTextSelection(true)}
           style={({ pressed }) => [
             styles.userCapsule,
             {
@@ -145,46 +202,56 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
             {message.content}
           </Text>
         </Pressable>
+        <TextSelectionSheet 
+          visible={showTextSelection} 
+          onClose={() => setShowTextSelection(false)} 
+          content={message.content} 
+        />
       </View>
     );
   }
 
   // ── Assistant Response (Full Width Document Layout matching DisplayResult.jsx & DisplaySummery.jsx) ──
   return (
-    <View style={styles.assistantWrapper}>
-      {/* Assistant Document Content */}
-      <View style={styles.assistantContent}>
-        {/* 1. Collapsible Thinking / Reasoning Block (matching ThinkingBlock in DisplaySummery.jsx) */}
-        {thinkingContent.length > 0 && (
-          <ThinkingBlock
-            content={thinkingContent}
-            isFinished={!message.isStreaming}
-          />
-        )}
+    <>
+      <View style={styles.assistantWrapper}>
+        {/* Assistant Document Content */}
+        <Pressable 
+          style={styles.assistantContent}
+          onLongPress={() => setShowTextSelection(true)}
+          delayLongPress={400}
+        >
+          {/* 1. Collapsible Thinking / Reasoning Block (matching ThinkingBlock in DisplaySummery.jsx) */}
+          {thinkingContent.length > 0 && (
+            <ThinkingBlock
+              content={thinkingContent}
+              isFinished={!message.isStreaming}
+            />
+          )}
 
-        {/* 2. Rich Markdown Formatted Answer */}
-        <MarkdownAnswer content={message.content} />
+          {/* 2. Rich Markdown Formatted Answer */}
+          <MarkdownAnswer content={displayedContent} />
 
-        {/* 3. Streaming Pulse Dot */}
-        {message.isStreaming && (
-          <View style={styles.streamingIndicator}>
-            <Text style={[styles.streamingDot, { color: colors.accent }]}>●</Text>
-          </View>
-        )}
+          {/* 3. Streaming Pulse Dot */}
+          {message.isStreaming && (
+            <View style={styles.streamingIndicator}>
+              <Text style={[styles.streamingDot, { color: colors.accent }]}>●</Text>
+            </View>
+          )}
 
-        {/* 4. Web Sources / Citations (matching sourceList.jsx) */}
-        {message.searchResult && (
-          <SourceChips searchResult={message.searchResult} />
-        )}
+          {/* 4. Web Sources / Citations (matching sourceList.jsx) */}
+          {message.searchResult && (
+            <SourceChips searchResult={message.searchResult} />
+          )}
 
-        {/* 5. Images / Media Previews (matching ImageList.jsx) */}
-        {message.searchResult && (
-          <ImagePreviewList searchResult={message.searchResult} />
-        )}
-      </View>
+          {/* 5. Images / Media Previews (matching ImageList.jsx) */}
+          {message.searchResult && (
+            <ImagePreviewList searchResult={message.searchResult} />
+          )}
+        </Pressable>
 
       {/* Action Toolbar matching DisplayResult.jsx bottom bar */}
-      {!message.isStreaming && (
+      {!shouldAnimate && (
         <View style={styles.actionRow}>
           {/* Copy Button */}
           <Pressable
@@ -278,23 +345,23 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 hitSlop={8}
                 style={({ pressed }) => [
                   styles.actionBtn,
-                  { opacity: pressed || (message.currentVersionIndex || 0) === 0 ? 0.4 : 1 }
+                  { opacity: pressed || (message.currentVersionIndex || 0) === 0 ? 0.4 : 1 },
                 ]}
               >
                 <IconChevronLeft size={16} color={colors.ink3} />
               </Pressable>
               
               <Text style={{ color: colors.ink3, fontSize: 13 }}>
-                {(message.currentVersionIndex || 0) + 1}/{message.versions?.length}
+                {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
               </Text>
               
               <Pressable
                 onPress={() => onVersionChange?.(message.id, 'next')}
-                disabled={(message.currentVersionIndex || 0) === (message.versions?.length || 0) - 1}
+                disabled={(message.currentVersionIndex || 0) === message.versions.length - 1}
                 hitSlop={8}
                 style={({ pressed }) => [
                   styles.actionBtn,
-                  { opacity: pressed || (message.currentVersionIndex || 0) === (message.versions?.length || 0) - 1 ? 0.4 : 1 }
+                  { opacity: pressed || (message.currentVersionIndex || 0) === (message.versions?.length || 0) - 1 ? 0.4 : 1 },
                 ]}
               >
                 <IconChevronRight size={16} color={colors.ink3} />
@@ -304,6 +371,13 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         </View>
       )}
     </View>
+      
+      <TextSelectionSheet 
+        visible={showTextSelection} 
+        onClose={() => setShowTextSelection(false)} 
+        content={fullFinalContent} 
+      />
+    </>
   );
 };
 

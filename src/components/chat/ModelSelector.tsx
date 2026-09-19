@@ -29,10 +29,10 @@ const MODEL_LOGOS: Record<string, any> = {
 
 const getModelLogo = (model: UIModel) => {
   if (model.modelApi === 'auto') return MODEL_LOGOS['auto'];
-  
+
   const provider = model.provider?.toLowerCase() || 'default';
   if (MODEL_LOGOS[provider]) return MODEL_LOGOS[provider];
-  
+
   const name = model.name.toLowerCase();
   if (name.includes('gpt')) return MODEL_LOGOS['openai'];
   if (name.includes('claude')) return MODEL_LOGOS['anthropic'];
@@ -40,7 +40,7 @@ const getModelLogo = (model: UIModel) => {
   if (name.includes('llama')) return MODEL_LOGOS['meta'];
   if (name.includes('mistral')) return MODEL_LOGOS['mistral'];
   if (name.includes('qwen')) return MODEL_LOGOS['qwen'];
-  
+
   return MODEL_LOGOS['default'];
 };
 
