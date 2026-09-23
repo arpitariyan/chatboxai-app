@@ -137,8 +137,14 @@ export function startServer() {
   return server;
 }
 
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.VERCEL_ENV ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
 // Auto-start if run directly (and not inside Vercel Serverless)
-if (!process.env.VERCEL && (require.main === module || !process.env.JEST_WORKER_ID)) {
+if (!isServerless && (require.main === module || !process.env.JEST_WORKER_ID)) {
   startServer();
 }
 

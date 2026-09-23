@@ -1479,3 +1479,41 @@ This occurred because `NativeModules.SourceCode.scriptURL` was not yet populated
 - **Development & Production Parity**: Always use `resolveBackendBaseUrl()` from `@/config/mobileApi` instead of hardcoding localhost or IP addresses.
 - **Request Interceptor BaseURL**: Keep `config.baseURL = resolveBackendBaseUrl()` in `apiClient`'s request interceptor so any runtime environment changes apply to subsequent requests.
 
+---
+
+# 59. Vercel Serverless 500 FUNCTION_INVOCATION_FAILED Resolution (Sept 23, 2026)
+
+## Context
+When requesting `https://api-mobile.chatboxai.co.in/api/mobile/health`, Vercel responded with:
+`500 FUNCTION_INVOCATION_FAILED` (Request ID: `bom1::vnlb9-1790172279775-839e7b9e1d3c`).
+
+## Root Cause
+1. **Missing Identifier / ESM Require Incompatibility (`src/server/lib/validation.ts`)**:
+   - `validation.ts` called `fileTypeFromBuffer(buffer)` without an import, causing a TypeScript compilation error (`Cannot find name 'fileTypeFromBuffer'`).
+   - Furthermore, `file-type` v22 is pure ESM (`"type": "module"`). In Vercel's Node CommonJS serverless function runtime, importing it causes `ERR_REQUIRE_ESM`, crashing the serverless container before any route handler can run.
+2. **Invalid Rewrite Destination (`vercel.json`)**:
+   - `vercel.json` rewrote requests to `"destination": "/api/index.ts"`. In Vercel, rewrites must target the function pathname (`"/api"`), not the physical file path with `.ts` extension.
+3. **Serverless Auto-Start Guard (`src/server/index.ts`)**:
+   - `startServer()` guard was strengthened to check `isServerless` (`process.env.VERCEL`, `process.env.VERCEL_ENV`, `process.env.AWS_LAMBDA_FUNCTION_NAME`) so that `app.listen()` is never called in serverless execution environments.
+4. **Vercel Handler Wrapping (`api/index.ts`)**:
+   - Ensured an explicit function export: `export default function handler(req: any, res: any) { return (app as any)(req, res); }`.
+
+## What Was Done
+1. **Zero-Dependency Magic Bytes Detection (`src/server/lib/validation.ts`)**:
+   - Implemented `detectMagicBytes(buffer: Buffer)` directly using standard binary headers (JPEG `FF D8 FF`, PNG `89 50 4E 47`, GIF `GIF8`, WebP/WAV/AVI `RIFF`, PDF `%PDF`, BMP `BM`, MP4/MOV `ftyp`, MP3 `ID3`, OGG `OggS`, FLAC `fLaC`, WebM `EBML`, ZIP/DOCX `PK`).
+   - Completely eliminated the ESM dependency on `file-type`.
+2. **Corrected Vercel Routing (`vercel.json`)**:
+   - Updated destination to `"destination": "/api"`.
+3. **Explicit Serverless Handler (`api/index.ts`)**:
+   - Wrapped Express in `export default function handler(req, res)`.
+4. **Zero-Port Serverless Guard (`src/server/index.ts`)**:
+   - Checked `isServerless` to ensure `app.listen()` is only called in standalone local CLI mode (`npx tsx src/server/index.ts`).
+
+## Verification
+- `npx tsc --noEmit` executed with 0 errors.
+- Simulated Vercel serverless request test executed:
+  - `GET /` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api' }`)
+  - `GET /api/mobile/health` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api', version: '1.0.0' }`)
+  - `GET /api/mobile/file` -> 401 Unauthorized (proper auth validation)
+
+
