@@ -66,6 +66,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// ── Root Endpoint ────────────────────────────────────────────────────────────
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    ok: true,
+    service: 'chatboxai-mobile-api',
+    status: 'online',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/mobile/health',
+      upload: '/api/mobile/upload',
+      file: '/api/mobile/file',
+      analyze: '/api/mobile/analyze',
+    },
+  });
+});
+
 // ── Mount Mobile API Routes ──────────────────────────────────────────────────
 app.use('/api/mobile', healthRouter);
 app.use('/api/mobile', uploadRouter);
