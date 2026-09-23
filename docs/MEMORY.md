@@ -1516,4 +1516,32 @@ When requesting `https://api-mobile.chatboxai.co.in/api/mobile/health`, Vercel r
   - `GET /api/mobile/health` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api', version: '1.0.0' }`)
   - `GET /api/mobile/file` -> 401 Unauthorized (proper auth validation)
 
+---
+
+# 60. Dedicated Vercel Node TypeScript Config, .vercelignore & Safe Diagnostic Loader (Sept 23, 2026)
+
+## Context
+Even after fixing `file-type` in `validation.ts`, Vercel continued returning `500 FUNCTION_INVOCATION_FAILED` on all routes including `GET /`.
+
+## Root Cause
+1. **Root `tsconfig.json` Expo Conflict**:
+   - The root `tsconfig.json` extends `expo/tsconfig.base.json`, which specifies `"module": "preserve"` and `"customConditions": ["react-native"]`.
+   - Vercel's Node Serverless builder read the root `tsconfig.json`, compiling `api/index.ts` with `"module": "preserve"`. Node.js inside the Vercel Linux container cannot execute preserved ES imports in a CommonJS package, crashing with `SyntaxError: Cannot use import statement outside a module`.
+2. **Missing `.vercelignore`**:
+   - Without `.vercelignore`, Vercel included the entire `android/`, `ios/`, and `chatboxai_website_copy/` directories in the deployment context, risking file size limits and slow tracing.
+3. **Silent Crash at Top-Level Import**:
+   - If an error occurred during `import ... from '../src/server/index'`, it threw outside any request handler, triggering a generic Vercel 500 error page with no readable error payload.
+
+## What Was Done
+1. **Created `api/tsconfig.json`**:
+   - Defined dedicated Node-compatible TypeScript configuration (`"module": "CommonJS"`, `"target": "ES2022"`, `"moduleResolution": "node"`, `"esModuleInterop": true`, `"skipLibCheck": true`). Vercel automatically uses this for all files in `api/`.
+2. **Created `.vercelignore`**:
+   - Excluded `android`, `ios`, `chatboxai_website_copy`, `docs`, `.expo`, `dist`, and `build` from the Vercel deployment bundle.
+3. **Safe Diagnostic Loader & Dual Export (`api/index.ts`)**:
+   - Wrapped server module loading in `try/catch`. If an initialization error occurs, the endpoint responds with JSON containing the exact error message and stack trace.
+   - Added dual export (`export default function handler`, `module.exports = handler`, `module.exports.default = handler`) to support all Vercel function invocation mechanisms.
+4. **Updated `vercel.json`**:
+   - Set functions glob pattern to `"api/**"` with 60s timeout and 1024MB memory.
+
+
 
