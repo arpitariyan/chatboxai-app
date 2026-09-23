@@ -1543,5 +1543,35 @@ Even after fixing `file-type` in `validation.ts`, Vercel continued returning `50
 4. **Updated `vercel.json`**:
    - Set functions glob pattern to `"api/**"` with 60s timeout and 1024MB memory.
 
+---
+
+# 61. Elimination of firebase-admin/jwks-rsa/jose ESM Failure in Vercel Serverless (Sept 23, 2026)
+
+## Context
+With the diagnostic loader deployed, Vercel provided the exact crash stack:
+`Error [ERR_REQUIRE_ESM]: require() of ES Module /var/task/node_modules/jose/dist/webapi/index.js from /var/task/node_modules/jwks-rsa/src/utils.js not supported.`
+
+## Root Cause
+`firebase-admin` internally depends on `jwks-rsa`, which synchronously `require()`s `jose`. In Node 18/20/22 on Vercel, `jose` is an ES Module. When `jwks-rsa` requires `jose` inside a CommonJS serverless function, Node aborts with `ERR_REQUIRE_ESM`, crashing initialization.
+
+## What Was Done
+1. **Zero-Dependency Google Identity Toolkit REST Client (`src/server/lib/firebase-admin.ts`)**:
+   - Completely removed `firebase-admin` (`initializeApp`, `cert`, `getAuth`) imports.
+   - Migrated token verification to Google's official Firebase Identity Toolkit REST API:
+     `POST https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=<API_KEY>`.
+   - Added in-memory JWT payload decoding for instant token expiration checks without external libraries.
+   - Maintained 100% backward compatibility for `AuthenticatedUser`, `verifyToken()`, and `requireFirebaseUser()`.
+2. **Bundle & Performance Improvements**:
+   - Eliminated heavy Google Cloud dependencies (`jwks-rsa`, `jose`, `@google-cloud/*`).
+   - Serverless bundle size reduced significantly, eliminating cold-start latency and CommonJS/ESM conflicts.
+
+## Verification
+- `npx tsc --noEmit` executed with 0 errors.
+- Simulated Vercel serverless request test executed:
+  - `GET /` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api' }`)
+  - `GET /api/mobile/health` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api', version: '1.0.0' }`)
+  - `GET /api/mobile/file` -> 401 Unauthorized (proper auth validation)
+
+
 
 

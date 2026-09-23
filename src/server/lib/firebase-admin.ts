@@ -1,7 +1,5 @@
 import './env';
 import type { Request, Response, NextFunction } from 'express';
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { AuthRequiredError } from './errors';
 import { logger } from './logger';
 
@@ -22,38 +20,13 @@ declare global {
 
 const FIREBASE_LOOKUP_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 
-const projectId =
-  process.env.FIREBASE_PROJECT_ID ||
-  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ||
-  'craetionai';
-
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-if (getApps().length === 0) {
-  try {
-    if (clientEmail && privateKey) {
-      initializeApp({
-        credential: cert({
-          projectId,
-          clientEmail,
-          privateKey,
-        }),
-      });
-      logger.info('Firebase Admin initialized with service account credentials');
-    } else {
-      initializeApp({ projectId });
-      logger.info('Firebase Admin initialized with project ID verification');
-    }
-  } catch (err: any) {
-    logger.warn('Firebase Admin default init warning, will fallback to Identity Toolkit:', {
-      error: err.message,
-    });
-  }
-}
+const apiKey =
+  process.env.FIREBASE_API_KEY ||
+  process.env.EXPO_PUBLIC_FIREBASE_API_KEY ||
+  'AIzaSyC_-B_RZ43iw1Z4cHb-iGod44FLzxyWYdk';
 
 /**
- * Extracts Bearer token from request Authorization header.
+ * Extracts Bearer token from request Authorization header or custom header.
  */
 export function extractBearerToken(req: Request): string | null {
   const header = req.headers.authorization || (req.headers['Authorization'] as string) || '';
@@ -68,60 +41,72 @@ export function extractBearerToken(req: Request): string | null {
 }
 
 /**
- * Verifies Firebase ID token using Firebase Admin SDK or Google Identity Toolkit fallback.
+ * Safely decodes JWT payload without verifying signature (for preliminary expiration check).
+ */
+function decodeJwtPayload(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+    return JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verifies Firebase ID token using Google Identity Toolkit accounts:lookup API.
+ * 100% Serverless, Edge, and CommonJS compatible (no native dependencies or ESM conflicts).
  */
 export async function verifyToken(idToken: string): Promise<AuthenticatedUser> {
   if (!idToken || typeof idToken !== 'string' || idToken.length < 50) {
     throw new AuthRequiredError('Missing or malformed authorization token');
   }
 
-  // 1. Try Firebase Admin SDK verification
-  try {
-    const auth = getAuth();
-    const decoded = await auth.verifyIdToken(idToken, true);
-    if (decoded && decoded.uid) {
-      return {
-        uid: decoded.uid,
-        email: (decoded.email || '').trim().toLowerCase(),
-        emailVerified: !!decoded.email_verified,
-      };
+  // Pre-validate token expiration from JWT payload to reject expired tokens early
+  const payload = decodeJwtPayload(idToken);
+  if (payload?.exp && typeof payload.exp === 'number') {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (payload.exp < nowSec) {
+      throw new AuthRequiredError('Authentication token has expired');
     }
-  } catch (adminErr: any) {
-    logger.debug('Firebase Admin verifyIdToken skipped or failed, trying Identity Toolkit:', {
-      error: adminErr.message,
+  }
+
+  // Authoritative verification via Google Identity Toolkit REST API
+  try {
+    const lookupRes = await fetch(`${FIREBASE_LOOKUP_URL}?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
     });
+
+    const data = (await lookupRes.json().catch(() => ({}))) as any;
+    if (!lookupRes.ok || !data?.users?.[0]) {
+      const errDetail = data?.error?.message || 'Token lookup rejected by Google Identity Toolkit';
+      logger.warn('Token verification failed:', { error: errDetail });
+      throw new AuthRequiredError('Invalid, expired, or revoked authentication token');
+    }
+
+    const u = data.users[0];
+    const email = (u.email || payload?.email || '').trim().toLowerCase();
+    const uid = String(u.localId || payload?.user_id || payload?.sub || '').trim();
+
+    if (!uid) {
+      throw new AuthRequiredError('Unable to resolve user identifier from token');
+    }
+
+    return {
+      uid,
+      email,
+      emailVerified: !!u.emailVerified,
+    };
+  } catch (err: any) {
+    if (err instanceof AuthRequiredError) throw err;
+    logger.error('Google Identity Toolkit network error during token verification:', {
+      error: err.message,
+    });
+    throw new AuthRequiredError('Authentication service temporarily unreachable');
   }
-
-  // 2. Fallback to Google Identity Toolkit accounts:lookup
-  const apiKey =
-    process.env.FIREBASE_API_KEY ||
-    process.env.EXPO_PUBLIC_FIREBASE_API_KEY ||
-    'AIzaSyC_-B_RZ43iw1Z4cHb-iGod44FLzxyWYdk';
-
-  const lookupRes = await fetch(`${FIREBASE_LOOKUP_URL}?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken }),
-  });
-
-  const payload = (await lookupRes.json().catch(() => ({}))) as any;
-  if (!lookupRes.ok || !payload?.users?.[0]) {
-    throw new AuthRequiredError('Invalid, expired, or revoked authentication token');
-  }
-
-  const u = payload.users[0];
-  const email = (u.email || '').trim().toLowerCase();
-  const uid = String(u.localId || '').trim();
-
-  if (!uid) {
-    throw new AuthRequiredError('Unable to resolve user identifier from token');
-  }
-
-  return {
-    uid,
-    email,
-    emailVerified: !!u.emailVerified,
-  };
 }
 
 /**
