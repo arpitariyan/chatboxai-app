@@ -4,20 +4,30 @@
   "main": "index.ts",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@google/genai": "^2.24.0",
+    "@google/generative-ai": "^0.24.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@tabler/icons-react-native": "^3.46.0",
     "appwrite": "^27.0.0",
     "axios": "^1.20.0",
+    "cors": "^2.8.6",
     "expo": "~57.0.23",
     "expo-auth-session": "^57.0.12",
     "expo-clipboard": "~57.0.2",
     "expo-document-picker": "~57.0.2",
+    "expo-file-system": "~57.0.7",
+    "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.19",
     "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "^57.0.3",
+    "express": "^5.2.1",
+    "file-type": "^22.1.1",
     "firebase": "^12.19.0",
+    "firebase-admin": "^14.4.0",
     "marked": "^18.0.13",
+    "multer": "^2.4.0",
+    "node-appwrite": "^29.0.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
@@ -25,15 +35,21 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/marked": "^5.0.2",
+    "@types/multer": "^2.2.0",
     "@types/react": "~19.2.4",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "server": "tsx src/server/index.ts",
+    "start:server": "tsx src/server/index.ts"
   },
   "private": true
 }

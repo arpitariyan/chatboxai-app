@@ -7,12 +7,14 @@ interface ThinkingBlockProps {
   content: string;
   isFinished?: boolean;
   isLoading?: boolean;
+  loadingTitle?: string;
 }
 
 export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
   content,
   isFinished = true,
   isLoading = false,
+  loadingTitle,
 }) => {
   const colors = useThemeColors();
   const [isOpen, setIsOpen] = useState(!isFinished);
@@ -66,7 +68,9 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
         <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2, opacity: pulseAnim }}>
           <IconBrain size={16} color={colors.ink3} />
           <Text style={[styles.headerTitle, { color: colors.ink2 }]}>
-            {isLoading ? 'Preparing reasoning...' : isFinished ? 'Reasoning' : 'Thinking…'}
+            {isLoading 
+              ? (loadingTitle || 'Preparing reasoning...') 
+              : isFinished ? 'Reasoning' : 'Thinking…'}
           </Text>
           {!isLoading && (
             <View style={{ transform: [{ rotate: isOpen ? '0deg' : '-90deg' }] }}>

@@ -19,18 +19,12 @@ export const WEBSITE_PROJECTS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_WEBSITE_PROJECTS_COLLECTION_ID || 'website_projects';
 export const MFA_OTPS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_MFA_OTPS_COLLECTION_ID || 'mfa_otps';
-
-export const APPWRITE_API_KEY =
-  process.env.EXPO_PUBLIC_APPWRITE_API_KEY ||
-  'standard_9e4fd0e2a9605b7a6efcc104e9d82861d0b7464d7fc7a6c579d0226d002b58f128cde382cc9946c3053848aec2250c24b4c43fa86663a3561ef58cfeea7795a4119c5697e59fbbdcc4b015d68d45d5ad9fc0d0735ae427f768949ffa5dc8144d227217057a886b3dd2941d70a1386f58109f417dcf29d3a7c6c33219bb86ce6d';
+export const STORAGE_BUCKET_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
 
 const client = new Client()
   .setEndpoint(APPWRITE_ENDPOINT)
   .setProject(APPWRITE_PROJECT_ID);
-
-if (APPWRITE_API_KEY) {
-  (client as any).headers['x-appwrite-key'] = APPWRITE_API_KEY;
-}
 
 export const databases = new Databases(client);
 

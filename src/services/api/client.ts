@@ -1,16 +1,20 @@
 import axios from 'axios';
 import { auth } from '@/config/firebase';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.10:3000'; // Replace with local machine IP if needed during dev
+import { resolveBackendBaseUrl } from '@/config/mobileApi';
 
 export const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: resolveBackendBaseUrl(),
+  timeout: 25000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 apiClient.interceptors.request.use(async (config) => {
+  // Dynamically update baseURL so detected Metro LAN IP is used as soon as available
+  config.baseURL = resolveBackendBaseUrl();
+
   if (auth.currentUser) {
     try {
       const token = await auth.currentUser.getIdToken();

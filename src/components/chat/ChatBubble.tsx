@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, Pressable, Share } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { StyleSheet, Text, View, Pressable, Image } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { Image as ExpoImage } from 'expo-image';
 import {
   IconCopy,
   IconCheck,
@@ -28,6 +29,7 @@ export interface MessageItem {
   timestamp?: string;
   isStreaming?: boolean;
   searchResult?: any;
+  attachments?: any[];
   modelName?: string;
   liked?: boolean | string;
   disliked?: boolean | string;
@@ -51,6 +53,9 @@ interface ChatBubbleProps {
   onVersionChange?: (id: string, direction: 'prev' | 'next') => void;
 }
 
+import { resolveAttachment } from '@/utils/attachments';
+import { AttachmentImage } from './AttachmentImage';
+
 export const ChatBubble: React.FC<ChatBubbleProps> = ({
   message,
   onCopy,
@@ -63,48 +68,53 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showTextSelection, setShowTextSelection] = useState(false);
 
-  // Animation state (replicates DisplaySummery.jsx typewriter effect)
-  const [shouldAnimate, setShouldAnimate] = useState(() => message.isStreaming === true);
-  const [displayedContent, setDisplayedContent] = useState(() => 
+  // ── Typewriter animation ─────────────────────────────────────────────────
+  // `animating` is true ONLY while the RAF loop is running.
+  // It flips to false the moment all characters are painted — regardless of
+  // the `message.isStreaming` prop — so the dot/toolbar state is deterministic.
+  const [animating, setAnimating] = useState(() => message.isStreaming === true);
+  const [displayedContent, setDisplayedContent] = useState(() =>
     message.isStreaming ? '' : message.content
   );
+  const animRef = useRef({ currentLength: 0, targetText: message.content });
 
   useEffect(() => {
     if (!message.isStreaming) {
-      setShouldAnimate(false);
+      // History reload or non-streaming message — show everything immediately
+      setAnimating(false);
       setDisplayedContent(message.content);
       return;
     }
 
-    setShouldAnimate(true);
-    let currentLength = displayedContent.length;
-    const targetText = message.content;
-    let animationFrameId: number;
-    let lastUpdateTime = Date.now();
+    // New streaming message: kick off the animation
+    setAnimating(true);
+    animRef.current = { currentLength: 0, targetText: message.content };
 
-    const updateText = () => {
-      const now = Date.now();
-      if (now - lastUpdateTime >= 16) {
+    let rafId: number;
+    let lastTime = 0;
+
+    const tick = (timestamp: number) => {
+      if (timestamp - lastTime >= 16) {
+        const { currentLength, targetText } = animRef.current;
         if (currentLength < targetText.length) {
-          const charsToAdd = Math.max(1, Math.floor((targetText.length - currentLength) / 5));
-          currentLength = Math.min(targetText.length, currentLength + charsToAdd);
-          setDisplayedContent(targetText.substring(0, currentLength));
-          lastUpdateTime = now;
+          const remaining = targetText.length - currentLength;
+          const charsToAdd = Math.max(1, Math.floor(remaining / 5));
+          const next = Math.min(targetText.length, currentLength + charsToAdd);
+          animRef.current.currentLength = next;
+          setDisplayedContent(targetText.substring(0, next));
+          lastTime = timestamp;
+        } else {
+          // All chars shown — stop. Never re-queue after this.
+          setDisplayedContent(animRef.current.targetText);
+          setAnimating(false);
+          return;
         }
       }
-      
-      if (currentLength < targetText.length) {
-        animationFrameId = requestAnimationFrame(updateText);
-      } else if (!message.isStreaming) {
-         setShouldAnimate(false);
-      } else {
-         animationFrameId = requestAnimationFrame(updateText);
-      }
+      rafId = requestAnimationFrame(tick);
     };
 
-    animationFrameId = requestAnimationFrame(updateText);
-
-    return () => cancelAnimationFrame(animationFrameId);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [message.content, message.isStreaming]);
 
   const isLiked = message.liked === true || message.liked === 'true';
@@ -147,20 +157,20 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
       const contentToRead = message.versions && message.currentVersionIndex !== undefined
         ? message.versions[message.currentVersionIndex].content
         : message.content;
-        
+
       if (isSpeaking) {
         await Speech.stop();
         setIsSpeaking(false);
         return;
       }
-      
+
       setIsSpeaking(true);
       const cleanText = preprocessTextForTTS(contentToRead);
       if (!cleanText) {
         setIsSpeaking(false);
         return;
       }
-      
+
       Speech.speak(cleanText, {
         language: 'en-US',
         pitch: 1.0,
@@ -187,25 +197,88 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   if (isUser) {
     return (
       <View style={styles.userWrapper}>
-        <Pressable
-          onLongPress={() => setShowTextSelection(true)}
-          style={({ pressed }) => [
-            styles.userCapsule,
-            {
-              backgroundColor: '#27272a',
-              borderColor: colors.line,
-              opacity: pressed ? 0.9 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.userText, { color: '#ffffff' }]}>
-            {message.content}
-          </Text>
-        </Pressable>
-        <TextSelectionSheet 
-          visible={showTextSelection} 
-          onClose={() => setShowTextSelection(false)} 
-          content={message.content} 
+        {/* Attachment previews above the text bubble, right-aligned */}
+        {message.attachments && message.attachments.length > 0 && (
+          <View style={[styles.attachmentsContainer, { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, marginBottom: 8 }]}>
+            {message.attachments.slice(0, 4).map((file, index) => {
+              const resolved = resolveAttachment(file);
+              const candidates = resolved.candidates;
+
+              if (resolved.isImage && candidates.length > 0) {
+                return (
+                  <View key={`attach-${index}`} style={[styles.imageAttachmentCard, { marginBottom: 0 }]}>
+                    <AttachmentImage
+                      candidates={candidates}
+                      style={styles.imageAttachmentImage}
+                    />
+                  </View>
+                );
+              }
+
+              return (
+                <View
+                  key={`attach-${index}`}
+                  style={[
+                    styles.fileAttachmentCard,
+                    { backgroundColor: colors.inset, borderColor: colors.line, marginBottom: 0 },
+                  ]}
+                >
+                  <Text style={styles.fileAttachmentIcon}>📄</Text>
+                  <Text
+                    style={[styles.fileAttachmentText, { color: colors.ink }]}
+                    numberOfLines={1}
+                  >
+                    {resolved.displayName}
+                  </Text>
+                </View>
+              );
+            })}
+            
+            {message.attachments.length > 4 && (
+              <View
+                style={[
+                  styles.imageAttachmentCard,
+                  { 
+                    backgroundColor: colors.inset, 
+                    justifyContent: 'center', 
+                    alignItems: 'center', 
+                    marginBottom: 0, 
+                    borderWidth: 1, 
+                    borderColor: colors.line 
+                  },
+                ]}
+              >
+                <Text style={{ color: colors.ink, fontWeight: 'bold', fontSize: 16 }}>
+                  +{message.attachments.length - 4}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Text bubble — only show if there is actual text */}
+        {!!message.content && (
+          <Pressable
+            onLongPress={() => setShowTextSelection(true)}
+            style={({ pressed }) => [
+              styles.userCapsule,
+              {
+                backgroundColor: '#27272a',
+                borderColor: colors.line,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.userText, { color: '#ffffff' }]}>
+              {message.content}
+            </Text>
+          </Pressable>
+        )}
+
+        <TextSelectionSheet
+          visible={showTextSelection}
+          onClose={() => setShowTextSelection(false)}
+          content={message.content}
         />
       </View>
     );
@@ -216,7 +289,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     <>
       <View style={styles.assistantWrapper}>
         {/* Assistant Document Content */}
-        <Pressable 
+        <Pressable
           style={styles.assistantContent}
           onLongPress={() => setShowTextSelection(true)}
           delayLongPress={400}
@@ -232,8 +305,8 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           {/* 2. Rich Markdown Formatted Answer */}
           <MarkdownAnswer content={displayedContent} />
 
-          {/* 3. Streaming Pulse Dot */}
-          {message.isStreaming && (
+          {/* 3. Streaming Pulse Dot — driven by animating state, NOT message.isStreaming */}
+          {animating && (
             <View style={styles.streamingIndicator}>
               <Text style={[styles.streamingDot, { color: colors.accent }]}>●</Text>
             </View>
@@ -250,132 +323,132 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           )}
         </Pressable>
 
-      {/* Action Toolbar matching DisplayResult.jsx bottom bar */}
-      {!shouldAnimate && (
-        <View style={styles.actionRow}>
-          {/* Copy Button */}
-          <Pressable
-            onPress={handleCopy}
-            hitSlop={8}
-            accessibilityLabel="Copy answer"
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            {copied ? (
-              <IconCheck size={16} color="#4ade80" />
-            ) : (
-              <IconCopy size={16} color={colors.ink3} />
-            )}
-          </Pressable>
-
-          {/* Thumbs Up */}
-          <Pressable
-            onPress={() => onFeedback?.(activeId, 'liked', !isLiked)}
-            hitSlop={8}
-            accessibilityLabel="Helpful"
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <IconThumbUp
-              size={16}
-              color={isLiked ? colors.accent : colors.ink3}
-              fill={isLiked ? colors.accent : 'none'}
-            />
-          </Pressable>
-
-          {/* Thumbs Down */}
-          <Pressable
-            onPress={() => onFeedback?.(activeId, 'disliked', !isDisliked)}
-            hitSlop={8}
-            accessibilityLabel="Not helpful"
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <IconThumbDown
-              size={16}
-              color={isDisliked ? colors.destructive : colors.ink3}
-              fill={isDisliked ? colors.destructive : 'none'}
-            />
-          </Pressable>
-
-          {/* TTS Speaker */}
-          <Pressable
-            onPress={handleTTS}
-            hitSlop={8}
-            accessibilityLabel="Read aloud"
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-          >
-            <IconVolume 
-              size={16} 
-              color={isSpeaking ? colors.accent : colors.ink3} 
-              fill={isSpeaking ? colors.accent : 'none'}
-            />
-          </Pressable>
-
-          {/* Regenerate */}
-          {onRegenerate && (
+        {/* Action Toolbar — visible once animation is fully done */}
+        {!animating && (
+          <View style={styles.actionRow}>
+            {/* Copy Button */}
             <Pressable
-              onPress={() => onRegenerate(activeId)}
+              onPress={handleCopy}
               hitSlop={8}
-              accessibilityLabel="Regenerate response"
+              accessibilityLabel="Copy answer"
               style={({ pressed }) => [
                 styles.actionBtn,
                 { opacity: pressed ? 0.6 : 1 },
               ]}
             >
-              <IconRefresh size={16} color={colors.ink3} />
+              {copied ? (
+                <IconCheck size={16} color="#4ade80" />
+              ) : (
+                <IconCopy size={16} color={colors.ink3} />
+              )}
             </Pressable>
-          )}
 
-          {/* Version Navigation */}
-          {message.versions && message.versions.length > 1 && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', paddingRight: 4 }}>
+            {/* Thumbs Up */}
+            <Pressable
+              onPress={() => onFeedback?.(activeId, 'liked', !isLiked)}
+              hitSlop={8}
+              accessibilityLabel="Helpful"
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <IconThumbUp
+                size={16}
+                color={isLiked ? colors.accent : colors.ink3}
+                fill={isLiked ? colors.accent : 'none'}
+              />
+            </Pressable>
+
+            {/* Thumbs Down */}
+            <Pressable
+              onPress={() => onFeedback?.(activeId, 'disliked', !isDisliked)}
+              hitSlop={8}
+              accessibilityLabel="Not helpful"
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <IconThumbDown
+                size={16}
+                color={isDisliked ? colors.destructive : colors.ink3}
+                fill={isDisliked ? colors.destructive : 'none'}
+              />
+            </Pressable>
+
+            {/* TTS Speaker */}
+            <Pressable
+              onPress={handleTTS}
+              hitSlop={8}
+              accessibilityLabel="Read aloud"
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <IconVolume
+                size={16}
+                color={isSpeaking ? colors.accent : colors.ink3}
+                fill={isSpeaking ? colors.accent : 'none'}
+              />
+            </Pressable>
+
+            {/* Regenerate */}
+            {onRegenerate && (
               <Pressable
-                onPress={() => onVersionChange?.(message.id, 'prev')}
-                disabled={(message.currentVersionIndex || 0) === 0}
+                onPress={() => onRegenerate(activeId)}
                 hitSlop={8}
+                accessibilityLabel="Regenerate response"
                 style={({ pressed }) => [
                   styles.actionBtn,
-                  { opacity: pressed || (message.currentVersionIndex || 0) === 0 ? 0.4 : 1 },
+                  { opacity: pressed ? 0.6 : 1 },
                 ]}
               >
-                <IconChevronLeft size={16} color={colors.ink3} />
+                <IconRefresh size={16} color={colors.ink3} />
               </Pressable>
-              
-              <Text style={{ color: colors.ink3, fontSize: 13 }}>
-                {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
-              </Text>
-              
-              <Pressable
-                onPress={() => onVersionChange?.(message.id, 'next')}
-                disabled={(message.currentVersionIndex || 0) === message.versions.length - 1}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.actionBtn,
-                  { opacity: pressed || (message.currentVersionIndex || 0) === (message.versions?.length || 0) - 1 ? 0.4 : 1 },
-                ]}
-              >
-                <IconChevronRight size={16} color={colors.ink3} />
-              </Pressable>
-            </View>
-          )}
-        </View>
-      )}
-    </View>
-      
-      <TextSelectionSheet 
-        visible={showTextSelection} 
-        onClose={() => setShowTextSelection(false)} 
-        content={fullFinalContent} 
+            )}
+
+            {/* Version Navigation */}
+            {message.versions && message.versions.length > 1 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto', paddingRight: 4 }}>
+                <Pressable
+                  onPress={() => onVersionChange?.(message.id, 'prev')}
+                  disabled={(message.currentVersionIndex || 0) === 0}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    { opacity: pressed || (message.currentVersionIndex || 0) === 0 ? 0.4 : 1 },
+                  ]}
+                >
+                  <IconChevronLeft size={16} color={colors.ink3} />
+                </Pressable>
+
+                <Text style={{ color: colors.ink3, fontSize: 13 }}>
+                  {(message.currentVersionIndex || 0) + 1}/{message.versions.length}
+                </Text>
+
+                <Pressable
+                  onPress={() => onVersionChange?.(message.id, 'next')}
+                  disabled={(message.currentVersionIndex || 0) === message.versions.length - 1}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    { opacity: pressed || (message.currentVersionIndex || 0) === (message.versions?.length || 0) - 1 ? 0.4 : 1 },
+                  ]}
+                >
+                  <IconChevronRight size={16} color={colors.ink3} />
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+
+      <TextSelectionSheet
+        visible={showTextSelection}
+        onClose={() => setShowTextSelection(false)}
+        content={fullFinalContent}
       />
     </>
   );
@@ -385,9 +458,45 @@ const styles = StyleSheet.create({
   userWrapper: {
     width: '100%',
     marginVertical: spacing.sm,
+    alignItems: 'flex-end',
+  },
+  attachmentsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+    justifyContent: 'flex-end',
+    maxWidth: '85%',
+  },
+  imageAttachmentCard: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#333',
+  },
+  imageAttachmentImage: {
+    width: 160,
+    height: 160,
+    borderRadius: 14,
+  },
+  fileAttachmentCard: {
+    borderWidth: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    maxWidth: 220,
+  },
+  fileAttachmentIcon: {
+    fontSize: 16,
+  },
+  fileAttachmentText: {
+    fontSize: typography.fontSize.sm,
+    flex: 1,
   },
   userCapsule: {
-    width: '100%',
+    maxWidth: '85%',
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: spacing.md,

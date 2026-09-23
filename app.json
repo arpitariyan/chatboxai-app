@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.chatboxai.app",
+      "usesCleartextTraffic": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#18181b",
@@ -25,7 +26,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-image"
     ]
   }
 }

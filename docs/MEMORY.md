@@ -1256,3 +1256,226 @@ The LLM response was previously rendered instantly in one sudden block because t
 ## Rules for Future Agents
 - **`isStreaming` Flag**: In `ChatScreen.tsx`, newly generated messages are appended with `isStreaming: true`. This triggers the local animation in `ChatBubble.tsx`. Messages loaded from DB history do not have this flag and will render instantly.
 - **Animation Performance**: We use `requestAnimationFrame` rather than `setInterval` to maintain 60FPS. The slicing math accurately calculates offsets so `MarkdownAnswer` does not receive broken markdown tags during the final-content phase (because it only streams the final content after thinking is fully complete).
+
+---
+
+# 52. AI File Analysis & Attachment Persistence (Sept 19, 2026)
+
+## Context
+The app needed to seamlessly replicate the website's AI file-analysis architecture. This required adapting the remote API call logic for analyzing files securely, fixing React Native `FormData` handling, saving file metadata natively to Appwrite, and visualizing the attachments beautifully inside the chat UI (matching ChatGPT/Claude aesthetics).
+
+## What Was Done
+
+1. **`FormData` compatibility fix in `useChatGeneration.ts`**:
+   - Replaced native `fetch` with `axios` when handling file uploads. React Native's `fetch` has known issues with multipart boundaries.
+   - Enforced the strict `{ uri, name, type }` object structure for `FormData` appending in React Native.
+   - Wired the exact `/api/analyze` parameters (`prompt`, `filePaths`, `libId`, `userEmail`, `conversationHistory`) that the website's backend expects.
+
+2. **Native Appwrite Schema Integration (`chatService.ts`)**:
+   - Expanded the `AddChatMessageParams` interface to accept `analyzedFilesCount`, `processedFiles`, `isThinkingMode`, and `analysisType`.
+   - Updated `addChatMessage` and `fetchConversationChats` to read/write these values explicitly to the `chats` collection in the Appwrite DB.
+   - Automatically toggles `analysisType` to `file_analysis` if attachments are present.
+
+3. **Attachment State Mapping & History Reload (`ChatScreen.tsx`)**:
+   - At sending time: the `handleSendMessage` locally caches the `ChatAttachment[]` onto the temporary `userMessage` so the file previews render immediately for the user.
+   - At loading time: `fetchConversationChats` attempts to parse the `processedFiles` JSON string from the database and injects it back into the restored `MessageItem.attachments`.
+
+4. **Rich UI Rendering (`ChatBubble.tsx`)**:
+   - Upgraded the `userWrapper` view to map over `message.attachments`.
+   - **Image files** are displayed as clean 120x120 thumbnails with `radius.lg` rounded corners.
+   - **Document files** are rendered in a sleek horizontal card (`colors.inset` background) featuring a file icon (📄) and truncated filenames (`numberOfLines={1}`).
+   - Rendered attachments *above* the user's text inside the bubble, preserving structural consistency with popular AI apps.
+
+## Rules for Future Agents
+- **FormData constraints in RN**: Never wrap React Native file payloads in `JSON.stringify` or try to append a standard JS `File` object. It MUST be an object with `uri`, `name`, and `type`.
+- **Axios for multipart**: Always use `axios` for `multipart/form-data` uploads in this codebase; native `fetch` is broken for this specific payload shape.
+- **TypeScript Check**: All changes passed `npx tsc --noEmit` safely. Scope errors in async `try-catch` blocks must be watched when handling `filePaths`.
+
+---
+
+# 53. Expo-Image Migration, Base64 Truncation & Appwrite Admin URL Persistence (Sept 20, 2026)
+
+## Context
+The user reported that image attachments (photos selected from the camera/gallery) were displaying as solid grey boxes in the chat interface after sending. This was caused by three architectural issues:
+1. React Native's legacy `<Image>` component fails silently on high-res base64 strings and strict CORS/Auth restricted URLs.
+2. The `processedFiles` JSON string exceeded Appwrite's 1,000,000-character limit because the massive base64 `data` string was being serialized into the database row.
+3. The `publicUrl` returned by Appwrite returned a 401 Unauthorized restriction.
+
+## What Was Done
+
+1. **`expo-image` Integration (`ChatBubble.tsx`)**:
+   - Replaced `<Image>` with `<ExpoImage source={{ uri: displayUri }} />`.
+   - `expo-image` handles massive base64 data URIs and strict network requests flawlessly, ensuring immediate local session rendering.
+
+2. **Appwrite Database Size Limit Fix (`useChatGeneration.ts`)**:
+   - Stripped the `data` (base64) and `uri` keys from the `filePaths` objects immediately before `JSON.stringify()`.
+   - This prevents the 1MB string length error (`Invalid document structure: Attribute "processedFiles" has invalid type`) and safely persists only the lightweight CDN metadata (`fileId`, `publicUrl`, etc.).
+
+3. **Secure Environment Variables for Admin URL (`.env` & `appwrite.ts`)**:
+   - Added `EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID` to the `.env` file to prevent hardcoding.
+   - Exported `STORAGE_BUCKET_ID` from `src/config/appwrite.ts`.
+
+4. **CORRECTION (confirmed via curl on Sept 22, 2026)**:
+   `&mode=admin` does NOT bypass 401 for client requests — it only works inside an authenticated Appwrite Console session. The actual root cause was that `/api/upload-file`'s `storage.createFile()` calls were missing the 4th `permissions` argument, so files got default (private) permissions. Fix: pass `[Permission.read(Role.any())]` as the 4th arg on every `createFile` call. Never use `mode=admin` in client-facing URLs again — it's not a permission bypass, it's a Console-only param.
+
+## Rules for Future Agents
+- **`expo-image` source prop**: Always use the `{ uri: string }` object format for `expo-image` sources to maintain React Native parity.
+- **Base64 DB Persistence**: NEVER save raw `data:image/jpeg;base64,...` strings into an Appwrite database column. Always `map()` and strip the `data` property before saving.
+- **Appwrite Storage Assets**: Ensure backend upload endpoints explicitly pass `[Permission.read(Role.any())]` to `createFile()`. Do NOT attempt to bypass auth on the client using `&mode=admin` as it will fail outside the Appwrite console.
+- **Environment Variables**: Always store `PROJECT_ID`, `DATABASE_ID`, and `STORAGE_BUCKET_ID` in `.env`. Do not hardcode them in components.
+
+---
+
+# 54. Multi-Attachment Architecture & Concurrency (Sept 20, 2026)
+
+## Context
+The user wanted the ability to attach up to 20 files per message (images, documents, videos). Previously, files were uploaded sequentially and passed as a single batch to the `/api/analyze` endpoint. Scaling to 20 files caused upload bottlenecks, backend timeout errors, and UI crowding.
+
+## What Was Done
+
+1. **Upload Concurrency & Batching (`useChatGeneration.ts`)**:
+   - Replaced sequential `for...of` upload loop with chunked `Promise.allSettled`.
+   - Uploads are now batched into groups of 4 parallel requests to prevent hitting Appwrite rate limits or crushing device memory.
+   - Used `Promise.allSettled` to allow partial successes (e.g., if 19/20 files succeed, the message still sends).
+
+2. **Backend Chunking Strategy (`useChatGeneration.ts`)**:
+   - The React Native app now splits large attachment lists into chunks of 4.
+   - It silently calls the backend `/api/analyze` for each chunk, requesting only a "comprehensive summary/context extraction" for the early batches.
+   - The final batch combines all previous summaries and answers the user's actual `query`.
+   - This bypasses Vercel/Cloudflare's strict 60s timeouts since no single API call processes 20 files at once.
+
+3. **Dedicated UI Loading Sequence (`ChatScreen.tsx`)**:
+   - Introduced a 3-stage loading flow: `File analysis -> Preparing answer... -> aiResp`.
+   - Exposed a new `isFileAnalyzing` state from the `useChatGeneration` hook.
+   - Created a dedicated `<View style={styles.fileAnalysisLoader}>` indicator to explicitly tell the user that "Analyzing files..." is actively happening, separate from the LLM thinking phase.
+
+4. **Compact Attachment Rendering (`Composer.tsx` & `ChatBubble.tsx`)**:
+   - Increased `ImagePicker` selection limit to 20.
+   - Refactored `ChatBubble.tsx` and `Composer.tsx` to group attachments when there are more than 4.
+   - Uses `flexWrap: 'wrap'` and displays a `+N` badge instead of stacking 20 items vertically.
+
+## Rules for Future Agents
+- **Client-Side Chunking**: For any multi-file feature, always implement chunking or batching (max 3-5 concurrent network requests). Never send massive arrays to Vercel serverless functions in one go.
+- **Loading States**: Always maintain strict separation between "uploading/processing files" (`isFileAnalyzing`) and "waiting for the LLM inference" (`isThinking`). Users need explicit UI context.
+
+---
+
+# 55. Attachment Persistence Lifecycle & UI Refinement (Sept 20, 2026)
+
+## Context
+When sending multiple images, they would briefly render in the chat using local base64 URIs, but disappear once the AI response arrived because the React re-render wiped the local UI state before the DB history could refresh. Additionally, the file-analysis loading UI was too bulky compared to the standard "Thinking..." state.
+
+## What Was Done
+
+1. **In-Place DB Sync for Local Messages (`useChatGeneration.ts` & `ChatScreen.tsx`)**:
+   - Modified `generateResponse` to return the real Appwrite `dbId` and the `processedFiles` array (which contains reliable `fileId` and `publicUrl` data) *after* a successful upload.
+   - Updated `handleSendMessage` to capture this return value. Once generation finishes, it updates the specific local `userMessage` in place with the durable metadata.
+   - This prevents images from disappearing and allows `ChatBubble` to smoothly transition to using the Appwrite `adminUrl` without needing a full history reload.
+
+2. **UI Simplification (`ChatScreen.tsx`)**:
+   - Redesigned the "Analyzing files..." loader to perfectly mimic the standard "Thinking..." text and `ActivityIndicator`.
+   - Removed the bulky `fileAnalysisLoader` background box to maintain visual consistency with the rest of the chat UI.
+
+## Rules for Future Agents
+- **Local Message State vs DB State**: Remember that `ChatScreen.tsx`'s local `messages` state does NOT automatically receive database `fileId`s after a message is sent. If you add new data to a DB row during generation (like uploaded files or search sources), you MUST return it to `ChatScreen` and update the local state manually so it survives re-renders.
+
+---
+
+# 56. Dedicated Mobile Backend Architecture & Appwrite Security Hardening (Sept 23, 2026)
+
+## Context
+Under the Master Implementation Specification, the mobile application (`Chatboxai_APK`) was decoupled completely from the website's backend endpoints (`chatboxai.co.in/api/upload-file`, `chatboxai.co.in/api/analyze`, `chatboxai.co.in/api/mobile/file-view`). A dedicated, autonomous Express mobile backend was built inside `src/server` to serve as the production file and analysis server for the mobile app while leaving `chatboxai_website_copy` completely untouched.
+
+## What Was Done
+
+1. **Standalone Mobile Backend Built (`src/server`)**:
+   - Structured the complete backend inside `Chatboxai_APK/src/server`:
+     - `src/server/index.ts`: Express application running on port 3001 (`http://0.0.0.0:3001`) with graceful shutdown and Vercel serverless compatibility.
+     - `src/server/middleware/auth.ts`: Validates Firebase ID tokens using Firebase Admin SDK and fallback Google Identity Toolkit verification.
+     - `src/server/lib/appwrite.ts`: Server-side Appwrite SDK initialized with private `APPWRITE_API_KEY`.
+     - `src/server/lib/attachment-repository.ts`: Dedicated `mobile_attachments` Appwrite collection for ownership verification, access logging, and metadata.
+     - `src/server/routes/health.ts`: Health check endpoint (`GET /api/mobile/health`).
+     - `src/server/routes/upload.ts`: Authenticated multipart upload with file validation, size limits, and Appwrite Storage persistence (`POST /api/mobile/upload`).
+     - `src/server/routes/file.ts`: Secure streaming file retrieval with MIME type preservation (`GET /api/mobile/file?fileId=<id>`) and deletion (`DELETE /api/mobile/file?fileId=<id>`).
+     - `src/server/routes/analyze.ts`: Multimodal AI file analysis with key rotation for Gemini (`gemini-2.5-flash`) and fallback to NVIDIA vision models.
+     - `src/server/routes/proxy.ts`: Proxy endpoints for Appwrite `library`, `chats`, and `users` collections (`GET /api/mobile/conversations`, `GET /api/mobile/conversations/:libId/chats`, `GET /api/mobile/user/profile`, `POST /api/mobile/chats`).
+
+2. **Deployment Configurations Added**:
+   - `api/index.ts`: Vercel serverless function entrypoint wrapping Express.
+   - `vercel.json`: Route rewrites routing all `/api/mobile/(.*)` traffic through the serverless function.
+   - `src/server/Dockerfile`: Production multi-stage container build.
+   - `Procfile`: PaaS entrypoint (`web: npx tsx src/server/index.ts`).
+   - `eas.json`: EAS build configurations for Android production standalone APK and preview builds.
+
+3. **Production Subdomain Strategy**:
+   - Main website remains hosted on Vercel at `https://chatboxai.co.in`.
+   - Dedicated mobile API is connected to `https://api-mobile.chatboxai.co.in` via a separate Vercel project with CNAME pointing to `cname.vercel-dns.com`.
+
+## Rules for Future Agents
+- **Backend Directory Rule**: All backend code must reside strictly in `Chatboxai_APK/src/server`. Never create external backend folders outside the repository.
+- **Website Isolation**: Never modify `chatboxai_website_copy` (0 diffs).
+- **Backend Secrets**: Never expose `APPWRITE_API_KEY` to client-side code or client `EXPO_PUBLIC_*` variables.
+
+---
+
+# 57. Direct Appwrite 401 Debug Elimination & Zero-Leak Attachment Flow (Sept 23, 2026)
+
+## Context
+In development and historical chats, attachments attempted to fetch directly from Appwrite Cloud storage URLs (`https://nyc.cloud.appwrite.io/v1/storage/buckets/...`). Because Appwrite Cloud storage buckets are private and require backend API keys, client requests failed with `status code: 401`. Furthermore, `AttachmentImage.tsx` spammed noisy console debug logs and retried fetching with refreshed Firebase tokens that had no relevance to Appwrite Cloud sessions.
+
+## What Was Done
+
+1. **Direct Appwrite URL Elimination (`src/utils/attachments.ts`)**:
+   - Updated `toStoredAttachment()`: Explicitly sanitizes `publicUrl` so that any URL containing `appwrite.io` or `/storage/buckets/` is stripped to an empty string (`safePublicUrl`).
+   - Updated `attachmentCandidates()`: Added a strict return filter (`return out.filter(u => !u.includes('appwrite.io') && !u.includes('/storage/buckets/'))`). No direct Appwrite storage URLs can ever enter the candidate list.
+   - Remote attachments must ONLY be fetched through `/api/mobile/file?fileId=<id>`.
+
+2. **Removed ChatBubble Candidate Bypass (`src/components/chat/ChatBubble.tsx`)**:
+   - Replaced unvalidated `localUri` override with `resolveAttachment(file).candidates` directly.
+   - Prevents stale or historical `file.uri` properties containing Appwrite storage URLs from bypassing the candidate filter.
+
+3. **Clean Fallback & Token Refresh Scoping (`src/components/chat/AttachmentImage.tsx`)**:
+   - Scoped the 1-time Firebase token refresh in `onError` strictly to authenticated mobile API requests (`isRemote && src.includes('/api/mobile/file')`).
+   - Removed noisy `console.debug('[AttachmentImage] candidate failed')` output.
+   - When all candidates fail or a deleted historical file is missing on the server, `AttachmentImage` transitions silently to `<IconPhotoOff />`.
+
+4. **Memory URI Guarding (`src/features/chat/ChatScreen.tsx`)**:
+   - Guarded attachment merging after generation so only genuine local device URIs (`file://`, `content://`, `ph://`, `blob:`) are preserved in memory for the active session.
+
+## Rules for Future Agents
+- **No Direct Appwrite Storage Fetches**: Mobile clients must NEVER fetch directly from `nyc.cloud.appwrite.io/v1/storage`. All media files must stream through `/api/mobile/file?fileId=<fileId>`.
+- **Candidate Purity**: Never bypass `resolveAttachment()` when generating image candidate lists in chat components.
+
+---
+
+# 58. Resilient Mobile API Host Resolution, Expo Go LAN Detection & Timeout Hardening (Sept 23, 2026)
+
+## Context
+When running `npx expo start -c`, the client reported:
+`[userService] Proxy user profile failed, falling back to direct Appwrite: Network Error`
+`[chatService] Proxy fetchUserConversations failed, falling back to direct Appwrite: Network Error`
+This occurred because `NativeModules.SourceCode.scriptURL` was not yet populated during the initial bundle compilation, causing the backend URL to fall back to `http://10.0.2.2:3001` (which is unreachable on physical Android phones connected over LAN), combined with a tight 10-second timeout while Metro was CPU-bound.
+
+## What Was Done
+
+1. **Expo Go Automatic Host Detection (`src/config/mobileApi.ts`)**:
+   - Integrated `getExpoGoProjectConfig()?.debuggerHost` from `'expo'`. In Expo Go, `debuggerHost` reliably contains the developer's computer LAN IP (e.g. `10.218.56.237:8081`).
+   - Automatically parses the IP and points to port 3001 (`http://${host}:3001`), enabling physical Android devices on Wi-Fi to connect instantly.
+   - Made `toMobileFileUrl`, `toMobileUploadUrl`, `toMobileAnalyzeUrl`, and `toMobileHealthUrl` dynamically call `resolveBackendBaseUrl()` so runtime IP updates take effect immediately.
+
+2. **Explicit Development Environment Variable (`.env`)**:
+   - Added `EXPO_PUBLIC_MOBILE_API_URL=http://10.218.56.237:3001` to `.env`. This provides an immediate, synchronous host definition from frame 0 of application launch without guessing.
+   - Production builds (`!__DEV__`) automatically default to `https://api-mobile.chatboxai.co.in`.
+
+3. **Dynamic BaseURL & Timeout Hardening (`src/services/api/client.ts`)**:
+   - Added `config.baseURL = resolveBackendBaseUrl()` inside the Axios request interceptor so every outbound request dynamically verifies the current detected host.
+   - Increased Axios timeout from 10,000ms to 25,000ms (25 seconds) to prevent premature `Network Error` timeouts while Metro is bundling.
+
+4. **Graceful Fallback Log Levels (`userService.ts` & `chatService.ts`)**:
+   - Converted fallback logging from `console.log` to `console.debug`.
+   - Falling back to direct Appwrite when the local proxy is offline is the intended offline-resilience architecture; it should not log alarming error messages in standard terminal output.
+
+## Rules for Future Agents
+- **Development & Production Parity**: Always use `resolveBackendBaseUrl()` from `@/config/mobileApi` instead of hardcoding localhost or IP addresses.
+- **Request Interceptor BaseURL**: Keep `config.baseURL = resolveBackendBaseUrl()` in `apiClient`'s request interceptor so any runtime environment changes apply to subsequent requests.
+

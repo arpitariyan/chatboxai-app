@@ -156,11 +156,11 @@ export const Composer: React.FC<ComposerProps> = ({
           style={styles.attachmentStrip}
           contentContainerStyle={styles.attachmentStripContent}
         >
-          {pendingAttachments.map((att) => (
+          {pendingAttachments.slice(0, 4).map((att) => (
             <View key={att.uri} style={styles.attachmentChip}>
-              {att.type === 'image' && att.data ? (
+              {att.type === 'image' && (att.data || att.uri) ? (
                 <Image
-                  source={{ uri: att.data }}
+                  source={{ uri: att.data || att.uri }}
                   style={styles.attachmentThumb}
                   resizeMode="cover"
                 />
@@ -183,6 +183,13 @@ export const Composer: React.FC<ComposerProps> = ({
               )}
             </View>
           ))}
+          {pendingAttachments.length > 4 && (
+            <View style={[styles.attachmentChip, { justifyContent: 'center', alignItems: 'center', width: 60, backgroundColor: colors.surface }]}>
+              <Text style={{ color: colors.ink, fontWeight: 'bold', fontSize: 16 }}>
+                +{pendingAttachments.length - 4}
+              </Text>
+            </View>
+          )}
         </ScrollView>
       )}
 

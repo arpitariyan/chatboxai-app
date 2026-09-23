@@ -73,23 +73,18 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
     setIsLoading(true);
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: 'images', // ✅ Fixed: use string literal instead of deprecated MediaTypeOptions
+        mediaTypes: 'images',
         quality: 0.8,
-        base64: true,
-        allowsEditing: true,
+        base64: false,
       });
       if (!result.canceled && result.assets.length > 0) {
         const asset = result.assets[0];
         const mimeType = asset.mimeType || 'image/jpeg';
-        const dataUri = asset.base64
-          ? `data:${mimeType};base64,${asset.base64}`
-          : await uriToBase64DataURI(asset.uri, mimeType);
         onAttachmentsSelected([{
           uri: asset.uri,
           name: `photo_${Date.now()}.jpg`,
           mimeType,
           type: 'image',
-          data: dataUri,
         }]);
         onClose();
       }
@@ -110,28 +105,30 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
     setIsLoading(true);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images', // ✅ Fixed: use string literal instead of deprecated MediaTypeOptions
+        mediaTypes: 'images',
         quality: 0.8,
-        base64: true,
+        base64: false,
         allowsMultipleSelection: true,
-        selectionLimit: 4,
+        selectionLimit: 20,
       });
       if (!result.canceled && result.assets.length > 0) {
-        const attachments: ChatAttachment[] = await Promise.all(
-          result.assets.map(async (asset) => {
-            const mimeType = asset.mimeType || 'image/jpeg';
-            const dataUri = asset.base64
-              ? `data:${mimeType};base64,${asset.base64}`
-              : await uriToBase64DataURI(asset.uri, mimeType);
-            return {
-              uri: asset.uri,
-              name: asset.fileName || `image_${Date.now()}.jpg`,
-              mimeType,
-              type: 'image' as const,
-              data: dataUri,
-            };
-          })
-        );
+        // Validate 10MB limit
+        const invalidFiles = result.assets.filter(a => (a.fileSize ?? 0) > 10 * 1024 * 1024);
+        if (invalidFiles.length > 0) {
+          Alert.alert('File too large', 'Images must be under 10MB.');
+          setIsLoading(false);
+          return;
+        }
+
+        const attachments: ChatAttachment[] = result.assets.map((asset) => {
+          const mimeType = asset.mimeType || 'image/jpeg';
+          return {
+            uri: asset.uri,
+            name: asset.fileName || `image_${Date.now()}.jpg`,
+            mimeType,
+            type: 'image' as const,
+          };
+        });
         onAttachmentsSelected(attachments);
         onClose();
       }
@@ -154,34 +151,29 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
           'application/json',
           'text/html',
           'text/csv',
+          'video/*',
+          'audio/*',
         ],
         multiple: true,
         copyToCacheDirectory: true,
       });
       if (!result.canceled && result.assets.length > 0) {
-        const attachments: ChatAttachment[] = await Promise.all(
-          result.assets.map(async (asset) => {
-            let data: string | undefined;
-            if (
-              asset.mimeType?.startsWith('text/') ||
-              asset.mimeType === 'application/json'
-            ) {
-              try {
-                const resp = await fetch(asset.uri);
-                data = await resp.text();
-              } catch {
-                data = undefined;
-              }
-            }
-            return {
-              uri: asset.uri,
-              name: asset.name,
-              mimeType: asset.mimeType || 'application/octet-stream',
-              type: 'file' as const,
-              data,
-            };
-          })
-        );
+        // Validate 10MB limit
+        const invalidFiles = result.assets.filter(a => (a.size ?? 0) > 10 * 1024 * 1024);
+        if (invalidFiles.length > 0) {
+          Alert.alert('File too large', 'Files must be under 10MB.');
+          setIsLoading(false);
+          return;
+        }
+
+        const attachments: ChatAttachment[] = result.assets.map((asset) => {
+          return {
+            uri: asset.uri,
+            name: asset.name,
+            mimeType: asset.mimeType || 'application/octet-stream',
+            type: 'file' as const,
+          };
+        });
         onAttachmentsSelected(attachments);
         onClose();
       }

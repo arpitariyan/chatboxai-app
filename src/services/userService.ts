@@ -1,4 +1,6 @@
 import { databases, DB_ID, USERS_COLLECTION_ID, Query, ID } from '@/config/appwrite';
+import { auth } from '@/config/firebase';
+import { apiClient } from './api/client';
 
 export interface UserProfile {
   $id?: string;
@@ -77,6 +79,24 @@ export async function getCanonicalUserByEmail(
   }
 
   const normalizedEmail = email.trim().toLowerCase();
+
+  // 1. Authenticated Mobile Backend Proxy Route
+  if (auth.currentUser) {
+    try {
+      const response = await apiClient.get('/api/mobile/user/profile');
+      if (response.data && response.data.email) {
+        return response.data as UserProfile;
+      }
+    } catch (err: any) {
+      if (__DEV__) {
+        console.debug('[userService] Proxy user profile fallback to direct Appwrite:', err?.message || err);
+      }
+    }
+  }
+
+  if (!DB_ID) {
+    return buildDefaultUser(normalizedEmail, displayName) as unknown as UserProfile;
+  }
 
   try {
     // Query Appwrite users collection for matching email

@@ -10,6 +10,9 @@ import {
   Permission,
   Role,
 } from '@/config/appwrite';
+import { auth } from '@/config/firebase';
+import { apiClient } from './api/client';
+import { assertNoBinaryPayload } from '../utils/attachments';
 
 export interface ConversationItem {
   libId: string;
@@ -33,6 +36,10 @@ export interface ChatMessageRecord {
   liked?: boolean | string;
   disliked?: boolean | string;
   createdAt: string;
+  analyzedFilesCount?: number;
+  processedFiles?: string;
+  isThinkingMode?: boolean;
+  analysisType?: string;
 }
 
 export interface CreateConversationParams {
@@ -53,6 +60,9 @@ export interface AddChatMessageParams {
   analysisType?: string;
   usedModel?: string;
   modelApi?: string;
+  analyzedFilesCount?: number;
+  processedFiles?: string;
+  isThinkingMode?: boolean;
 }
 
 /**
@@ -96,9 +106,38 @@ export const chatService = {
    * strictly filtering every document on userEmail === normalizedEmail with Query.orderDesc('$createdAt').
    */
   async fetchUserConversations(userEmail: string): Promise<ConversationItem[]> {
-    if (!userEmail || !DB_ID) return [];
+    if (!userEmail) return [];
 
     const normalizedEmail = userEmail.trim().toLowerCase();
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.get('/api/mobile/conversations');
+        if (response.data && Array.isArray(response.data.documents)) {
+          return response.data.documents.map((doc: any) => {
+            const rawTitle = doc.searchInput || 'Untitled';
+            return {
+              libId: doc.libId || doc.$id,
+              title: cleanConversationTitle(rawTitle),
+              rawTitle,
+              userEmail: doc.userEmail || normalizedEmail,
+              type: doc.type || 'search',
+              selectedModel: doc.selectedModel,
+              modelName: doc.modelName,
+              createdAt: doc.created_at || doc.$createdAt,
+              docId: doc.$id,
+            };
+          });
+        }
+      } catch (err: any) {
+        if (__DEV__) {
+          console.debug('[chatService] Proxy fetchUserConversations fallback to direct Appwrite:', err?.message || err);
+        }
+      }
+    }
+
+    if (!DB_ID) return [];
 
     try {
       const [libResult, imgResult, wpResult] = await Promise.allSettled([
@@ -226,9 +265,38 @@ export const chatService = {
    * SECURITY: Strictly verifies that the parent conversation in 'library' belongs to userEmail
    */
   async fetchConversationChats(libId: string, userEmail: string): Promise<ChatMessageRecord[]> {
-    if (!libId || !userEmail || !DB_ID) return [];
+    if (!libId || !userEmail) return [];
 
     const normalizedEmail = userEmail.trim().toLowerCase();
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.get(
+          `/api/mobile/conversations/${encodeURIComponent(libId)}/chats`
+        );
+        if (response.data && Array.isArray(response.data.documents)) {
+          return response.data.documents.map((doc: any) => ({
+            id: doc.$id,
+            libId: doc.libId,
+            userSearchInput: doc.userSearchInput || '',
+            aiResp: doc.aiResp || '',
+            searchResult: doc.searchResult || '',
+            liked: doc.liked,
+            disliked: doc.disliked,
+            createdAt: doc.$createdAt || doc.created_at,
+            analyzedFilesCount: doc.analyzedFilesCount,
+            processedFiles: doc.processedFiles,
+            isThinkingMode: doc.isThinkingMode,
+            analysisType: doc.analysisType,
+          }));
+        }
+      } catch (err: any) {
+        console.log('[chatService] Proxy fetchConversationChats failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return [];
 
     try {
       // 1. Verify that this conversation belongs to the logged-in user
@@ -278,6 +346,10 @@ export const chatService = {
         liked: doc.liked,
         disliked: doc.disliked,
         createdAt: doc.$createdAt || doc.created_at,
+        analyzedFilesCount: doc.analyzedFilesCount,
+        processedFiles: doc.processedFiles,
+        isThinkingMode: doc.isThinkingMode,
+        analysisType: doc.analysisType,
       }));
     } catch (error: any) {
       console.warn('[chatService] Error fetching conversation chats:', error?.message || error);
@@ -290,9 +362,40 @@ export const chatService = {
    * Stores strictly with the authenticated user's email
    */
   async createConversation(params: CreateConversationParams): Promise<ConversationItem | null> {
-    if (!DB_ID || !params.libId || !params.userEmail) return null;
+    if (!params.libId || !params.userEmail) return null;
 
     const normalizedEmail = params.userEmail.trim().toLowerCase();
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.post('/api/mobile/conversations', {
+          libId: params.libId,
+          searchInput: params.searchInput,
+          type: params.type || 'search',
+          selectedModel: params.selectedModel || 'provider-8/gemini-2.0-flash',
+          modelName: params.modelName || 'Gemini 2.0 Flash',
+        });
+        const created = response.data;
+        if (created) {
+          return {
+            libId: created.libId || created.$id,
+            title: cleanConversationTitle(created.searchInput || params.searchInput),
+            rawTitle: created.searchInput || params.searchInput,
+            userEmail: created.userEmail || normalizedEmail,
+            type: created.type || 'search',
+            selectedModel: created.selectedModel,
+            modelName: created.modelName,
+            createdAt: created.created_at || created.$createdAt,
+            docId: created.$id,
+          };
+        }
+      } catch (err: any) {
+        console.log('[chatService] Proxy createConversation failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return null;
 
     try {
       const payload: Record<string, any> = {
@@ -329,6 +432,7 @@ export const chatService = {
       }
 
       let created: any;
+      assertNoBinaryPayload(payload, 'library');
       try {
         created = await databases.createDocument(
           DB_ID,
@@ -370,9 +474,46 @@ export const chatService = {
    * Strictly confirms the user owns the conversation before appending
    */
   async addChatMessage(params: AddChatMessageParams): Promise<ChatMessageRecord | null> {
-    if (!DB_ID || !params.libId || !params.userEmail) return null;
+    if (!params.libId || !params.userEmail) return null;
+
+    if (params.processedFiles && /data:[a-z]+\/[a-z0-9.+-]+;base64,/i.test(params.processedFiles)) {
+      throw new Error('Refusing to persist base64 in processedFiles');
+    }
 
     const normalizedEmail = params.userEmail.trim().toLowerCase();
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.post('/api/mobile/chats', {
+          libId: params.libId,
+          userSearchInput: params.userSearchInput,
+          aiResp: params.aiResp,
+          searchResult: params.searchResult || '',
+          analysisType: params.analysisType || 'text_only',
+          usedModel: params.usedModel,
+          modelApi: params.modelApi,
+          analyzedFilesCount: params.analyzedFilesCount || 0,
+          processedFiles: params.processedFiles,
+          isThinkingMode: params.isThinkingMode || false,
+        });
+        const created = response.data;
+        if (created) {
+          return {
+            id: created.$id,
+            libId: created.libId,
+            userSearchInput: created.userSearchInput,
+            aiResp: created.aiResp,
+            searchResult: created.searchResult,
+            createdAt: created.created_at || created.$createdAt,
+          };
+        }
+      } catch (err: any) {
+        console.log('[chatService] Proxy addChatMessage failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return null;
 
     try {
       // Confirm ownership in library first
@@ -401,12 +542,20 @@ export const chatService = {
         created_at: new Date().toISOString(),
         liked: 'false',
         disliked: 'false',
-        analyzedFilesCount: 0,
-        isThinkingMode: false,
+        analyzedFilesCount: params.analyzedFilesCount || 0,
+        isThinkingMode: params.isThinkingMode || false,
       };
 
+      if (params.processedFiles) {
+        if (/data:[a-z]+\/[a-z0-9.+-]+;base64,/i.test(params.processedFiles)) {
+          throw new Error('Refusing to persist base64 in processedFiles');
+        }
+        payload.processedFiles = params.processedFiles;
+      }
       if (params.usedModel) payload.usedModel = params.usedModel;
       if (params.modelApi) payload.modelApi = params.modelApi;
+
+      assertNoBinaryPayload(payload, 'chats');
 
       const created = await databases.createDocument(
         DB_ID,
@@ -434,7 +583,22 @@ export const chatService = {
    * Update liked/disliked status of a specific message
    */
   async updateMessageFeedback(messageId: string, field: 'liked' | 'disliked', value: boolean): Promise<boolean> {
-    if (!DB_ID || !messageId) return false;
+    if (!messageId) return false;
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.put(
+          `/api/mobile/chats/${encodeURIComponent(messageId)}/feedback`,
+          { field, value }
+        );
+        if (response.data?.success) return true;
+      } catch (err: any) {
+        console.log('[chatService] Proxy updateMessageFeedback failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return false;
 
     try {
       await databases.updateDocument(DB_ID, CHATS_COLLECTION_ID, messageId, {
@@ -452,7 +616,22 @@ export const chatService = {
    * Strictly gated on user ownership
    */
   async renameConversation(libId: string, userEmail: string, newTitle: string): Promise<boolean> {
-    if (!DB_ID || !libId || !userEmail || !newTitle.trim()) return false;
+    if (!libId || !userEmail || !newTitle.trim()) return false;
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.put(
+          `/api/mobile/conversations/${encodeURIComponent(libId)}`,
+          { newTitle: newTitle.trim() }
+        );
+        if (response.data?.success) return true;
+      } catch (err: any) {
+        console.log('[chatService] Proxy renameConversation failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return false;
 
     const normalizedEmail = userEmail.trim().toLowerCase();
 
@@ -487,7 +666,21 @@ export const chatService = {
    * Strictly gated on user ownership
    */
   async deleteConversation(libId: string, userEmail: string): Promise<boolean> {
-    if (!DB_ID || !libId || !userEmail) return false;
+    if (!libId || !userEmail) return false;
+
+    // 1. Authenticated Mobile Backend Proxy Route
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.delete(
+          `/api/mobile/conversations/${encodeURIComponent(libId)}`
+        );
+        if (response.data?.success) return true;
+      } catch (err: any) {
+        console.log('[chatService] Proxy deleteConversation failed, falling back:', err?.message || err);
+      }
+    }
+
+    if (!DB_ID) return false;
 
     const normalizedEmail = userEmail.trim().toLowerCase();
 

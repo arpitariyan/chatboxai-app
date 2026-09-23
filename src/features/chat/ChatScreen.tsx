@@ -31,6 +31,7 @@ import { useThemeColors, spacing, typography } from '@/theme';
 import { chatService } from '@/services/chatService';
 import { useChatGeneration, ChatAttachment } from '@/hooks/useChatGeneration';
 import { useModelStore } from '@/stores/useModelStore';
+import { parseStoredAttachments } from '@/utils/attachments';
 
 // ── Hoist this out of the component so it is created exactly ONCE ──────────
 // Calling Animated.createAnimatedComponent() inside render creates a new type
@@ -94,6 +95,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const {
     isSearching,
     isThinking,
+    isFileAnalyzing,
     progressMessage,
     sourceList,
     aiResponse,
@@ -167,15 +169,19 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
           if (rec.userSearchInput) {
             let userIdx = userQueryToIndex.get(rec.userSearchInput);
-            const isRegeneration = userIdx !== undefined;
+            const isRegeneration = userIdx !== undefined && !rec.processedFiles;
 
             if (!isRegeneration) {
               // First time seeing this user query
+              let parsedAttachments: any[] | undefined = parseStoredAttachments(rec.processedFiles);
+              if (parsedAttachments.length === 0) parsedAttachments = undefined;
+
               loadedMessages.push({
                 id: `${rec.id}-user`,
                 role: 'user',
                 content: rec.userSearchInput,
                 timestamp: formattedTime,
+                attachments: parsedAttachments,
               });
               userQueryToIndex.set(rec.userSearchInput, loadedMessages.length - 1);
             }
@@ -425,14 +431,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       }
 
       // Build display content for the user bubble
-      const displayContent = messageContent || (attachments && attachments.length > 0
-        ? `[${attachments.map(a => a.name).join(', ')}]`
-        : '');
+      const displayContent = messageContent || '';
 
       const userMessage: MessageItem = {
         id: `user-${Date.now()}`,
         role: 'user',
         content: displayContent,
+        attachments: attachments,
         timestamp: new Date().toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
@@ -456,7 +461,47 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           content: m.content,
         }));
 
-      await generateResponse(messageContent || ' ', searchType, history, attachments);
+      const result = await generateResponse(messageContent || ' ', searchType, history, attachments);
+
+      // Once generation and DB write finish, update the local user message with the REAL DB id
+      // and merge uploaded file metadata (fileId, publicUrl, etc.) while strictly preserving local preview URIs.
+      if (result?.dbId || result?.processedFiles) {
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id !== userMessage.id) return msg;
+
+            let mergedAttachments = msg.attachments;
+            if (result?.processedFiles && result.processedFiles.length > 0) {
+              mergedAttachments = (msg.attachments || []).map((att, idx) => {
+                const processed =
+                  result.processedFiles![idx] ||
+                  result.processedFiles!.find(
+                    (p: any) => p.name === att.name || p.fileName === att.name
+                  );
+                if (!processed) return att;
+                return {
+                  ...att,
+                  fileId: processed.fileId || att.fileId,
+                  name: processed.name || processed.fileName || att.name,
+                  mimeType: processed.mimeType || processed.fileType || att.mimeType,
+                  size: processed.size || processed.fileSize || att.size,
+                  publicUrl: processed.publicUrl || att.publicUrl,
+                  viewUrl: processed.viewUrl || att.viewUrl,
+                  previewUrl: processed.previewUrl || att.previewUrl,
+                  // Retain local memory URI for current active session (never remote HTTP/Appwrite URLs)
+                  uri: att.uri || (processed.uri && /^(?:file|content|ph|assets-library|blob):\/\//i.test(processed.uri) ? processed.uri : undefined),
+                };
+              });
+            }
+
+            return {
+              ...msg,
+              id: result?.dbId ? `${result.dbId}-user` : msg.id,
+              attachments: mergedAttachments,
+            };
+          })
+        );
+      }
     },
     [isThinking, isSearching, currentUser?.email, generateResponse, messages],
   );
@@ -549,7 +594,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setPendingAttachments(prev => {
       const existingUris = new Set(prev.map(a => a.uri));
       const fresh = newAttachments.filter(a => !existingUris.has(a.uri));
-      return [...prev, ...fresh];
+      return [...prev, ...fresh].slice(0, 20);
     });
   }, []);
 
@@ -557,7 +602,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setPendingAttachments(prev => prev.filter(a => a.uri !== uri));
   }, []);
 
-  const isGenerating = isSearching || isThinking;
+  const isGenerating = isSearching || isThinking || isFileAnalyzing;
 
   return (
     <View
@@ -585,6 +630,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           handleOpenAttachments={handleOpenAttachments}
           handleOpenVoice={handleOpenVoice}
           isGenerating={isGenerating}
+          isFileAnalyzing={isFileAnalyzing}
           currentUser={currentUser}
           userProfile={userProfile}
           colors={colors}
@@ -698,6 +744,7 @@ interface ContentProps {
   handleOpenAttachments: () => void;
   handleOpenVoice: () => void;
   isGenerating: boolean;
+  isFileAnalyzing: boolean;
   currentUser: any;
   userProfile: any;
   colors: any;
@@ -725,6 +772,7 @@ const ConversationContent: React.FC<ContentProps> = ({
   handleOpenAttachments,
   handleOpenVoice,
   isGenerating,
+  isFileAnalyzing,
   currentUser,
   userProfile,
   colors,
@@ -791,17 +839,26 @@ const ConversationContent: React.FC<ContentProps> = ({
                 onVersionChange={handleVersionChange}
               />
             ))}
-            {(isSearching || isThinking) && (
+            {(isSearching || isThinking || isFileAnalyzing) && (
               <View style={styles.thinkingContainer}>
-                {(isThinking && thinkingMode) ? (
+                {(thinkingMode) ? (
                   // Show Reasoning style loader if thinking mode is active
-                  <ThinkingBlock content="" isFinished={false} isLoading={true} />
+                  <ThinkingBlock 
+                    content="" 
+                    isFinished={false} 
+                    isLoading={true} 
+                    loadingTitle={
+                      isFileAnalyzing 
+                        ? (progressMessage || 'Analyzing files...')
+                        : (progressMessage || 'Preparing reasoning...')
+                    }
+                  />
                 ) : (
-                  // Standard loader for web search or normal generation
+                  // Standard loader for web search, normal generation, or file analysis
                   <>
                     <ActivityIndicator size="small" color={colors.accent} />
                     <Text style={[styles.thinkingText, { color: colors.ink2 }]}>
-                      {progressMessage || 'Thinking...'}
+                      {progressMessage || (isFileAnalyzing ? 'Analyzing files...' : 'Thinking...')}
                     </Text>
                   </>
                 )}
@@ -915,6 +972,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     gap: spacing.sm,
+  },
+  fileAnalysisLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   thinkingText: {
     fontSize: typography.fontSize.sm,

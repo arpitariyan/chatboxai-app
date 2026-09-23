@@ -1,10 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { LLMFallbackService } from '../services/llm/LLMFallbackService';
 import { LLMMessage, LLMContentPart } from '../services/llm/providers';
+import { toStoredAttachment, serializeAttachmentsForDb, toMobileFileViewUrl } from '../utils/attachments';
+import { STORAGE_BUCKET_ID } from '../config/appwrite';
 import { useModelStore } from '../stores/useModelStore';
 import { chatService, generateUUID } from '../services/chatService';
 import { AIModelsOption, DEEP_RESEARCH_MODELS } from '../config/models';
 import { parseAiResponse } from '../utils/parseAiResponse';
+import { auth } from '../config/firebase';
+
+import { toMobileUploadUrl, toMobileAnalyzeUrl, toMobileFileUrl } from '../config/mobileApi';
 
 // ── Attachment type exposed from this hook ────────────────────────────────────
 export interface ChatAttachment {
@@ -41,6 +46,7 @@ interface UseChatGenerationOptions {
 interface UseChatGenerationReturn {
   isSearching: boolean;
   isThinking: boolean;
+  isFileAnalyzing: boolean;
   progressMessage: string;
   sourceList: SearchResultItem[];
   /** Clean final answer (no <think> tags) */
@@ -49,10 +55,10 @@ interface UseChatGenerationReturn {
   aiThinking: string;
   generateResponse: (
     query: string,
-    searchType: 'chat' | 'search' | 'research',
+    searchType?: 'chat' | 'search' | 'research',
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
-    attachments?: ChatAttachment[],
-  ) => Promise<void>;
+    attachments?: any[],
+  ) => Promise<{ dbId: string; processedFiles?: any[] } | void>;
   reset: () => void;
 }
 
@@ -190,6 +196,7 @@ export const useChatGeneration = ({
 }: UseChatGenerationOptions): UseChatGenerationReturn => {
   const [isSearching, setIsSearching] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isFileAnalyzing, setIsFileAnalyzing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [sourceList, setSourceList] = useState<SearchResultItem[]>([]);
   const [aiResponse, setAiResponse] = useState('');
@@ -241,10 +248,10 @@ export const useChatGeneration = ({
   const generateResponse = useCallback(
     async (
       query: string,
-      searchType: 'chat' | 'search' | 'research',
+      searchType: 'chat' | 'search' | 'research' = 'chat',
       history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
-      attachments: ChatAttachment[] = []
-    ) => {
+      attachments: any[] = []
+    ): Promise<{ dbId: string; processedFiles?: any[] } | void> => {
       if (!userEmail || !query.trim()) return;
       if (isGeneratingRef.current) {
         console.warn('[useChatGeneration] Already generating, ignoring call');
@@ -313,11 +320,11 @@ export const useChatGeneration = ({
       if (modelId === 'auto') {
         const plan = userPlan.toLowerCase();
         const availableModels = searchType === 'research' ? DEEP_RESEARCH_MODELS : AIModelsOption;
-        
+
         // Exclude the 'Auto' model itself from the random pool
         const pool = availableModels.filter((m: any) => {
           if (m.modelApi === 'auto' || m.publicId === 'auto') return false;
-          
+
           const isModelMax = m.accessTier === 'max';
           const isModelPro = m.isPro || m.accessTier === 'pro';
 
@@ -344,25 +351,171 @@ export const useChatGeneration = ({
 
       let responseText = '';
       let llmResult: any = null;
+      let finalThinking = '';
+      let finalAnswerClean = '';
+      let filePaths: any[] = [];
 
       try {
-        llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
-          max_tokens: searchType === 'research' ? 4096 : 2048,
-          temperature: currentEffortLevel === 'Low' ? 0.7 : currentEffortLevel === 'Medium' ? 0.6 : 0.5,
-          effortLevel: currentEffortLevel,
-          thinkingMode: currentThinkingMode,
-        });
-        responseText = llmResult?.choices?.[0]?.message?.content || '';
-      } catch (llmErr: any) {
-        console.error('[useChatGeneration] LLM generation failed:', llmErr.message);
+        if (attachments.length > 0) {
+          // --- REMOTE ANALYSIS BRANCH (Handles files securely) ---
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error("Authentication required for file analysis");
+
+          setIsFileAnalyzing(true);
+          setProgressMessage(`Uploading files (0/${attachments.length})...`);
+
+          // 1. Upload files with controlled concurrency (Max 4 parallel)
+          let uploadedCount = 0;
+          const uploadBatches = [];
+          for (let i = 0; i < attachments.length; i += 4) {
+            uploadBatches.push(attachments.slice(i, i + 4));
+          }
+
+          for (const batch of uploadBatches) {
+            const batchPromises = batch.map(async (attachment) => {
+              const formData = new FormData();
+              formData.append('file', {
+                uri: attachment.uri,
+                name: attachment.name || `file_${Date.now()}.bin`,
+                type: attachment.mimeType || 'application/octet-stream',
+              } as any);
+
+              const uploadRes = await require('axios').default.post(toMobileUploadUrl(), formData, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'multipart/form-data',
+                },
+              });
+
+              const data = uploadRes.data;
+              if (!data.success || !data.fileId) throw new Error(data.error || 'Failed to upload file');
+
+              const mobileFileUrl = toMobileFileUrl(data.fileId);
+
+              const stored = toStoredAttachment({
+                fileId: data.fileId,
+                path: data.fileId,
+                bucketId: data.bucketId || STORAGE_BUCKET_ID,
+                publicUrl: mobileFileUrl,
+                fileName: data.fileName || attachment.name,
+                fileType: data.fileType || attachment.mimeType,
+                fileSize: data.fileSize,
+              });
+              if (!stored) throw new Error('Upload response had no file id');
+              return stored;
+            });
+
+            const results = await Promise.allSettled(batchPromises);
+            for (const res of results) {
+              uploadedCount++;
+              setProgressMessage(`Uploading files (${uploadedCount}/${attachments.length})...`);
+              if (res.status === 'fulfilled') {
+                filePaths.push(res.value);
+              } else {
+                console.warn('File upload failed:', res.reason);
+              }
+            }
+          }
+
+          if (filePaths.length === 0) {
+            throw new Error('All file uploads failed. Please try again.');
+          }
+
+          setProgressMessage('Analyzing files...');
+
+          // 2. Chunked Pre-Analysis to avoid backend timeouts (Chunk size: 4 files)
+          const CHUNK_SIZE = 4;
+          const fileChunks = [];
+          for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+            fileChunks.push(filePaths.slice(i, i + CHUNK_SIZE));
+          }
+
+          let aggregatedAiResponse = '';
+          let aggregatedThinking = '';
+          let actualModel = 'api/mobile/analyze';
+          let actualProvider = 'ChatBox Mobile API';
+
+          for (let i = 0; i < fileChunks.length; i++) {
+            const chunk = fileChunks[i];
+            setProgressMessage(`Analyzing files (Batch ${i + 1}/${fileChunks.length})...`);
+
+            // The final chunk answers the user's question; previous chunks just summarize for context.
+            const isFinalChunk = (i === fileChunks.length - 1);
+            const chunkPrompt = isFinalChunk ? query : 'Please extract all text, information, and context from these files. Provide a comprehensive summary so I can use it to answer the user\'s final question.';
+
+            // Include aggregated context in the final chunk if we had previous batches
+            const finalPromptContext = (isFinalChunk && aggregatedAiResponse)
+              ? `Previously Analyzed Context:\n${aggregatedAiResponse}\n\nCurrent Question: ${query}`
+              : chunkPrompt;
+
+            const analyzeRes = await fetch(toMobileAnalyzeUrl(), {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                prompt: finalPromptContext,
+                fileIds: chunk.map((f: any) => f.fileId),
+                // To save tokens, only pass conversation history on the final chunk
+                conversationHistory: isFinalChunk ? history : [],
+                memoryEnabled: isFinalChunk,
+              }),
+            });
+
+            const analyzeData = await analyzeRes.json();
+            if (!analyzeRes.ok || analyzeData.error) {
+              if (isFinalChunk && !aggregatedAiResponse) {
+                if (analyzeRes.status === 429) throw new Error("Rate limit exceeded. Please try again later.");
+                if (analyzeRes.status === 402) throw new Error("Insufficient AI credits for document analysis.");
+                throw new Error(analyzeData.error || 'Analysis failed');
+              } else {
+                console.warn(`Chunk ${i + 1} analysis failed:`, analyzeData.error);
+                continue;
+              }
+            }
+
+            if (isFinalChunk) {
+              aggregatedAiResponse = analyzeData.aiResponse || aggregatedAiResponse;
+              if (analyzeData.thinkingContent) aggregatedThinking += (aggregatedThinking ? '\n\n' : '') + analyzeData.thinkingContent;
+            } else {
+              // Append summary to the running context
+              aggregatedAiResponse += (aggregatedAiResponse ? '\n\n' : '') + (analyzeData.aiResponse || '');
+            }
+          }
+
+          setIsFileAnalyzing(false);
+          setIsThinking(true);
+          setProgressMessage('Preparing answer...');
+
+          finalAnswerClean = aggregatedAiResponse || '';
+          finalThinking = aggregatedThinking || '';
+          responseText = finalAnswerClean; // For fallback
+
+          llmResult = {
+            resolvedModel: { provider: actualProvider, modelApi: actualModel },
+          };
+        } else {
+          // --- LOCAL SERVICE BRANCH (Fast text-only/fallback) ---
+          llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
+            max_tokens: searchType === 'research' ? 4096 : 2048,
+            temperature: currentEffortLevel === 'Low' ? 0.7 : currentEffortLevel === 'Medium' ? 0.6 : 0.5,
+            effortLevel: currentEffortLevel,
+            thinkingMode: currentThinkingMode,
+          });
+          responseText = llmResult?.choices?.[0]?.message?.content || '';
+
+          const parsed = parseAiResponse(responseText);
+          finalThinking = parsed.thinking;
+          finalAnswerClean = parsed.finalAnswer;
+        }
+      } catch (err: any) {
+        console.error('[useChatGeneration] generation failed:', err.message);
         setIsThinking(false);
-        setProgressMessage('Generation failed. Please try again.');
+        setProgressMessage(err.message || 'Generation failed. Please try again.');
         isGeneratingRef.current = false;
         return;
       }
-
-      // ── Step 5: Parse thinking vs final answer ────────────────────────────
-      const { thinking, finalAnswer } = parseAiResponse(responseText);
 
       // ── Step 6: Persist to Appwrite ───────────────────────────────────────
       // Only save the CLEAN final answer to aiResp (no <think> pollution).
@@ -371,35 +524,55 @@ export const useChatGeneration = ({
       try {
         const resolvedModel = llmResult?.resolvedModel;
         let searchResultPayload = '';
-        if (sources.length > 0 || thinking) {
+        if (sources.length > 0 || finalThinking) {
           // Build a wrapper object: { sources: [...], reasoning: '...' }
           searchResultPayload = JSON.stringify({
             sources: sources.length > 0 ? sources : [],
-            ...(thinking ? { reasoning: thinking } : {}),
+            ...(finalThinking ? { reasoning: finalThinking } : {}),
           });
         }
-        await chatService.addChatMessage({
+
+        const hasFiles = filePaths && filePaths.length > 0;
+        const dbProcessed = hasFiles ? serializeAttachmentsForDb(filePaths) : undefined;
+
+        const chatRecord = await chatService.addChatMessage({
           libId: libId!,
           userEmail: normalizedEmail,
           userSearchInput: query,
-          aiResp: finalAnswer || responseText, // fallback: save raw if parse failed
+          aiResp: finalAnswerClean || responseText, // fallback: save raw if parse failed
           searchResult: searchResultPayload,
-          analysisType: searchType === 'chat' ? 'text_only' : 'web_search',
+          analysisType: hasFiles ? 'file_analysis' : (searchType === 'chat' ? 'text_only' : 'web_search'),
           usedModel: resolvedModel?.provider || model?.name || '',
           modelApi: resolvedModel?.modelApi || (model as any)?.modelApi || '',
+          analyzedFilesCount: hasFiles ? filePaths.length : 0,
+          processedFiles: dbProcessed,
+          isThinkingMode: hasFiles ? true : !!finalThinking,
         });
+
+        const dbId = chatRecord ? chatRecord.id : '';
+
+        // ── Step 7: Surface result to UI ──────────────────────────────────────
+        // Set both before clearing isThinking so ChatScreen sees complete state.
+        setAiThinking(finalThinking);
+        setAiResponse(finalAnswerClean || responseText);
+        setIsThinking(false);
+        setProgressMessage('');
+        isGeneratingRef.current = false;
+
+        return { dbId, processedFiles: filePaths };
       } catch (dbErr: any) {
         // Non-fatal — user still sees the response even if DB write fails
         console.warn('[useChatGeneration] addChatMessage failed:', dbErr?.message || dbErr);
-      }
 
-      // ── Step 7: Surface result to UI ──────────────────────────────────────
-      // Set both before clearing isThinking so ChatScreen sees complete state.
-      setAiThinking(thinking);
-      setAiResponse(finalAnswer || responseText);
-      setIsThinking(false);
-      setProgressMessage('');
-      isGeneratingRef.current = false;
+        // Still resolve UI state
+        setAiThinking(finalThinking);
+        setAiResponse(finalAnswerClean || responseText);
+        setIsThinking(false);
+        setProgressMessage('');
+        isGeneratingRef.current = false;
+
+        return;
+      }
     },
     // Only userEmail is a true dep; everything else comes from stable refs
     [userEmail],
@@ -408,6 +581,7 @@ export const useChatGeneration = ({
   return {
     isSearching,
     isThinking,
+    isFileAnalyzing,
     progressMessage,
     sourceList,
     aiResponse,
