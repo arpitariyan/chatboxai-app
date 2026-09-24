@@ -380,11 +380,13 @@ export const useChatGeneration = ({
                 type: attachment.mimeType || 'application/octet-stream',
               } as any);
 
-              const uploadRes = await require('axios').default.post(toMobileUploadUrl(), formData, {
+              const uploadUrl = toMobileUploadUrl();
+              const uploadRes = await require('axios').default.post(uploadUrl, formData, {
                 headers: {
                   'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'multipart/form-data',
+                  'Accept': 'application/json',
                 },
+                timeout: 60000,
               });
 
               const data = uploadRes.data;

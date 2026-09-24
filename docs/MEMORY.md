@@ -1665,8 +1665,38 @@ With the dedicated mobile API live at `https://api-mobile.chatboxai.co.in`, the 
   - 7/7 magic byte detection tests passed.
   - CSV structured table generation passed.
 - Serverless handler test (`api/index.ts`):
-  - Health check returned 200 OK (`{"ok":true,"service":"chatboxai-mobile-api","version":"1.0.0"}`).
-- Website isolation verified: 0 changes to `chatboxai_website_copy`.
+  
+---
+
+# 64. Resolution of Axios Network Error & Cloud Backend URL Enforcement (Sept 24, 2026)
+
+## Context
+When sending attachments in the app, users observed:
+- `File upload failed: AxiosError: Network Error` in `useChatGeneration.ts:415`.
+- `[useChatGeneration] generation failed: All file uploads failed. Please try again.`
+- `Cannot connect to Expo CLI... URL: 10.218.56.237:8081`.
+
+## Root Cause
+1. **Fallback to Stale Port 3001 (`src/config/mobileApi.ts`)**:
+   - In development mode (`__DEV__`), `resolveBackendBaseUrl()` contained automatic LAN detection that fell back to `http://${host}:3001` (i.e. `http://10.218.56.237:3001`).
+   - Because the dedicated mobile backend is hosted on Vercel at `https://api-mobile.chatboxai.co.in`, no process was listening on local port 3001.
+   - When the physical phone attempted to upload files to `http://10.218.56.237:3001/api/mobile/upload`, the TCP connection was immediately refused (`ECONNREFUSED`), which Axios reported as `AxiosError: Network Error`.
+2. **Axios Multipart Header Conflict (`src/hooks/useChatGeneration.ts`)**:
+   - Manually setting `headers: { 'Content-Type': 'multipart/form-data' }` in Axios overrides React Native's native multipart boundary generation (`multipart/form-data; boundary=...`).
+3. **Stale Metro Dev Server**:
+   - Metro had been running continuously for almost 3 hours. Environment variable updates in `.env` and WebSocket HMR sessions with the physical device had become disconnected.
+
+## What Was Done
+1. **Guaranteed Cloud Endpoint Default (`src/config/mobileApi.ts`)**:
+   - Updated `resolveBackendBaseUrl()` to prioritize `PRODUCTION_DEFAULT_URL` (`https://api-mobile.chatboxai.co.in`) as the canonical default for both development and production.
+   - Completely eliminated the fallback to port 3001 and stale LAN IPs (`10.218.56.237`).
+2. **Clean Multipart Headers & Timeout (`src/hooks/useChatGeneration.ts`)**:
+   - Removed hardcoded `'Content-Type': 'multipart/form-data'` so React Native correctly appends the boundary parameter.
+   - Added explicit `Accept: 'application/json'` and `timeout: 60000` (60 seconds) to tolerate high-resolution media uploads.
+3. **Verification**:
+   - `npx tsc --noEmit` & `npx tsc --project api/tsconfig.json --noEmit` both passed with 0 errors.
+   - Direct connection test to `https://api-mobile.chatboxai.co.in/api/mobile/health` verified 200 OK.
+
 
 
 

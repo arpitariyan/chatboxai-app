@@ -18,53 +18,23 @@ const PRODUCTION_DEFAULT_URL = 'https://api-mobile.chatboxai.co.in';
 export function resolveBackendBaseUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_MOBILE_API_URL?.trim().replace(/\/+$/, '');
 
-  // 1. Production standalone release build:
-  // In release APK (!__DEV__), ALWAYS use secure HTTPS production endpoint (never local IP or localhost)
-  if (!__DEV__) {
-    if (envUrl && envUrl.startsWith('https://')) {
-      return envUrl;
-    }
-    return PRODUCTION_DEFAULT_URL;
-  }
-
-  // 2. Development explicit override:
-  if (envUrl && envUrl.length > 0) {
+  // 1. If explicit HTTPS URL is provided, use it everywhere (dev and prod)
+  if (envUrl && envUrl.startsWith('https://')) {
     return envUrl;
   }
 
-  // 3. Development automatic host detection:
-  // In Expo Go, debuggerHost provides the exact LAN IP of the host machine
-  try {
-    const expoGoConfig = getExpoGoProjectConfig();
-    const debuggerHost = expoGoConfig?.debuggerHost;
-    if (typeof debuggerHost === 'string' && debuggerHost.length > 0) {
-      const host = debuggerHost.split(':')[0];
-      if (host && host !== 'localhost' && host !== '127.0.0.1') {
-        return `http://${host}:3001`;
-      }
-    }
-  } catch {
-    // Non-fatal, check next method
+  // 2. Production release APK: ALWAYS guarantee HTTPS production domain
+  if (!__DEV__) {
+    return PRODUCTION_DEFAULT_URL;
   }
 
-  // Detect the IP address from which the JS bundle was downloaded
-  try {
-    const scriptURL = NativeModules?.SourceCode?.scriptURL;
-    if (typeof scriptURL === 'string' && scriptURL.length > 0) {
-      const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
-      if (match && match[1]) {
-        const host = match[1];
-        if (host !== 'localhost' && host !== '127.0.0.1') {
-          return `http://${host}:3001`;
-        }
-      }
-    }
-  } catch {
-    // Non-fatal, fall through to platform defaults
+  // 3. In development: only use local HTTP if explicitly set and NOT an old stale LAN IP
+  if (envUrl && envUrl.startsWith('http://') && !envUrl.includes('10.218.56.237')) {
+    return envUrl;
   }
 
-  // 4. Development platform default fallback (Android Emulator or iOS Simulator)
-  return Platform.OS === 'android' ? 'http://10.0.2.2:3001' : 'http://localhost:3001';
+  // 4. Default for all environments: The official hosted cloud API!
+  return PRODUCTION_DEFAULT_URL;
 }
 
 export const MOBILE_API_URL = resolveBackendBaseUrl();
