@@ -1,55 +1,81 @@
 import React from 'react';
-import { StyleSheet, Text, View, Image } from 'react-native';
-import { useThemeColors, spacing, typography } from '@/theme';
+import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { IconArrowLeft } from '@tabler/icons-react-native';
+import { spacing } from '@/theme';
 
 interface AuthHeaderProps {
   title: string;
-  subtitle: string;
+  subtitle?: string;
+  onBack?: () => void;
+  showUnderline?: boolean;
 }
 
-const logoImg = require('../../../assets/images/logo.png');
-
-export const AuthHeader: React.FC<AuthHeaderProps> = ({ title, subtitle }) => {
-  const colors = useThemeColors();
-
+export const AuthHeader: React.FC<AuthHeaderProps> = ({
+  title,
+  subtitle,
+  onBack,
+  showUnderline = true,
+}) => {
   return (
     <View style={styles.container}>
-      {/* Hero ChatBox AI Brand Logo Image */}
-      <Image source={logoImg} style={styles.heroLogo} resizeMode="contain" />
+      {onBack && (
+        <Pressable
+          onPress={onBack}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.backButton,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+          accessibilityLabel="Go back"
+        >
+          <IconArrowLeft size={22} color="#ffffff" strokeWidth={2} />
+        </Pressable>
+      )}
 
-      {/* Screen Title */}
-      <Text style={[styles.title, { color: colors.ink }]}>{title}</Text>
+      <Text
+        style={[
+          styles.title,
+          showUnderline && styles.underlineTitle,
+        ]}
+      >
+        {title}
+      </Text>
 
-      {/* Supporting Subtitle */}
-      <Text style={[styles.subtitle, { color: colors.ink2 }]}>{subtitle}</Text>
+      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
-    marginBottom: spacing.lg,
     width: '100%',
+    alignItems: 'flex-start',
+    marginBottom: spacing.xl,
   },
-  heroLogo: {
-    width: 160,
-    height: 56,
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#252525',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.md,
   },
   title: {
-    fontSize: 24,
-    fontWeight: typography.fontWeight.bold,
-    textAlign: 'center',
-    letterSpacing: -0.4,
-    marginBottom: 6,
+    fontSize: 34,
+    fontWeight: '600',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+    lineHeight: 42,
+  },
+  underlineTitle: {
+    textDecorationLine: 'underline',
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.normal,
-    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#7F7F7F',
     lineHeight: 20,
-    maxWidth: 310,
+    marginTop: 8,
   },
 });
-

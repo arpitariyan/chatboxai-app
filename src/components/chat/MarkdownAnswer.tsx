@@ -9,12 +9,13 @@ import {
   Platform,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { IconCopy, IconCheck } from '@tabler/icons-react-native';
+import { IconCopy, IconCheck, IconTable, IconArrowsLeftRight } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
 import { SvglIcon, getDomainFromUrl } from './SvglIcon';
 
 interface MarkdownAnswerProps {
   content: string;
+  onLongPress?: () => void;
 }
 
 // Language display map from DisplaySummery.jsx
@@ -141,9 +142,16 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
   );
 };
 
-// ── Markdown Table Component — correct border model ──
-const TableBlock: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers, rows }) => {
+// ── Markdown Table Component — smooth horizontal scrolling, responsive sizing & copy ──
+interface TableBlockProps {
+  headers: string[];
+  rows: string[][];
+  alignments?: ('left' | 'center' | 'right')[];
+}
+
+const TableBlock: React.FC<TableBlockProps> = ({ headers, rows, alignments = [] }) => {
   const colors = useThemeColors();
+  const [copied, setCopied] = useState(false);
 
   // Determine column count (use headers if present, else max row width)
   const colCount = Math.max(
@@ -151,105 +159,225 @@ const TableBlock: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers
     ...rows.map((r) => r.length)
   );
 
-  // Pad rows that are shorter than colCount
-  const paddedRows = rows.map((row) => {
-    if (row.length >= colCount) return row;
-    return [...row, ...Array(colCount - row.length).fill('')];
-  });
+  if (colCount === 0) return null;
 
-  // Calculate fixed widths for each column to ensure perfect alignment
-  // across all rows. This fixes the broken borders and misaligned columns.
-  const colWidths = Array.from({ length: colCount }).map((_, cIdx) => {
-    let maxLen = headers[cIdx] ? headers[cIdx].length : 0;
-    paddedRows.forEach((row) => {
-      const cell = row[cIdx] || '';
-      if (cell.length > maxLen) maxLen = cell.length;
+  // Pad rows that are shorter than colCount
+  const paddedRows = useMemo(() => {
+    return rows.map((row) => {
+      if (row.length >= colCount) return row;
+      return [...row, ...Array(colCount - row.length).fill('')];
     });
-    // approx 8px per char + 26px horizontal padding
-    const estimatedWidth = maxLen * 8 + 30;
-    // clamp between 100px and 280px
-    return Math.max(100, Math.min(280, estimatedWidth));
-  });
+  }, [rows, colCount]);
+
+  // Calculate dynamic column widths based on cell content length
+  const colWidths = useMemo(() => {
+    return Array.from({ length: colCount }).map((_, cIdx) => {
+      let maxLen = headers[cIdx] ? headers[cIdx].length : 0;
+      paddedRows.forEach((row) => {
+        const cell = row[cIdx] || '';
+        if (cell.length > maxLen) maxLen = cell.length;
+      });
+
+      // Very short content (e.g. #, ID, Yes/No, etc.)
+      if (maxLen <= 4) {
+        return Math.max(80, maxLen * 10 + 36);
+      }
+      // Medium content (e.g. names, categories, numbers)
+      if (maxLen <= 15) {
+        return Math.max(110, maxLen * 9 + 36);
+      }
+      // Longer content (e.g. descriptions, sentences)
+      // Clamped between 140px and 320px so reading is pleasant without excessive wrapping
+      const estimatedWidth = maxLen * 8 + 36;
+      return Math.max(140, Math.min(320, estimatedWidth));
+    });
+  }, [colCount, headers, paddedRows]);
+
+  const totalTableWidth = useMemo(() => {
+    return colWidths.reduce((acc, w) => acc + w, 0);
+  }, [colWidths]);
+
+  // If table is wide (> 310px or > 2 columns), indicate horizontal scroll
+  const isWideTable = totalTableWidth > 310 || colCount > 2;
 
   const isLastCol = (i: number) => i === colCount - 1;
   const isLastRow = (i: number) => i === paddedRows.length - 1;
 
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator
-      style={[styles.tableContainer, { borderColor: colors.line }]}
-      contentContainerStyle={styles.tableScrollContent}
-    >
-      <View style={styles.tableInner}>
-        {/* Header Row */}
-        {headers.length > 0 && (
-          <View
-            style={[
-              styles.tableRow,
-              {
-                backgroundColor: colors.surface,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.line,
-              },
-            ]}
-          >
-            {headers.map((h, i) => (
-              <View
-                key={`th-${i}`}
-                style={[
-                  styles.tableCell,
-                  { width: colWidths[i] },
-                  !isLastCol(i) && { borderRightWidth: 1, borderRightColor: colors.line },
-                ]}
-              >
-                <Text
-                  style={[styles.tableHeaderText, { color: colors.ink3 }]}
-                  numberOfLines={3}
-                >
-                  {renderInline(h.toUpperCase(), colors)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
+  const getColAlign = (cIdx: number): 'left' | 'center' | 'right' => {
+    return alignments[cIdx] || 'left';
+  };
 
-        {/* Data Rows */}
-        {paddedRows.map((row, rIdx) => (
-          <View
-            key={`tr-${rIdx}`}
-            style={[
-              styles.tableRow,
-              {
-                backgroundColor: rIdx % 2 === 1 ? colors.inset : 'transparent',
-              },
-              !isLastRow(rIdx) && {
-                borderBottomWidth: 1,
-                borderBottomColor: colors.line,
-              },
-            ]}
-          >
-            {row.map((cell, cIdx) => (
-              <View
-                key={`td-${rIdx}-${cIdx}`}
-                style={[
-                  styles.tableCell,
-                  { width: colWidths[cIdx] },
-                  !isLastCol(cIdx) && { borderRightWidth: 1, borderRightColor: colors.line },
-                ]}
-              >
-                <Text
-                  style={[styles.tableCellText, { color: colors.ink }]}
-                  selectable
-                >
-                  {renderInline(cell, colors)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ))}
+  const getTextAlignStyle = (align: 'left' | 'center' | 'right') => {
+    switch (align) {
+      case 'center':
+        return { textAlign: 'center' as const };
+      case 'right':
+        return { textAlign: 'right' as const };
+      default:
+        return { textAlign: 'left' as const };
+    }
+  };
+
+  const handleCopyTable = async () => {
+    if (copied) return;
+    try {
+      const headerLine = `| ${headers.map((h) => h || ' ').join(' | ')} |`;
+      const dividerLine = `| ${colWidths.map((_, i) => {
+        const align = getColAlign(i);
+        if (align === 'center') return ':---:';
+        if (align === 'right') return '---:';
+        return '---';
+      }).join(' | ')} |`;
+      const rowLines = paddedRows.map((r) => `| ${r.map((c) => c || ' ').join(' | ')} |`);
+      const tableMarkdown = [headerLine, dividerLine, ...rowLines].join('\n');
+
+      await Clipboard.setStringAsync(tableMarkdown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Copy table failed:', err);
+    }
+  };
+
+  return (
+    <View style={[styles.tableOuterWrapper, { borderColor: colors.line, backgroundColor: colors.surface }]}>
+      {/* Top action / info bar */}
+      <View style={[styles.tableTopBar, { backgroundColor: colors.inset, borderBottomColor: colors.line }]}>
+        <View style={styles.tableTopLeft}>
+          <IconTable size={14} color={colors.ink2} />
+          <Text style={[styles.tableTopTitle, { color: colors.ink2 }]}>
+            Table {colCount > 0 ? `(${colCount} cols)` : ''}
+          </Text>
+          {isWideTable && (
+            <View style={[styles.swipeHintBadge, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+              <IconArrowsLeftRight size={11} color={colors.accent || '#818cf8'} />
+              <Text style={[styles.swipeHintText, { color: colors.accent || '#818cf8' }]}>
+                Scroll ↔
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <Pressable
+          onPress={handleCopyTable}
+          hitSlop={8}
+          accessibilityLabel={copied ? 'Table copied' : 'Copy table'}
+          style={({ pressed }) => [
+            styles.tableCopyBtn,
+            { opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          {copied ? (
+            <>
+              <IconCheck size={12} color="#4ade80" />
+              <Text style={[styles.tableCopyBtnText, { color: '#4ade80' }]}>Copied</Text>
+            </>
+          ) : (
+            <>
+              <IconCopy size={12} color={colors.ink3} />
+              <Text style={[styles.tableCopyBtnText, { color: colors.ink3 }]}>Copy</Text>
+            </>
+          )}
+        </Pressable>
       </View>
-    </ScrollView>
+
+      {/* Horizontal Scrollable Table Body */}
+      <ScrollView
+        horizontal
+        nestedScrollEnabled={true}
+        directionalLockEnabled={true}
+        showsHorizontalScrollIndicator={true}
+        persistentScrollbar={Platform.OS === 'android'}
+        overScrollMode="never"
+        bounces={false}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.tableScrollContent}
+        style={styles.tableScrollView}
+      >
+        <View style={[styles.tableInner, { minWidth: totalTableWidth }]}>
+          {/* Header Row */}
+          {headers.length > 0 && (
+            <View
+              style={[
+                styles.tableRow,
+                styles.tableHeaderRow,
+                {
+                  backgroundColor: colors.inset,
+                  borderBottomColor: colors.lineStrong || colors.line,
+                },
+              ]}
+            >
+              {headers.map((h, i) => {
+                const align = getColAlign(i);
+                return (
+                  <View
+                    key={`th-${i}`}
+                    style={[
+                      styles.tableCell,
+                      styles.tableHeaderCell,
+                      { width: colWidths[i] },
+                      !isLastCol(i) && { borderRightWidth: 1, borderRightColor: colors.line },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.tableHeaderText,
+                        { color: colors.ink },
+                        getTextAlignStyle(align),
+                      ]}
+                    >
+                      {renderInline(h, colors)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Data Rows */}
+          {paddedRows.map((row, rIdx) => (
+            <View
+              key={`tr-${rIdx}`}
+              style={[
+                styles.tableRow,
+                {
+                  backgroundColor: rIdx % 2 === 1 ? colors.inset : colors.surface,
+                },
+                !isLastRow(rIdx) && {
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.line,
+                },
+              ]}
+            >
+              {row.map((cell, cIdx) => {
+                const align = getColAlign(cIdx);
+                return (
+                  <View
+                    key={`td-${rIdx}-${cIdx}`}
+                    style={[
+                      styles.tableCell,
+                      { width: colWidths[cIdx] },
+                      !isLastCol(cIdx) && { borderRightWidth: 1, borderRightColor: colors.line },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.tableCellText,
+                        { color: colors.ink },
+                        getTextAlignStyle(align),
+                      ]}
+                    >
+                      {renderInline(cell, colors)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
   );
 };
 
@@ -398,7 +526,7 @@ function renderInline(text: string, colors: any, baseStyle?: any) {
   });
 };
 
-export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
+export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content, onLongPress }) => {
   const colors = useThemeColors();
 
   // 1. Clean content: Strip <think>...</think>, <tool_call>...</tool_call>, and canva design blocks
@@ -428,6 +556,7 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
       code?: string;
       headers?: string[];
       rows?: string[][];
+      alignments?: ('left' | 'center' | 'right')[];
       text?: string;
       prefix?: string;
     }> = [];
@@ -439,6 +568,7 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
     let inTable = false;
     let tableHeaders: string[] = [];
     let tableRows: string[][] = [];
+    let tableAlignments: ('left' | 'center' | 'right')[] = [];
 
     let paragraphBuffer: string[] = [];
 
@@ -458,10 +588,12 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
           type: 'table',
           headers: tableHeaders,
           rows: tableRows,
+          alignments: tableAlignments,
         });
         inTable = false;
         tableHeaders = [];
         tableRows = [];
+        tableAlignments = [];
       }
     };
 
@@ -496,18 +628,36 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
         continue;
       }
 
-      // Handle Table Row
-      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-        flushParagraph();
-        const cells = trimmed
-          .split('|')
-          .slice(1, -1)
-          .map((c) => c.trim());
+      // Handle Table Row (starts with | or has | with multiple columns)
+      const isTablePipeLine =
+        trimmed.startsWith('|') ||
+        (trimmed.includes('|') &&
+          !trimmed.startsWith('```') &&
+          !trimmed.startsWith('#') &&
+          !trimmed.startsWith('>') &&
+          !trimmed.startsWith('- ') &&
+          !trimmed.startsWith('* '));
 
-        // Check if this is divider row (|---|---|)
-        const isDivider = cells.every((c) => /^:?-+:?$/.test(c));
+      if (isTablePipeLine) {
+        flushParagraph();
+        let s = trimmed;
+        if (s.startsWith('|')) s = s.slice(1);
+        if (s.endsWith('|')) s = s.slice(0, -1);
+        const cells = s.split('|').map((c) => c.trim());
+
+        // Check if this is divider row (|---|---| or |:---|:---:|---:|)
+        const isDivider = cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c));
 
         if (isDivider) {
+          if (inTable) {
+            tableAlignments = cells.map((cell) => {
+              const starts = cell.startsWith(':');
+              const ends = cell.endsWith(':');
+              if (starts && ends) return 'center';
+              if (ends) return 'right';
+              return 'left';
+            });
+          }
           continue; // skip separator row
         }
 
@@ -515,6 +665,7 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
           inTable = true;
           tableHeaders = cells;
           tableRows = [];
+          tableAlignments = [];
         } else {
           tableRows.push(cells);
         }
@@ -657,6 +808,7 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
                 key={`tbl-${idx}`}
                 headers={block.headers || []}
                 rows={block.rows || []}
+                alignments={block.alignments || []}
               />
             );
 
@@ -718,9 +870,17 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content }) => {
           default:
             return (
               <View key={`p-${idx}`} style={styles.paragraphWrapper}>
-                <Text style={[styles.bodyText, { color: colors.ink }]}>
-                  {renderInline(block.text || '', colors, styles.bodyText)}
-                </Text>
+                {onLongPress ? (
+                  <Pressable onLongPress={onLongPress} delayLongPress={500}>
+                    <Text style={[styles.bodyText, { color: colors.ink }]}>
+                      {renderInline(block.text || '', colors, styles.bodyText)}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text style={[styles.bodyText, { color: colors.ink }]}>
+                    {renderInline(block.text || '', colors, styles.bodyText)}
+                  </Text>
+                )}
               </View>
             );
         }
@@ -880,38 +1040,88 @@ const styles = StyleSheet.create({
     marginVertical: 20,
     width: '100%',
   },
-  tableContainer: {
-    // outer border — use explicit 1px for reliable Android rendering
+  tableOuterWrapper: {
     borderWidth: 1,
     borderRadius: radius.md,
-    marginVertical: 12,
+    marginVertical: 14,
     overflow: 'hidden',
   },
+  tableTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+  },
+  tableTopLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tableTopTitle: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  swipeHintBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    marginLeft: 4,
+  },
+  swipeHintText: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  tableCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  tableCopyBtnText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  tableScrollView: {
+    width: '100%',
+  },
   tableScrollContent: {
-    // ensures inner View fills at least the ScrollView width
     flexGrow: 1,
   },
   tableInner: {
-    // flex column — rows stack vertically
     flexDirection: 'column',
   },
   tableRow: {
     flexDirection: 'row',
-    // bottom border is applied per-row except the last row (inline style)
-    borderBottomWidth: 0,
+    alignItems: 'stretch',
+  },
+  tableHeaderRow: {
+    borderBottomWidth: 1.5,
   },
   tableCell: {
     paddingHorizontal: 13,
-    paddingVertical: 9,
-    // borderRight applied per-cell via inline style except last col
-    borderRightWidth: 0,
-    minWidth: 110,
-    maxWidth: 240,
+    paddingVertical: 10,
+    justifyContent: 'center',
+  },
+  tableHeaderCell: {
+    paddingVertical: 10,
+    paddingHorizontal: 13,
   },
   tableHeaderText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+    lineHeight: 18,
   },
   tableCellText: {
     fontSize: 13,

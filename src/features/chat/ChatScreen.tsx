@@ -19,6 +19,7 @@ import {
   Animated,
   KeyboardAvoidingView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { IconArrowDown } from '@tabler/icons-react-native';
 import { ChatBubble, MessageItem } from '@/components/chat/ChatBubble';
 import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
@@ -28,10 +29,11 @@ import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, typography } from '@/theme';
-import { chatService } from '@/services/chatService';
+import { chatService, cleanConversationTitle } from '@/services/chatService';
 import { useChatGeneration, ChatAttachment } from '@/hooks/useChatGeneration';
 import { useModelStore } from '@/stores/useModelStore';
 import { parseStoredAttachments } from '@/utils/attachments';
+import { getFadeGradientConfig } from '@/utils/gradientFade';
 
 // ── Hoist this out of the component so it is created exactly ONCE ──────────
 // Calling Animated.createAnimatedComponent() inside render creates a new type
@@ -47,12 +49,16 @@ const logoImg = require('../../../assets/images/logo.png');
 
 interface ChatScreenProps {
   activeLibId?: string | null;
-  onConversationCreated?: (libId: string) => void;
+  onConversationCreated?: (libId: string, title?: string) => void;
+  onConversationActiveChange?: (isActive: boolean) => void;
+  onConversationTitleChange?: (title: string) => void;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   activeLibId,
   onConversationCreated,
+  onConversationActiveChange,
+  onConversationTitleChange,
 }) => {
   const colors = useThemeColors();
   const { currentUser, userProfile } = useAuth();
@@ -80,17 +86,27 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const userEmail = currentUser?.email?.trim().toLowerCase() ?? '';
   const userId = currentUser?.uid ?? '';
 
-  // ── Stable onConversationCreated callback — hoist to ref so it never
-  //    changes identity and does not force useChatGeneration to re-create ──
+  // ── Stable onConversationCreated & onConversationTitleChange callback refs ──
   const onConversationCreatedRef = useRef(onConversationCreated);
+  const onConversationTitleChangeRef = useRef(onConversationTitleChange);
   useEffect(() => {
     onConversationCreatedRef.current = onConversationCreated;
+    onConversationTitleChangeRef.current = onConversationTitleChange;
   });
 
-  const handleConversationCreatedStable = useCallback((libId: string) => {
+  const handleConversationCreatedStable = useCallback((libId: string, title?: string) => {
     setCurrentLibIdState(libId);
-    onConversationCreatedRef.current?.(libId);
+    if (title) {
+      onConversationTitleChangeRef.current?.(cleanConversationTitle(title));
+    }
+    onConversationCreatedRef.current?.(libId, title);
   }, []); // empty deps — stable forever
+
+  // ── Notify parent shell whenever conversation becomes active vs empty home screen ──
+  useEffect(() => {
+    const isConv = Boolean(activeLibId || currentLibIdState || messages.length > 0);
+    onConversationActiveChange?.(isConv);
+  }, [activeLibId, currentLibIdState, messages.length, onConversationActiveChange]);
 
   const {
     isSearching,
@@ -263,6 +279,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
         setMessages(loadedMessages);
         setIsLoadingHistory(false);
+
+        // Notify parent of conversation title from first user query
+        const firstUserMsg = loadedMessages.find((m) => m.role === 'user');
+        if (firstUserMsg && firstUserMsg.content) {
+          onConversationTitleChangeRef.current?.(cleanConversationTitle(firstUserMsg.content));
+        }
 
         // Scroll to bottom once after history loads
         requestAnimationFrame(() => {
@@ -782,91 +804,118 @@ const ConversationContent: React.FC<ContentProps> = ({
   const { thinkingMode } = useModelStore();
   const isEmptyChat = !isLoadingHistory && messages.length === 0;
 
+  const topFadeConfig = useMemo(() => {
+    return getFadeGradientConfig(colors.background, 'toTransparent');
+  }, [colors.background]);
+
+  const bottomFadeConfig = useMemo(() => {
+    return getFadeGradientConfig(colors.background, 'fromTransparent');
+  }, [colors.background]);
+
   return (
     <View style={{ flex: 1 }}>
-      {/* ── Scrollable conversation area ── */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={{ flex: 1 }}
-        contentContainerStyle={[
-          styles.scrollContent,
-          // Extra bottom padding so last message clears the Composer
-          { paddingBottom: 120 },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        // These prevent the ScrollView from auto-scrolling to focused inputs
-        // inside its tree (which is what causes the jump on Android)
-        maintainVisibleContentPosition={
-          messages.length > 0 ? { minIndexForVisible: 0 } : undefined
-        }
-      >
-        {isLoadingHistory ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.accent} />
-            <Text style={[styles.loadingText, { color: colors.ink2 }]}>
-              Loading conversation...
-            </Text>
-          </View>
-        ) : isEmptyChat ? (
-          /* New Chat greeting */
-          <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
-            <Image source={logoImg} style={styles.brandLogo} resizeMode="contain" />
-            <Text style={[styles.greetingTitle, { color: colors.ink }]}>
-              Hello, {currentUser?.displayName || userProfile?.name || 'there'}!
-            </Text>
-            <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
-              What can I help you build or explore today?
-            </Text>
-            <View style={{ width: '100%', marginTop: spacing.md }}>
-              <SuggestionCards
-                onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
-              />
+      {/* ── Scrollable conversation area with cinema-grade edge fades ── */}
+      <View style={styles.scrollWrapper}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.scrollContent,
+            // 72px padding ensures that when scrolled to the very bottom,
+            // the entire last message is cleanly above the 48px bottom fade.
+            { paddingBottom: 72 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          // These prevent the ScrollView from auto-scrolling to focused inputs
+          // inside its tree (which is what causes the jump on Android)
+          maintainVisibleContentPosition={
+            messages.length > 0 ? { minIndexForVisible: 0 } : undefined
+          }
+        >
+          {isLoadingHistory ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={[styles.loadingText, { color: colors.ink2 }]}>
+                Loading conversation...
+              </Text>
             </View>
-          </Pressable>
-        ) : (
-          /* Thread */
-          <View style={styles.threadContainer}>
-            {messages.map((msg) => (
-              <ChatBubble 
-                key={msg.id} 
-                message={msg} 
-                onRegenerate={handleRegenerate}
-                onFeedback={handleFeedback}
-                onVersionChange={handleVersionChange}
-              />
-            ))}
-            {(isSearching || isThinking || isFileAnalyzing) && (
-              <View style={styles.thinkingContainer}>
-                {(thinkingMode) ? (
-                  // Show Reasoning style loader if thinking mode is active
-                  <ThinkingBlock 
-                    content="" 
-                    isFinished={false} 
-                    isLoading={true} 
-                    loadingTitle={
-                      isFileAnalyzing 
-                        ? (progressMessage || 'Analyzing files...')
-                        : (progressMessage || 'Preparing reasoning...')
-                    }
-                  />
-                ) : (
-                  // Standard loader for web search, normal generation, or file analysis
-                  <>
-                    <ActivityIndicator size="small" color={colors.accent} />
-                    <Text style={[styles.thinkingText, { color: colors.ink2 }]}>
-                      {progressMessage || (isFileAnalyzing ? 'Analyzing files...' : 'Thinking...')}
-                    </Text>
-                  </>
-                )}
+          ) : isEmptyChat ? (
+            /* New Chat greeting */
+            <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
+              <Image source={logoImg} style={styles.brandLogo} resizeMode="contain" />
+              <Text style={[styles.greetingTitle, { color: colors.ink }]}>
+                Hello, {currentUser?.displayName || userProfile?.name || 'there'}!
+              </Text>
+              <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
+                What can I help you build or explore today?
+              </Text>
+              <View style={{ width: '100%', marginTop: spacing.md }}>
+                <SuggestionCards
+                  onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
+                />
               </View>
-            )}
-          </View>
-        )}
-      </ScrollView>
+            </Pressable>
+          ) : (
+            /* Thread */
+            <View style={styles.threadContainer}>
+              {messages.map((msg) => (
+                <ChatBubble 
+                  key={msg.id} 
+                  message={msg} 
+                  onRegenerate={handleRegenerate}
+                  onFeedback={handleFeedback}
+                  onVersionChange={handleVersionChange}
+                />
+              ))}
+              {(isSearching || isThinking || isFileAnalyzing) && (
+                <View style={styles.thinkingContainer}>
+                  {(thinkingMode) ? (
+                    // Show Reasoning style loader if thinking mode is active
+                    <ThinkingBlock 
+                      content="" 
+                      isFinished={false} 
+                      isLoading={true} 
+                      loadingTitle={
+                        isFileAnalyzing 
+                          ? (progressMessage || 'Analyzing files...')
+                          : (progressMessage || 'Preparing reasoning...')
+                      }
+                    />
+                  ) : (
+                    // Standard loader for web search, normal generation, or file analysis
+                    <>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                      <Text style={[styles.thinkingText, { color: colors.ink2 }]}>
+                        {progressMessage || (isFileAnalyzing ? 'Analyzing files...' : 'Thinking...')}
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Top Fade Gradient: soft seamless edge as messages scroll towards the header */}
+        <LinearGradient
+          colors={topFadeConfig.colors}
+          locations={topFadeConfig.locations}
+          style={styles.topFade}
+          pointerEvents="none"
+        />
+
+        {/* Bottom Fade Gradient: soft seamless edge as messages scroll towards the composer */}
+        <LinearGradient
+          colors={bottomFadeConfig.colors}
+          locations={bottomFadeConfig.locations}
+          style={styles.bottomFade}
+          pointerEvents="none"
+        />
+      </View>
 
       {/* ── Scroll-down FAB ── */}
       <Animated.View
@@ -890,7 +939,7 @@ const ConversationContent: React.FC<ContentProps> = ({
           style={({ pressed }) => [
             styles.scrollDownButton,
             {
-              backgroundColor: 'rgba(28, 28, 30, 0.85)',
+              backgroundColor: '#27272a',
               borderColor: 'rgba(255, 255, 255, 0.15)',
               transform: [{ scale: pressed ? 0.92 : 1 }],
             },
@@ -924,10 +973,31 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  scrollWrapper: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  topFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 32,
+    zIndex: 10,
+  },
+  bottomFade: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 48,
+    zIndex: 10,
+  },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    paddingTop: spacing.md + 4,
   },
   loadingContainer: {
     flex: 1,

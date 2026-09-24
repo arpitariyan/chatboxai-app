@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View, Pressable, Image, ActivityIndicator } from 'react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { spacing } from '@/theme';
 
 interface SocialAuthButtonsProps {
   onProviderPress?: (provider: 'google' | 'github' | 'microsoft') => void;
@@ -17,8 +17,6 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   loadingProvider,
   disabled = false,
 }) => {
-  const colors = useThemeColors();
-
   const providers = [
     {
       id: 'google' as const,
@@ -50,28 +48,24 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
             style={({ pressed }) => [
               styles.button,
               {
-                backgroundColor: colors.inset,
-                borderColor: colors.line,
-                opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+                opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
                 transform: [{ scale: pressed ? 0.985 : 1 }],
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={provider.name}
           >
             {isLoading ? (
-              <ActivityIndicator size="small" color={colors.ink2} />
+              <ActivityIndicator size="small" color="#ffffff" />
             ) : (
-              <>
-                <View style={styles.iconWrapper}>
-                  <Image
-                    source={provider.iconSource}
-                    style={styles.iconImage}
-                    resizeMode="contain"
-                  />
-                </View>
-                <Text style={[styles.buttonText, { color: colors.ink }]}>
-                  {provider.name}
-                </Text>
-              </>
+              <View style={styles.contentRow}>
+                <Image
+                  source={provider.iconSource}
+                  style={styles.iconImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.buttonText}>{provider.name}</Text>
+              </View>
             )}
           </Pressable>
         );
@@ -84,32 +78,31 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     gap: spacing.sm,
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
   },
   button: {
-    height: 50,
-    borderRadius: radius.control,
+    height: 48,
+    borderRadius: 8,
     borderWidth: 1,
-    flexDirection: 'row',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: '#1c1c20',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
-    borderCurve: radius.borderCurve,
   },
-  iconWrapper: {
-    width: 24,
-    height: 24,
+  contentRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
+    gap: 12,
   },
   iconImage: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
   },
   buttonText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '500',
     letterSpacing: -0.1,
   },
 });

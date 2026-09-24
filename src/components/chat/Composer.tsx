@@ -112,6 +112,7 @@ export const Composer: React.FC<ComposerProps> = ({
       style={[
         styles.outerContainer,
         {
+          backgroundColor: colors.background,
           paddingTop: spacing.xs + 2,
           paddingBottom: isKeyboardVisible
             ? 22

@@ -69,27 +69,29 @@ src/theme/
 ```
 assets/images/
 ├── logo.png               # Chatboxai_logo_main_2.png
+├── auth-hero.jpg          # Abstract 3D minimalist dark hero banner for auth screen
 ├── google.png             # Google provider logo from app_logo_connection
 ├── github.png             # GitHub provider logo from app_logo_connection
 └── microsoft.png          # Microsoft provider logo from app_logo_connection
 
 src/components/auth/
-├── AuthHeader.tsx         # Hero ChatBox AI brand logo image (prominent, prominent 150px wide display)
+├── AuthHeader.tsx         # Figma 34px underline title, subtitle & circular back button
 ├── SocialAuthButtons.tsx  # Google, GitHub, Microsoft provider buttons with real logo images
-├── AuthDivider.tsx        # Elegant "OR" divider
-├── AuthInput.tsx          # Text/Email input field (focus, filled, error, disabled)
-├── PasswordInput.tsx      # Password input field with show/hide toggle
-├── AuthButton.tsx         # Primary CTA button with loading & disabled states
-├── AuthFooterLink.tsx     # Secondary navigation link component
-├── AuthCard.tsx           # Controlled surface container (maxWidth 420px, 16px radius)
+├── AuthDivider.tsx        # Elegant 15% opacity white hairline "OR" divider
+├── AuthInput.tsx          # 1.5px bottom border input with left icon & vertical separator hairline
+├── PasswordInput.tsx      # 1.5px bottom border password input with lock icon, separator & eye toggle
+├── AuthCheckbox.tsx       # Interactive 16x16 "Remember Me" checkbox with white checkmark
+├── AuthButton.tsx         # High-contrast pure white CTA button (#ffffff) with bold black text (#000000)
+├── AuthFooterLink.tsx     # Secondary navigation link with #7F7F7F prompt and #ffffff link text
+├── AuthCard.tsx           # Controlled surface container (maxWidth 420px, responsive padding)
 └── AuthSuccessState.tsx   # Password reset email confirmation state
 
 src/features/auth/
-├── SignInScreen.tsx           # Sign In screen
-├── SignUpScreen.tsx           # Sign Up screen
-├── ForgotPasswordScreen.tsx   # Forgot Password screen
-├── ResetSuccessScreen.tsx     # Password Reset Success screen
-├── AuthContainer.tsx          # Clean Auth Container
+├── SignInScreen.tsx           # Figma-styled Sign In screen (Underline inputs, Remember Me, White button)
+├── SignUpScreen.tsx           # Figma-styled Sign Up screen with 2-step 6-digit confirmation OTP flow
+├── ForgotPasswordScreen.tsx   # 3-step password recovery flow (Email -> 6-digit OTP -> New password)
+├── ResetSuccessScreen.tsx     # Password Reset Success confirmation screen
+├── AuthContainer.tsx          # Pitch black (#000000) Auth Container with top hero banner & gradient fade
 └── index.ts                   # Unified re-export
 ```
 
@@ -1697,9 +1699,171 @@ When sending attachments in the app, users observed:
    - `npx tsc --noEmit` & `npx tsc --project api/tsconfig.json --noEmit` both passed with 0 errors.
    - Direct connection test to `https://api-mobile.chatboxai.co.in/api/mobile/health` verified 200 OK.
 
+---
 
+# 65. Conversation Table Horizontal Scroll & Edge Gradient Transitions (Sept 24, 2026)
 
+## Context
+1. **Chat Table Truncation**:
+   - In `ChatBubble.tsx`, AI-generated markdown tables with multiple columns were clipped by the message container width. Users were unable to scroll horizontally to view hidden table headers, cells, and numeric values.
+2. **Abrupt Screen Boundaries & Scroll Glitch**:
+   - The top and bottom boundaries of the conversation view in `ChatScreen.tsx` featured hard, solid-black cutoffs that looked abrupt.
+   - When early gradient masks were introduced, users reported a visual artifact during downward scrolling where text/letter fragments bled through the bottom composer bar or clipped awkwardly.
 
+## What Was Done
+1. **Horizontal Table Scroll Container (`src/components/chat/ChatBubble.tsx`)**:
+   - Wrapped rendered Markdown table elements in a horizontal `ScrollView` (`horizontal={true}`, `showsHorizontalScrollIndicator={true}`, `nestedScrollEnabled={true}`).
+   - Added subtle scroll indicators, border styling (`#27272a`), row zebra striping, and cell padding to allow smooth lateral scrolling without interfering with vertical conversation flow.
+2. **Seamless Edge Gradient Overlays (`src/features/chat/ChatScreen.tsx`)**:
+   - Integrated `LinearGradient` from `expo-linear-gradient` at the top and bottom of the conversation viewport.
+   - Top fade: `['#000000', 'rgba(0, 0, 0, 0)']` to allow messages to scroll naturally into view from under the header.
+   - Bottom fade: `['rgba(0, 0, 0, 0)', '#000000']` with `pointerEvents="none"` and tuned height/placement so incoming/outgoing messages fade seamlessly into pure black without obscuring the floating composer.
+   - Eliminated text clipping and visual bleeding artifacts during active scrolling.
 
+## Verification
+- Clean horizontal scrolling tested on wide multi-column markdown tables.
+- Gradient transitions tested during fast and slow scrolling; zero visual text bleeding or rendering glitch.
+- `npx tsc --noEmit` verified with 0 errors.
+
+---
+
+# 66. Full Figma Auth UI Kit Redesign & Token Harmonization (Sept 24, 2026)
+
+## Context
+The user requested a complete visual redesign of the entire Authentication suite (Sign In, Sign Up, Forgot Password, Reset Confirmation, and all underlying auth components) adhering to a provided Figma UI specification (`Simple Login - Mobile Auth UI Kit`) and the design tokens defined in `src/styles/global.css`:
+- Background: Pitch black `#000000` (`bg-black`).
+- Dark card/surface colors: `#18181b` / `#1c1c20` / `#252525`.
+- Muted secondary text: `#7F7F7F` (`--ink-3`, `text-zinc-500`).
+- High-contrast text & accents: Pure white `#FFFFFF` (`--foreground`).
+- Hero Graphic: Top banner container with a smooth 4-stop gradient fade into pitch black.
+- Distinctive Typography: 34px font-semibold titles with signature underlines (`Sign in`, `Sign up`).
+- Underline Input Language: 1.5px bottom borders, left icons with vertical separator dividers (`|`), and clean placeholder styling.
+- "Remember Me" Checkbox: 16x16 square with white border, checkmark, and right-aligned "Forgot Password?" link.
+- High-Contrast CTA Button: Pure white background (`#ffffff`) with 17px bold black text (`#000000`), subtle elevation, and scale-press feedback.
+
+## What Was Done
+
+1. **Top Hero Banner & Black Fade Container (`src/features/auth/AuthContainer.tsx`)**:
+   - Added `assets/images/auth-hero.jpg` (minimalist 3D dark glass ribbons/spheres on pitch black) inside a 230px hero header.
+   - Rendered a 4-stop `LinearGradient` overlay (`['rgba(0,0,0,0)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)', '#000000']`) that seamlessly transitions into the pure black screen surface.
+   - Positioned the brand hero logo floating cleanly in the top safe area.
+
+2. **Figma Signature Underline Title & Header (`src/components/auth/AuthHeader.tsx`)**:
+   - Updated header title to 34px with `fontWeight: '600'`, letter-spacing `-0.5`, line-height `42px`, and `textDecorationLine: 'underline'`.
+   - Styled subtitle with `#7F7F7F` color, 14px regular weight, and 20px line-height.
+   - Added circular `#252525` back button support with `IconArrowLeft`.
+
+3. **Underline Inputs with Left Icons & Vertical Dividers (`AuthInput.tsx` & `PasswordInput.tsx`)**:
+   - Redesigned fields with a 1.5px bottom border that transitions from 35% white to glowing pure white on focus (or `#ef4444` on error).
+   - Added left icon container (`IconMail`, `IconUser`, `IconLock`) alongside a 16px high vertical hairline separator (`|`).
+   - Integrated right-aligned interactive show/hide password toggle (`IconEye` / `IconEyeOff`).
+
+4. **Interactive "Remember Me" Checkbox (`src/components/auth/AuthCheckbox.tsx`)**:
+   - Created a dedicated 16x16px checkbox component matching Figma dimensions.
+   - Features a 1.5px white border, smooth checkmark animation (`IconCheck`), and 13px white label.
+
+5. **High-Contrast Pure White CTA Button (`src/components/auth/AuthButton.tsx`)**:
+   - Styled button with pure white background (`#ffffff`), 52px height, 8px border radius, and bold 17px black text (`#000000`).
+   - Added micro-scaling press feedback (`transform: [{ scale: 0.985 }]`), subtle white elevation shadow, and black activity spinner during submission.
+
+6. **Social Auth Buttons & Divider (`SocialAuthButtons.tsx` & `AuthDivider.tsx`)**:
+   - Re-styled Google, GitHub, and Microsoft provider buttons with dark `#1c1c20` surfaces, 1px border (`rgba(255,255,255,0.12)`), and white text.
+   - Styled `AuthDivider` with 15% opacity white rules and `#7F7F7F` centered "OR".
+
+7. **Footer Links (`src/components/auth/AuthFooterLink.tsx`)**:
+   - Standardized secondary prompt styling with `#7F7F7F` prompt text (`Don’t have an Account ?`) and pure white bold action link (`Sign up`).
+
+8. **Figma Screen Implementations**:
+   - **`SignInScreen.tsx`**: Sign in underline title, underline Email & Password inputs, Remember Me + Forgot Password? row, white button, social login, and footer link.
+   - **`SignUpScreen.tsx`**: Full Name, Email, Password underline inputs, white button, clickable legal links (Terms of Service, Privacy Policy), and 2-step 6-digit confirmation OTP verification screen with dev fallback hint and 60s resend timer.
+   - **`ForgotPasswordScreen.tsx`**: 3-step password recovery flow (Email input -> 6-digit OTP code & new password inputs -> Password reset success state).
+
+## Verification
+- `npx tsc --noEmit` executed with 0 errors across the entire codebase.
+- Appwrite backend authentication, session handling, password reset OTP generation, and profile syncing fully preserved.
+
+---
+
+# 67. Conditional Header Architecture: Home (Incognito Chat) vs. Conversation (New Chat & Options) (Sept 24, 2026)
+
+## Context
+The user requested a cleaner, contextual header action layout distinguishing between the Home screen and active Conversation screens:
+1. **Home Screen**: Replace the existing New Chat and three-dot segmented pill with an **Incognito Chat** icon (`IconSpy` from `@tabler/icons-react-native`). Visual design only for now, with underlying functionality to be added in a future update.
+2. **Conversation Screen**: Keep the full segmented action pill (`[ New Chat | Divider | Options (⋮) ]`) whenever an existing conversation is loaded or message thread is active.
+
+## What Was Done
+1. **Contextual Header Component (`src/components/common/Header.tsx`)**:
+   - Added `IconSpy` import from `@tabler/icons-react-native`.
+   - Extended `HeaderProps` with `isConversation?: boolean` and `onIncognitoChat?: () => void`.
+   - Rendered the clean circular button (`styles.iconButton`) with `IconSpy` (20px, strokeWidth 1.8) on Home screen (`!isConversation`), creating balanced visual symmetry with the left drawer toggle button.
+   - Rendered the segmented pill (`IconEdit` + divider + `IconDotsVertical`) when `isConversation` is true.
+2. **Dynamic Conversation Active State Tracking (`src/features/chat/ChatScreen.tsx`)**:
+   - Added `onConversationActiveChange?: (isActive: boolean) => void` to `ChatScreenProps`.
+   - Implemented an effect checking `Boolean(activeLibId || currentLibIdState || messages.length > 0)` to immediately notify the parent shell when a thread becomes active or is cleared.
+3. **Shell Orchestration (`src/features/chat/AppShell.tsx`)**:
+   - Managed `isConversation` state.
+   - Initialized to `false` for New Chat / Home greeting view.
+   - Updated to `true` when selecting a thread from Drawer history (`handleSelectChatHistory`) or upon sending the first message (`handleConversationCreated`).
+   - Reset to `false` upon tapping "New Chat" (`handleNewChat`), returning the header smoothly to Incognito Chat mode.
+   - Added placeholder handler `handleIncognitoChat` ready for future incognito logic.
+
+## Verification
+- `npx tsc --noEmit` verified with 0 errors across the entire codebase.
+- Smooth transition verified: Home screen shows Incognito icon; opening or creating conversations reveals New Chat + three-dots.
+
+---
+
+# 68. Conversation Header Three-Dot Options Menu & Pin/Share Integration (Sept 24, 2026)
+
+## Context
+The user requested a complete implementation of the three-dot options menu popup in the Conversation header.
+Specific requirements:
+1. **Analyze Website Reference**: Inspected `chatboxai_website_copy` (`LayoutContent.jsx` & `app/(routes)/search/[libId]`). Determined that conversation sharing is built using public URLs `https://chatboxai.co.in/search/${libId}` with the conversation title.
+2. **Anchored Popup Menu UI**: An anchored popup floating near the top-right three-dots button with dark mode aesthetics matching the reference image and mobile design system.
+3. **Restricted to Exactly 4 Actions**:
+   - **Share**: Adapted from website logic using native `Share.share` for system-wide sharing via WhatsApp, Telegram, Twitter, Messages, Email, etc.
+   - **Pin**: Pinned state persisted to `AsyncStorage` via `pinService`, partitioned into a dedicated `PINNED` section in the mobile sidebar (`Drawer.tsx`), dynamically showing "Pin" vs. "Unpin".
+   - **Go to Home**: Cleanly returns the user to the Home/New Chat experience.
+   - **Delete**: Safely confirms and deletes the current conversation using `chatService.deleteConversation(activeLibId, currentUser.email)` without affecting any other conversations, cleans up pinned state, refreshes drawer history, and navigates cleanly to Home.
+
+## What Was Done
+1. **Persistent Pin Architecture (`src/services/pinService.ts`)**:
+   - Built a dedicated local service managing pinned conversation IDs in `AsyncStorage` with user-specific keys (`@chatboxai:pinned_conversations:${cleanEmail}`).
+   - Implemented `getPinnedIds`, `isPinned`, `togglePin`, `unpin`, and pub/sub event listeners (`addListener`) for immediate multi-component synchronization.
+2. **Options Menu Component (`src/components/common/ConversationOptionsMenu.tsx`)**:
+   - Anchored card popup positioned right below the header (`top: Math.max(insets.top, 12) + 48`, `right: 16`).
+   - Displays current conversation title in header, hairline divider, and 4 explicit action rows with `@tabler/icons-react-native` icons (`IconShare`, `IconPin`/`IconPinned`, `IconHome`, `IconTrash`).
+   - Red highlight (`#ef4444`) for destructive Delete action.
+   - Dismissible backdrop with smooth fade animation.
+3. **Drawer Updates for Pinned Conversations (`src/components/common/Drawer.tsx`)**:
+   - Subscribed to `pinService.addListener`.
+   - Partitioned loaded conversations into `pinnedConversations` and `recentConversations`.
+   - Rendered a dedicated `PINNED` section at the top of the chat history list with a pinned indicator badge.
+   - Added Pin/Unpin option to the drawer's per-item action menu.
+   - Integrated `pinService.unpin` into drawer conversation deletion.
+4. **AppShell Orchestration (`src/features/chat/AppShell.tsx`)**:
+   - Added `activeTitle`, `isOptionsMenuOpen`, and `isPinned` state.
+   - Synchronized `isPinned` state with `activeLibId` and real-time pin service notifications.
+   - Implemented `handleShareConversation` using `Share.share` with `https://chatboxai.co.in/search/${activeLibId}`.
+   - Implemented `handleTogglePin` toggling persistent pin state.
+   - Implemented `handleGoToHome` returning cleanly to Home / New Chat.
+   - Implemented `handleDeleteConversation` with confirmation `Alert.alert`, calling `chatService.deleteConversation` and `pinService.unpin`, updating drawer refresh trigger, and returning to Home.
+   - Passed `onOpenOptionsMenu` to `<Header />`.
+   - Rendered `<ConversationOptionsMenu />`.
+5. **ChatScreen & Title Propagation (`src/features/chat/ChatScreen.tsx` & `src/hooks/useChatGeneration.ts`)**:
+   - Propagated conversation title to parent on initial conversation creation and on history load (from the first user query).
+   - Allowed parent shell to always know the accurate title for sharing, pinning, and header popup display.
+
+## Verification
+- `npx tsc --noEmit` executed with 0 errors across the entire codebase.
+- No other actions from the reference image were added.
+- All 4 actions tested and verified clean against user account isolation and error recovery.
+
+### Addendum: Precise Header Anchoring & Modal Coordinate Alignment
+- **Problem**: On Android, `<Modal>` without `statusBarTranslucent={true}` starts below the status bar while `insets.top` still reflects status bar height, causing double-offset (~40-50px gap below the header button).
+- **Fix**:
+  1. Added `statusBarTranslucent={true}` to `<Modal>` so the modal coordinate system starts at screen `(0, 0)`.
+  2. Wrapped options button in `<View ref={optionsButtonRef} collapsable={false}>` and dynamically measured its screen coordinates via `measureInWindow((x, y, width, height) => ...)`.
+  3. Placed popup card dynamically at `top = y + height + 4` and right-aligned to the button/margin (`width - (x + width)`), positioning the popup immediately below the 3-dot button.
 
 

@@ -27,11 +27,14 @@ import {
   IconDotsVertical,
   IconPencil,
   IconTrash,
+  IconPin,
+  IconPinned,
 } from '@tabler/icons-react-native';
 import { UserProfileSheet } from './UserProfileSheet';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { chatService, ConversationItem, cleanConversationTitle } from '@/services/chatService';
+import { pinService } from '@/services/pinService';
 
 const logoImg = require('../../../assets/images/logo.png');
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -41,7 +44,7 @@ interface DrawerProps {
   visible: boolean;
   onClose: () => void;
   onSelectNewChat: () => void;
-  onSelectChatHistory: (libId: string) => void;
+  onSelectChatHistory: (libId: string, title?: string) => void;
   onOpenSettings: () => void;
   /** Increment to force a history refresh */
   refreshTrigger?: number;
@@ -64,6 +67,7 @@ export const Drawer: React.FC<DrawerProps> = ({
 
   // Live conversations from Appwrite library collection
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Context Menu / Action modal states
@@ -81,6 +85,17 @@ export const Drawer: React.FC<DrawerProps> = ({
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  // Load pinned conversation IDs for the user
+  const loadPins = useCallback(async (explicitEmail?: string) => {
+    const targetEmail = (explicitEmail || currentUser?.email || '').trim().toLowerCase();
+    if (!targetEmail) {
+      setPinnedIds([]);
+      return;
+    }
+    const ids = await pinService.getPinnedIds(targetEmail);
+    setPinnedIds(ids);
+  }, [currentUser?.email]);
 
   // Load conversations for the authenticated user
   const loadConversations = useCallback(async (explicitEmail?: string) => {
@@ -101,14 +116,24 @@ export const Drawer: React.FC<DrawerProps> = ({
     }
   }, [currentUser?.email]);
 
-  // Strict user isolation: fetch conversations on user change or clear on logout
+  // Strict user isolation: fetch conversations and pins on user change or clear on logout
   useEffect(() => {
     if (!currentUser?.email) {
       setConversations([]);
+      setPinnedIds([]);
       return;
     }
     loadConversations(currentUser.email);
-  }, [currentUser?.email, loadConversations]);
+    loadPins(currentUser.email);
+  }, [currentUser?.email, loadConversations, loadPins]);
+
+  // Real-time listener for pin updates across app
+  useEffect(() => {
+    const unsubscribe = pinService.addListener((updatedIds) => {
+      setPinnedIds(updatedIds);
+    });
+    return unsubscribe;
+  }, []);
 
   // Handle smooth open and close animations & refresh history on open
   useEffect(() => {
@@ -116,6 +141,7 @@ export const Drawer: React.FC<DrawerProps> = ({
       setRendered(true);
       if (currentUser?.email) {
         loadConversations(currentUser.email);
+        loadPins(currentUser.email);
       }
       Animated.parallel([
         Animated.timing(slideAnim, {
@@ -242,6 +268,7 @@ export const Drawer: React.FC<DrawerProps> = ({
 
     try {
       await chatService.deleteConversation(targetLibId, currentUser.email);
+      await pinService.unpin(targetLibId, currentUser.email);
     } catch (err) {
       console.error('[Drawer] Delete error:', err);
       loadConversations();
@@ -249,6 +276,13 @@ export const Drawer: React.FC<DrawerProps> = ({
       setIsDeleting(false);
       setDeleteTarget(null);
     }
+  };
+
+  const handleTogglePin = async () => {
+    if (!actionTarget || !currentUser?.email) return;
+    const targetLibId = actionTarget.libId;
+    setIsActionModalOpen(false);
+    await pinService.togglePin(targetLibId, currentUser.email);
   };
 
   // Feature items matching initial Drawer design
@@ -266,6 +300,10 @@ export const Drawer: React.FC<DrawerProps> = ({
     .join('')
     .slice(0, 2)
     .toUpperCase();
+
+  // Partition conversations into pinned and recent
+  const pinnedConversations = conversations.filter((c) => pinnedIds.includes(c.libId));
+  const recentConversations = conversations.filter((c) => !pinnedIds.includes(c.libId));
 
   if (!visible && !rendered) return null;
 
@@ -366,6 +404,64 @@ export const Drawer: React.FC<DrawerProps> = ({
               })}
             </View>
 
+            {/* PINNED Section (shown only when pinned items exist) */}
+            {pinnedConversations.length > 0 && (
+              <>
+                <View style={styles.recentsHeaderRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <IconPin size={13} color={colors.accent || colors.ink2} />
+                    <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
+                      PINNED
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.recentsGroup}>
+                  {pinnedConversations.map((chat: ConversationItem) => (
+                    <View key={`pinned-${chat.libId}`} style={styles.recentRowContainer}>
+                      <Pressable
+                        onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title))}
+                        style={({ pressed }) => [
+                          styles.recentMainButton,
+                          {
+                            backgroundColor: pressed ? colors.surface : 'transparent',
+                            opacity: pressed ? 0.75 : 1,
+                          },
+                        ]}
+                      >
+                        <IconPin
+                          size={16}
+                          color={colors.accent || colors.ink2}
+                          style={{ marginRight: spacing.sm + 2 }}
+                        />
+                        <Text
+                          style={[styles.recentTitle, { color: colors.ink, fontWeight: '500' }]}
+                          numberOfLines={1}
+                        >
+                          {chat.title}
+                        </Text>
+                      </Pressable>
+
+                      {/* 3-Dots Action Button */}
+                      <Pressable
+                        onPress={() => handleOpenActionMenu(chat)}
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.recentActionBtn,
+                          {
+                            opacity: pressed ? 0.6 : 1,
+                            backgroundColor: pressed ? colors.surface : 'transparent',
+                          },
+                        ]}
+                      >
+                        <IconDotsVertical size={16} color={colors.ink3} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
             {/* RECENTS Section */}
             <View style={styles.recentsHeaderRow}>
               <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
@@ -377,17 +473,17 @@ export const Drawer: React.FC<DrawerProps> = ({
             </View>
 
             <View style={styles.recentsGroup}>
-              {conversations.length === 0 && !loadingHistory ? (
+              {recentConversations.length === 0 && !loadingHistory && pinnedConversations.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Text style={[styles.emptyText, { color: colors.ink3 }]}>
                     No conversations yet
                   </Text>
                 </View>
               ) : (
-                conversations.map((chat: ConversationItem) => (
+                recentConversations.map((chat: ConversationItem) => (
                   <View key={chat.libId} style={styles.recentRowContainer}>
                     <Pressable
-                      onPress={() => handleClose(() => onSelectChatHistory(chat.libId))}
+                      onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title))}
                       style={({ pressed }) => [
                         styles.recentMainButton,
                         {
@@ -528,6 +624,27 @@ export const Drawer: React.FC<DrawerProps> = ({
               <Text style={[styles.actionMenuHeader, { color: colors.ink3 }]} numberOfLines={1}>
                 {actionTarget?.title || 'Chat Options'}
               </Text>
+
+              {/* Pin / Unpin Item */}
+              <Pressable
+                onPress={handleTogglePin}
+                style={({ pressed }) => [
+                  styles.actionMenuItem,
+                  { backgroundColor: pressed ? colors.hover : 'transparent' },
+                ]}
+              >
+                {pinnedIds.includes(actionTarget?.libId || '') ? (
+                  <>
+                    <IconPinned size={17} color={colors.accent || colors.ink} />
+                    <Text style={[styles.actionMenuText, { color: colors.ink }]}>Unpin Chat</Text>
+                  </>
+                ) : (
+                  <>
+                    <IconPin size={17} color={colors.ink} />
+                    <Text style={[styles.actionMenuText, { color: colors.ink }]}>Pin Chat</Text>
+                  </>
+                )}
+              </Pressable>
 
               {/* Rename Item */}
               <Pressable

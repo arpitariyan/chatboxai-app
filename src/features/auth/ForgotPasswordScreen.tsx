@@ -9,7 +9,7 @@ import {
   AuthFooterLink,
 } from '@/components/auth';
 import { useAuth } from '@/contexts/AuthContext';
-import { useThemeColors, spacing, typography, radius } from '@/theme';
+import { spacing } from '@/theme';
 
 interface ForgotPasswordScreenProps {
   onNavigateSignIn: () => void;
@@ -22,7 +22,6 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   loading: externalLoading = false,
   disabled = false,
 }) => {
-  const colors = useThemeColors();
   const { requestPasswordResetOtp, confirmPasswordResetOtp } = useAuth();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -37,7 +36,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 
   const isLoading = externalLoading || localLoading;
 
-  // Step 1: Send OTP to Email via Resend API & Appwrite mfa_otps
+  // Step 1: Send OTP to Email
   const handleSendOtp = async () => {
     setError(null);
     setDevOtp(null);
@@ -96,23 +95,22 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
     <View style={styles.container}>
       {/* Dynamic Header */}
       <AuthHeader
-        title={step === 3 ? 'Password reset complete' : 'Reset your password'}
+        title={step === 3 ? 'Password reset complete' : 'Forgot Password'}
         subtitle={
           step === 1
-            ? 'Enter your email to receive a 6-digit reset code'
+            ? 'Enter your email to receive a 6-digit recovery code'
             : step === 2
-            ? `We sent a 6-digit code to ${email}`
-            : 'You can now sign in with your new password'
+              ? `We sent a 6-digit code to ${email}`
+              : 'You can now sign in with your new password'
         }
+        onBack={step === 2 ? () => setStep(1) : undefined}
       />
 
       {/* Global Error Banner */}
       {error ? (
-        <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
+        <View style={styles.errorBanner}>
           <IconAlertCircle size={16} color="#f87171" style={{ marginRight: 6 }} />
-          <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
-            {error}
-          </Text>
+          <Text style={styles.errorBannerText}>{error}</Text>
         </View>
       ) : null}
 
@@ -120,14 +118,15 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
       {step === 1 && (
         <>
           <AuthInput
-            label="Email address"
-            placeholder="name@example.com"
+            label="Email"
+            placeholder="Enter Your Email"
             value={email}
             onChangeText={(text) => {
               setEmail(text);
               if (error) setError(null);
             }}
             disabled={disabled || isLoading}
+            autoComplete="email"
           />
 
           <AuthButton
@@ -143,8 +142,8 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
       {step === 2 && (
         <>
           {devOtp ? (
-            <View style={[styles.devBanner, { backgroundColor: '#36240d', borderColor: '#854d0e' }]}>
-              <Text style={[styles.devBannerText, { color: '#fef08a' }]}>
+            <View style={styles.devBanner}>
+              <Text style={styles.devBannerText}>
                 [Dev Mode] Your OTP code is: <Text style={{ fontWeight: '700' }}>{devOtp}</Text>
               </Text>
             </View>
@@ -152,7 +151,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 
           <AuthInput
             label="6-Digit Reset Code"
-            placeholder="• • • • • •"
+            placeholder="000000"
             value={otp}
             onChangeText={(text) => {
               const numeric = text.replace(/\D/g, '').slice(0, 6);
@@ -161,10 +160,12 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
             }}
             keyboardType="number-pad"
             disabled={disabled || isLoading}
+            maxLength={6}
           />
 
           <PasswordInput
             label="New Password"
+            placeholder="**********"
             value={newPassword}
             onChangeText={(text) => {
               setNewPassword(text);
@@ -175,6 +176,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 
           <PasswordInput
             label="Confirm New Password"
+            placeholder="**********"
             value={confirmPassword}
             onChangeText={(text) => {
               setConfirmPassword(text);
@@ -190,9 +192,10 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
             disabled={disabled || otp.length !== 6 || !newPassword || !confirmPassword}
           />
 
-          <View style={{ marginTop: spacing.xs }}>
+          <View style={{ marginTop: spacing.sm }}>
             <AuthFooterLink
-              linkText="Resend reset code"
+              promptText="Didn't get the code?"
+              linkText="Resend code"
               onPress={handleSendOtp}
               align="center"
             />
@@ -203,10 +206,10 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
       {/* STEP 3: Reset Success Confirmation */}
       {step === 3 && (
         <View style={styles.successContainer}>
-          <View style={[styles.successBadge, { backgroundColor: '#22543d' }]}>
-            <IconCheck size={28} color="#4ade80" />
+          <View style={styles.successBadge}>
+            <IconCheck size={28} color="#000000" strokeWidth={3} />
           </View>
-          <Text style={[styles.successText, { color: colors.ink }]}>
+          <Text style={styles.successText}>
             Your password has been successfully reset!
           </Text>
           <AuthButton
@@ -219,10 +222,9 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
       {/* Back to Sign In Link */}
       {step < 3 && (
         <AuthFooterLink
-          linkText="Back to sign in"
+          promptText="Remember your password ?"
+          linkText="Sign in"
           onPress={onNavigateSignIn}
-          align="center"
-          style={styles.backLink}
         />
       )}
     </View>
@@ -234,51 +236,55 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    borderColor: '#7f1d1d',
+    backgroundColor: '#2d1214',
+    marginBottom: spacing.lg,
   },
   errorBannerText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
     textAlign: 'center',
-    fontWeight: typography.fontWeight.medium as any,
+    fontWeight: '500',
+    color: '#f87171',
   },
   devBanner: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.control,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: 8,
     borderWidth: 1,
-    marginBottom: spacing.sm,
+    borderColor: '#854d0e',
+    backgroundColor: '#36240d',
+    marginBottom: spacing.md,
   },
   devBannerText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 12,
+    color: '#fef08a',
     textAlign: 'center',
   },
   successContainer: {
     alignItems: 'center',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
   },
   successBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  successBadgeText: {
-    color: '#4ade80',
-    fontSize: 28,
-    fontWeight: '700',
-  },
   successText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
     textAlign: 'center',
     marginBottom: spacing.lg,
-  },
-  backLink: {
-    marginTop: spacing.lg,
   },
 });

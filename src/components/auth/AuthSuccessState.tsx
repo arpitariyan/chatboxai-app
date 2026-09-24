@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { IconCheck } from '@tabler/icons-react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { spacing } from '@/theme';
 import { AuthButton } from './AuthButton';
 
 interface AuthSuccessStateProps {
@@ -15,24 +15,20 @@ export const AuthSuccessState: React.FC<AuthSuccessStateProps> = ({
   onBackToSignIn,
   onResendEmail,
 }) => {
-  const colors = useThemeColors();
-
   return (
     <View style={styles.container}>
-      {/* Subtle Success Visual Badge */}
-      <View style={[styles.iconBox, { backgroundColor: colors.inset, borderColor: colors.line }]}>
-        <View style={[styles.checkCircle, { backgroundColor: colors.primary }]}>
-          <IconCheck size={16} color={colors.primaryForeground} strokeWidth={2.5} />
-        </View>
+      {/* Success Check Icon */}
+      <View style={styles.iconCircle}>
+        <IconCheck size={28} color="#000000" strokeWidth={3} />
       </View>
 
       {/* Success Title */}
-      <Text style={[styles.title, { color: colors.ink }]}>Check your email</Text>
+      <Text style={styles.title}>Check your email</Text>
 
       {/* Confirmation Message */}
-      <Text style={[styles.subtitle, { color: colors.ink2 }]}>
-        We sent a password reset link to{'\n'}
-        <Text style={[styles.emailHighlight, { color: colors.ink }]}>{email}</Text>
+      <Text style={styles.subtitle}>
+        We sent a verification / reset link to{'\n'}
+        <Text style={styles.emailHighlight}>{email}</Text>
       </Text>
 
       {/* Primary Action: Back to Sign In */}
@@ -47,11 +43,9 @@ export const AuthSuccessState: React.FC<AuthSuccessStateProps> = ({
           hitSlop={8}
           style={({ pressed }) => [styles.resendContainer, { opacity: pressed ? 0.65 : 1 }]}
         >
-          <Text style={[styles.resendText, { color: colors.ink3 }]}>
+          <Text style={styles.resendText}>
             Didn't receive the email?{' '}
-            <Text style={{ color: colors.ink, fontWeight: typography.fontWeight.semibold }}>
-              Click to resend
-            </Text>
+            <Text style={styles.resendLink}>Click to resend</Text>
           </Text>
         </Pressable>
       )}
@@ -61,56 +55,58 @@ export const AuthSuccessState: React.FC<AuthSuccessStateProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
     width: '100%',
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
   },
-  iconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
+  iconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
-    borderCurve: radius.borderCurve,
-  },
-  checkCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkMark: {
-    fontSize: 13,
-    fontWeight: typography.fontWeight.bold,
+    marginBottom: spacing.lg,
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   title: {
-    fontSize: 22,
-    fontWeight: typography.fontWeight.bold,
+    fontSize: 26,
+    fontWeight: '600',
+    color: '#ffffff',
     textAlign: 'center',
-    marginBottom: 6,
+    letterSpacing: -0.4,
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.normal,
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#7F7F7F',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
+    maxWidth: 320,
     marginBottom: spacing.lg,
   },
   emailHighlight: {
-    fontWeight: typography.fontWeight.semibold,
+    color: '#ffffff',
+    fontWeight: '600',
   },
   buttonWrapper: {
     width: '100%',
-    marginBottom: spacing.xs,
   },
   resendContainer: {
-    paddingVertical: spacing.xs,
-    marginTop: spacing.xs,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
   },
   resendText: {
-    fontSize: 12,
-    textAlign: 'center',
+    fontSize: 13,
+    color: '#7F7F7F',
+  },
+  resendLink: {
+    color: '#ffffff',
+    fontWeight: '600',
   },
 });

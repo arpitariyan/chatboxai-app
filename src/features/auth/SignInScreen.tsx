@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, Pressable } from 'react-native';
 import {
   AuthHeader,
   SocialAuthButtons,
@@ -8,8 +8,9 @@ import {
   PasswordInput,
   AuthButton,
   AuthFooterLink,
+  AuthCheckbox,
 } from '@/components/auth';
-import { useThemeColors, spacing, typography } from '@/theme';
+import { spacing } from '@/theme';
 
 interface SignInScreenProps {
   onNavigateSignUp: () => void;
@@ -30,9 +31,9 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
   disabled = false,
   errorMessage = null,
 }) => {
-  const colors = useThemeColors();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'github' | 'microsoft' | null>(null);
 
@@ -64,20 +65,75 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Brand & Page Header */}
+      {/* Figma Signature Title: Sign in with underline */}
       <AuthHeader
-        title="Welcome back"
-        subtitle="Sign in to your ChatBox AI account to continue"
+        title="Sign in"
+        subtitle="Welcome back! Please enter your details."
       />
 
       {/* Global Error Banner */}
       {activeError ? (
-        <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
-          <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
-            {activeError}
-          </Text>
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerText}>{activeError}</Text>
         </View>
       ) : null}
+
+      {/* Email Input — Figma Underline Style with Mail icon & vertical divider */}
+      <AuthInput
+        label="Email"
+        placeholder="Enter Your Email"
+        value={email}
+        onChangeText={(text) => {
+          setEmail(text);
+          if (validationError) setValidationError(null);
+        }}
+        disabled={disabled || loading}
+        autoComplete="email"
+      />
+
+      {/* Password Input — Figma Underline Style with Lock icon, divider & eye toggle */}
+      <PasswordInput
+        label="Password"
+        placeholder="Enter Your Password"
+        value={password}
+        onChangeText={(text) => {
+          setPassword(text);
+          if (validationError) setValidationError(null);
+        }}
+        disabled={disabled || loading}
+        autoComplete="password"
+      />
+
+      {/* Options Row: Remember Me (Left) + Forgot Password? (Right) */}
+      <View style={styles.optionsRow}>
+        <AuthCheckbox
+          checked={rememberMe}
+          onChange={setRememberMe}
+          label="Remember Me"
+          disabled={disabled || loading}
+        />
+
+        <Pressable
+          onPress={onNavigateForgotPassword}
+          hitSlop={8}
+          style={({ pressed }) => [{ opacity: pressed ? 0.65 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Forgot Password?"
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </Pressable>
+      </View>
+
+      {/* Primary Submit CTA: High-contrast pure white button with bold black text */}
+      <AuthButton
+        title="Sign in"
+        onPress={handleSignIn}
+        loading={loading}
+        disabled={disabled}
+      />
+
+      {/* Divider */}
+      <AuthDivider />
 
       {/* Social Provider Buttons */}
       <SocialAuthButtons
@@ -86,55 +142,11 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
         disabled={disabled || loading}
       />
 
-      {/* Or Separator */}
-      <AuthDivider />
-
-      {/* Email Input */}
-      <AuthInput
-        label="Email address"
-        placeholder="name@example.com"
-        value={email}
-        onChangeText={(text) => {
-          setEmail(text);
-          if (validationError) setValidationError(null);
-        }}
-        disabled={disabled || loading}
-      />
-
-      {/* Password Input */}
-      <PasswordInput
-        label="Password"
-        value={password}
-        onChangeText={(text) => {
-          setPassword(text);
-          if (validationError) setValidationError(null);
-        }}
-        disabled={disabled || loading}
-      />
-
-      {/* Forgot Password Link */}
-      <AuthFooterLink
-        linkText="Forgot password?"
-        onPress={onNavigateForgotPassword}
-        align="right"
-        style={styles.forgotLink}
-      />
-
-      {/* Primary Submit CTA */}
-      <AuthButton
-        title="Sign in"
-        onPress={handleSignIn}
-        loading={loading}
-        disabled={disabled}
-      />
-
       {/* Secondary Navigation */}
       <AuthFooterLink
-        promptText="Don't have an account?"
+        promptText="Don’t have an Account ?"
         linkText="Sign up"
         onPress={onNavigateSignUp}
-        align="center"
-        style={styles.signUpLink}
       />
     </View>
   );
@@ -149,18 +161,27 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    borderColor: '#7f1d1d',
+    backgroundColor: '#2d1214',
+    marginBottom: spacing.lg,
   },
   errorBannerText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
     textAlign: 'center',
-    fontWeight: typography.fontWeight.medium as any,
+    fontWeight: '500',
+    color: '#f87171',
   },
-  forgotLink: {
-    marginTop: -spacing.xs,
-    marginBottom: spacing.sm,
+  optionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
   },
-  signUpLink: {
-    marginTop: spacing.md,
+  forgotPasswordText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
 });

@@ -11,7 +11,7 @@ import {
   AuthFooterLink,
 } from '@/components/auth';
 import { useAuth } from '@/contexts/AuthContext';
-import { useThemeColors, spacing, typography, radius } from '@/theme';
+import { spacing } from '@/theme';
 
 interface SignUpScreenProps {
   onNavigateSignIn: () => void;
@@ -30,7 +30,6 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   disabled = false,
   errorMessage = null,
 }) => {
-  const colors = useThemeColors();
   const { requestSignUpOtp, confirmSignUpOtp, authError, setAuthError } = useAuth();
 
   // Step 1: Form state
@@ -110,7 +109,6 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
 
     try {
       await confirmSignUpOtp(email.trim().toLowerCase(), cleanOtp, password, name.trim());
-      // Account created & verified; AuthContext updates currentUser, auto-navigating to home
     } catch (err: any) {
       setOtpError(err?.message || 'Invalid or expired confirmation code');
     } finally {
@@ -158,7 +156,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.iconCircleContainer}>
-          <View style={[styles.iconCircle, { backgroundColor: '#18181b', borderColor: '#27272a' }]}>
+          <View style={styles.iconCircle}>
             <IconMail size={28} color="#ffffff" />
           </View>
         </View>
@@ -166,23 +164,25 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
         <AuthHeader
           title="Verify your email"
           subtitle={`Enter the 6-digit confirmation code sent to\n${email.trim()}`}
+          onBack={() => {
+            setOtpStep(false);
+            setOtp('');
+            setOtpError(null);
+            setDevOtp(null);
+          }}
         />
 
         {otpError ? (
-          <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
+          <View style={styles.errorBanner}>
             <IconAlertCircle size={16} color="#f87171" style={{ marginRight: 6 }} />
-            <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
-              {otpError}
-            </Text>
+            <Text style={styles.errorBannerText}>{otpError}</Text>
           </View>
         ) : null}
 
         {devOtp ? (
-          <View style={[styles.devOtpBadge, { backgroundColor: '#1e293b', borderColor: '#334155' }]}>
+          <View style={styles.devOtpBadge}>
             <IconCode size={14} color="#38bdf8" style={{ marginRight: 6 }} />
-            <Text style={[styles.devOtpText, { color: '#38bdf8' }]}>
-              Dev Code: {devOtp}
-            </Text>
+            <Text style={styles.devOtpText}>Dev Code: {devOtp}</Text>
           </View>
         ) : null}
 
@@ -191,11 +191,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           <TextInput
             style={[
               styles.otpInput,
-              {
-                backgroundColor: colors.surface,
-                borderColor: otpError ? '#ef4444' : colors.border,
-                color: colors.ink,
-              },
+              { borderColor: otpError ? '#ef4444' : '#ffffff' },
             ]}
             value={otp}
             onChangeText={(text) => {
@@ -203,11 +199,12 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
               if (otpError) setOtpError(null);
             }}
             placeholder="000000"
-            placeholderTextColor={colors.ink3}
+            placeholderTextColor="#7F7F7F"
             keyboardType="number-pad"
             maxLength={6}
             autoFocus
             editable={!isVerifying}
+            selectionColor="#ffffff"
           />
         </View>
 
@@ -221,16 +218,14 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
 
         {/* Resend Cooldown Action */}
         <View style={styles.resendRow}>
-          <Text style={[styles.resendPrompt, { color: colors.ink2 }]}>
-            Didn't receive the code?{' '}
-          </Text>
+          <Text style={styles.resendPrompt}>Didn't receive the code? </Text>
           {resendCooldown > 0 ? (
-            <Text style={[styles.resendCooldownText, { color: colors.ink3 }]}>
+            <Text style={styles.resendCooldownText}>
               Resend in {resendCooldown}s
             </Text>
           ) : (
             <TouchableOpacity onPress={handleResendOtp} disabled={isResending}>
-              <Text style={[styles.resendButtonText, { color: colors.accent }]}>
+              <Text style={styles.resendButtonText}>
                 {isResending ? 'Sending...' : 'Resend code'}
               </Text>
             </TouchableOpacity>
@@ -248,10 +243,8 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           }}
           disabled={isVerifying}
         >
-          <IconArrowLeft size={16} color={colors.ink2} style={{ marginRight: 6 }} />
-          <Text style={[styles.cancelButtonText, { color: colors.ink2 }]}>
-            Change email address
-          </Text>
+          <IconArrowLeft size={16} color="#7F7F7F" style={{ marginRight: 6 }} />
+          <Text style={styles.cancelButtonText}>Change email address</Text>
         </TouchableOpacity>
       </View>
     );
@@ -260,33 +253,21 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   // ── Render Step 1: Registration Form ───────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* Brand & Page Header */}
+      {/* Figma Signature Title: Sign up with underline */}
       <AuthHeader
-        title="Create your account"
-        subtitle="Start building & chatting with ChatBox AI"
+        title="Sign up"
+        subtitle="Create your account to start building with ChatBox AI"
       />
 
       {/* Global Error Banner */}
       {activeError ? (
-        <View style={[styles.errorBanner, { backgroundColor: '#2d1214', borderColor: '#7f1d1d' }]}>
+        <View style={styles.errorBanner}>
           <IconAlertCircle size={16} color="#f87171" style={{ marginRight: 6 }} />
-          <Text style={[styles.errorBannerText, { color: '#f87171' }]}>
-            {activeError}
-          </Text>
+          <Text style={styles.errorBannerText}>{activeError}</Text>
         </View>
       ) : null}
 
-      {/* Social Provider Buttons */}
-      <SocialAuthButtons
-        onProviderPress={handleSocialPress}
-        loadingProvider={loadingProvider}
-        disabled={disabled || isLoading}
-      />
-
-      {/* Or Separator */}
-      <AuthDivider />
-
-      {/* Display Name Input */}
+      {/* Display Name Input — Figma Underline Style */}
       <AuthInput
         label="Full name"
         placeholder="John Doe"
@@ -296,51 +277,55 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           if (validationError) setValidationError(null);
         }}
         disabled={disabled || isLoading}
+        autoComplete="name"
       />
 
-      {/* Email Input */}
+      {/* Email Input — Figma Underline Style */}
       <AuthInput
-        label="Email address"
-        placeholder="name@example.com"
+        label="Email"
+        placeholder="Enter Your Email"
         value={email}
         onChangeText={(text) => {
           setEmail(text);
           if (validationError) setValidationError(null);
         }}
         disabled={disabled || isLoading}
+        autoComplete="email"
       />
 
-      {/* Password Input */}
+      {/* Password Input — Figma Underline Style with Eye Toggle */}
       <PasswordInput
         label="Password"
+        placeholder="Enter Your Password"
         value={password}
         onChangeText={(text) => {
           setPassword(text);
           if (validationError) setValidationError(null);
         }}
         disabled={disabled || isLoading}
+        autoComplete="password-new"
       />
 
-      {/* Primary Submit CTA */}
+      {/* Primary Submit CTA: High-contrast pure white button with bold black text */}
       <AuthButton
-        title={isLoading ? 'Sending verification code...' : 'Create account'}
+        title={isLoading ? 'Sending verification code...' : 'Sign up'}
         onPress={handleInitiateSignUp}
         loading={isLoading}
         disabled={disabled || isLoading}
       />
 
       {/* Terms & Legal Disclaimer */}
-      <Text style={[styles.legalText, { color: colors.ink3 }]}>
+      <Text style={styles.legalText}>
         By signing up, you agree to ChatBox AI's{' '}
         <Text
-          style={{ color: '#ffffff', textDecorationLine: 'underline' }}
+          style={styles.legalLink}
           onPress={() => Linking.openURL('https://chatboxai.co.in/terms-conditions')}
         >
           Terms of Service
         </Text>
         {' '}and{' '}
         <Text
-          style={{ color: '#ffffff', textDecorationLine: 'underline' }}
+          style={styles.legalLink}
           onPress={() => Linking.openURL('https://chatboxai.co.in/privacy-policy')}
         >
           Privacy Policy
@@ -348,13 +333,21 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
         .
       </Text>
 
+      {/* Divider */}
+      <AuthDivider />
+
+      {/* Social Provider Buttons */}
+      <SocialAuthButtons
+        onProviderPress={handleSocialPress}
+        loadingProvider={loadingProvider}
+        disabled={disabled || isLoading}
+      />
+
       {/* Secondary Navigation */}
       <AuthFooterLink
-        promptText="Already have an account?"
+        promptText="Already have an Account ?"
         linkText="Sign in"
         onPress={onNavigateSignIn}
-        align="center"
-        style={styles.signInLink}
       />
     </View>
   );
@@ -373,6 +366,8 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 1,
+    borderColor: '#252525',
+    backgroundColor: '#18181b',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -384,12 +379,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    borderColor: '#7f1d1d',
+    backgroundColor: '#2d1214',
+    marginBottom: spacing.lg,
   },
   errorBannerText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
     textAlign: 'center',
-    fontWeight: typography.fontWeight.medium as any,
+    fontWeight: '500',
+    color: '#f87171',
   },
   devOtpBadge: {
     flexDirection: 'row',
@@ -399,24 +397,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#1e293b',
     marginBottom: spacing.md,
     alignSelf: 'center',
   },
   devOtpText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium as any,
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#38bdf8',
   },
   otpInputContainer: {
     marginBottom: spacing.lg,
   },
   otpInput: {
     height: 56,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    fontSize: 26,
+    borderBottomWidth: 2,
+    fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: 10,
+    color: '#ffffff',
+    backgroundColor: 'transparent',
     paddingHorizontal: spacing.md,
   },
   resendRow: {
@@ -426,15 +428,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   resendPrompt: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
+    color: '#7F7F7F',
   },
   resendCooldownText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as any,
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#7F7F7F',
   },
   resendButtonText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold as any,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   cancelButton: {
     flexDirection: 'row',
@@ -444,16 +449,19 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   cancelButtonText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
+    color: '#7F7F7F',
   },
   legalText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 12,
     textAlign: 'center',
-    lineHeight: typography.fontSize.xs * typography.lineHeight.normal,
+    lineHeight: 18,
     marginTop: spacing.md,
+    color: '#7F7F7F',
     paddingHorizontal: spacing.xs,
   },
-  signInLink: {
-    marginTop: spacing.sm,
+  legalLink: {
+    color: '#ffffff',
+    textDecorationLine: 'underline',
   },
 });

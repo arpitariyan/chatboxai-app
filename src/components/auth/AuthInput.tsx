@@ -6,12 +6,14 @@ import {
   View,
   TextInputProps,
 } from 'react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { IconMail, IconUser } from '@tabler/icons-react-native';
+import { spacing } from '@/theme';
 
 interface AuthInputProps extends TextInputProps {
   label: string;
   error?: string;
   disabled?: boolean;
+  icon?: React.ReactNode;
 }
 
 export const AuthInput: React.FC<AuthInputProps> = ({
@@ -23,56 +25,87 @@ export const AuthInput: React.FC<AuthInputProps> = ({
   onChangeText,
   keyboardType = 'email-address',
   autoCapitalize = 'none',
+  icon,
   ...rest
 }) => {
-  const colors = useThemeColors();
   const [isFocused, setIsFocused] = useState(false);
-
   const isError = !!error;
+
+  // Default icon selection based on label/keyboardType if not explicitly passed
+  const renderIcon = () => {
+    if (icon) return icon;
+    const lower = label.toLowerCase();
+    if (lower.includes('name') || lower.includes('user')) {
+      return (
+        <IconUser
+          size={18}
+          color={isFocused ? '#ffffff' : '#7F7F7F'}
+          strokeWidth={1.8}
+        />
+      );
+    }
+    // Default mail icon for email or general fields
+    return (
+      <IconMail
+        size={18}
+        color={isFocused ? '#ffffff' : '#7F7F7F'}
+        strokeWidth={1.8}
+      />
+    );
+  };
+
+  const activeBorderColor = isError
+    ? '#ef4444'
+    : isFocused
+    ? '#ffffff'
+    : 'rgba(255, 255, 255, 0.35)';
+
+  const activeDividerColor = isFocused ? '#ffffff' : '#7F7F7F';
 
   return (
     <View style={styles.container}>
       {/* Field Label */}
-      <Text style={[styles.label, { color: isError ? colors.destructive : colors.ink2 }]}>
-        {label}
-      </Text>
+      <Text style={styles.label}>{label}</Text>
 
-      {/* Input Box */}
+      {/* Underline Input Row */}
       <View
         style={[
-          styles.inputContainer,
+          styles.inputRow,
           {
-            backgroundColor: colors.inset,
-            borderColor: isError
-              ? colors.destructive
-              : isFocused
-              ? colors.ring
-              : colors.line,
+            borderBottomColor: activeBorderColor,
             opacity: disabled ? 0.5 : 1,
           },
         ]}
       >
-        <TextInput
-          style={[styles.input, { color: colors.ink }]}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={colors.ink3}
-          editable={!disabled}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
-          {...rest}
-        />
+        <View style={styles.leftGroup}>
+          {/* Icon */}
+          <View style={styles.iconBox}>{renderIcon()}</View>
+
+          {/* Vertical Separator Hairline */}
+          <View
+            style={[styles.verticalDivider, { backgroundColor: activeDividerColor }]}
+          />
+
+          {/* Text Input */}
+          <TextInput
+            style={styles.input}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#7F7F7F"
+            editable={!disabled}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            keyboardType={keyboardType}
+            autoCapitalize={autoCapitalize}
+            selectionColor="#ffffff"
+            {...rest}
+          />
+        </View>
       </View>
 
       {/* Error Message */}
-      {isError && (
-        <Text style={[styles.errorText, { color: colors.destructive }]}>
-          {error}
-        </Text>
-      )}
+      {isError && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
 };
@@ -80,30 +113,50 @@ export const AuthInput: React.FC<AuthInputProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   label: {
-    fontSize: 13,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: 6,
-    letterSpacing: -0.1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#ffffff',
+    marginBottom: 8,
+    letterSpacing: -0.2,
   },
-  inputContainer: {
-    height: 50,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1.5,
+    paddingBottom: 8,
+    minHeight: 38,
+  },
+  leftGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  iconBox: {
+    width: 20,
+    alignItems: 'center',
     justifyContent: 'center',
-    borderCurve: radius.borderCurve,
+  },
+  verticalDivider: {
+    width: 1,
+    height: 16,
+    opacity: 0.7,
   },
   input: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.normal,
-    padding: 0,
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 14,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
   errorText: {
-    fontSize: 11,
-    fontWeight: typography.fontWeight.normal,
-    marginTop: 4,
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 6,
+    fontWeight: '500',
   },
 });

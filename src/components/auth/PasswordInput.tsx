@@ -7,7 +7,8 @@ import {
   Pressable,
   TextInputProps,
 } from 'react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { IconLock, IconEye, IconEyeOff } from '@tabler/icons-react-native';
+import { spacing } from '@/theme';
 
 interface PasswordInputProps extends TextInputProps {
   label?: string;
@@ -24,67 +25,88 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
   onChangeText,
   ...rest
 }) => {
-  const colors = useThemeColors();
   const [isFocused, setIsFocused] = useState(false);
   const [secureTextEntry, setSecureTextEntry] = useState(true);
 
   const isError = !!error;
 
+  const activeBorderColor = isError
+    ? '#ef4444'
+    : isFocused
+    ? '#ffffff'
+    : 'rgba(255, 255, 255, 0.35)';
+
+  const activeDividerColor = isFocused ? '#ffffff' : '#7F7F7F';
+
   return (
     <View style={styles.container}>
       {/* Label */}
-      <Text style={[styles.label, { color: isError ? colors.destructive : colors.ink2 }]}>
-        {label}
-      </Text>
+      <Text style={styles.label}>{label}</Text>
 
-      {/* Input Row Container */}
+      {/* Underline Input Row */}
       <View
         style={[
-          styles.inputContainer,
+          styles.inputRow,
           {
-            backgroundColor: colors.inset,
-            borderColor: isError
-              ? colors.destructive
-              : isFocused
-              ? colors.ring
-              : colors.line,
+            borderBottomColor: activeBorderColor,
             opacity: disabled ? 0.5 : 1,
           },
         ]}
       >
-        <TextInput
-          style={[styles.input, { color: colors.ink }]}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={colors.ink3}
-          secureTextEntry={secureTextEntry}
-          editable={!disabled}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          autoCapitalize="none"
-          {...rest}
-        />
+        <View style={styles.leftGroup}>
+          {/* Lock Icon */}
+          <View style={styles.iconBox}>
+            <IconLock
+              size={18}
+              color={isFocused ? '#ffffff' : '#7F7F7F'}
+              strokeWidth={1.8}
+            />
+          </View>
 
-        {/* Show / Hide Toggle */}
+          {/* Vertical Separator Hairline */}
+          <View
+            style={[styles.verticalDivider, { backgroundColor: activeDividerColor }]}
+          />
+
+          {/* Password Input */}
+          <TextInput
+            style={styles.input}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#7F7F7F"
+            secureTextEntry={secureTextEntry}
+            editable={!disabled}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            autoCapitalize="none"
+            selectionColor="#ffffff"
+            {...rest}
+          />
+        </View>
+
+        {/* View / Eye Toggle Button */}
         <Pressable
           disabled={disabled}
           onPress={() => setSecureTextEntry((prev) => !prev)}
           hitSlop={8}
-          style={({ pressed }) => [styles.toggleButton, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [
+            styles.eyeButton,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+          accessibilityLabel={secureTextEntry ? 'Show password' : 'Hide password'}
+          accessibilityRole="button"
         >
-          <Text style={[styles.toggleText, { color: colors.ink2 }]}>
-            {secureTextEntry ? 'Show' : 'Hide'}
-          </Text>
+          {secureTextEntry ? (
+            <IconEye size={18} color="#7F7F7F" strokeWidth={1.8} />
+          ) : (
+            <IconEyeOff size={18} color="#ffffff" strokeWidth={1.8} />
+          )}
         </Pressable>
       </View>
 
       {/* Error Message */}
-      {isError && (
-        <Text style={[styles.errorText, { color: colors.destructive }]}>
-          {error}
-        </Text>
-      )}
+      {isError && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
 };
@@ -92,40 +114,55 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   label: {
-    fontSize: 13,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: 6,
-    letterSpacing: -0.1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#ffffff',
+    marginBottom: 8,
+    letterSpacing: -0.2,
   },
-  inputContainer: {
-    height: 50,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderCurve: radius.borderCurve,
+    justifyContent: 'space-between',
+    borderBottomWidth: 1.5,
+    paddingBottom: 8,
+    minHeight: 38,
+  },
+  leftGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  iconBox: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verticalDivider: {
+    width: 1,
+    height: 16,
+    opacity: 0.7,
   },
   input: {
     flex: 1,
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.normal,
-    padding: 0,
+    color: '#ffffff',
+    fontSize: 14,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
   },
-  toggleButton: {
-    paddingLeft: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  toggleText: {
-    fontSize: 12,
-    fontWeight: typography.fontWeight.semibold,
+  eyeButton: {
+    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   errorText: {
-    fontSize: 11,
-    fontWeight: typography.fontWeight.normal,
-    marginTop: 4,
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 6,
+    fontWeight: '500',
   },
 });

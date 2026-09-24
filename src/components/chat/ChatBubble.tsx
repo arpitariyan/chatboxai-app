@@ -294,11 +294,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
     <>
       <View style={styles.assistantWrapper}>
         {/* Assistant Document Content */}
-        <Pressable
-          style={styles.assistantContent}
-          onLongPress={() => setShowTextSelection(true)}
-          delayLongPress={400}
-        >
+        <View style={styles.assistantContent}>
           {/* 1. Collapsible Thinking / Reasoning Block (matching ThinkingBlock in DisplaySummery.jsx) */}
           {thinkingContent.length > 0 && (
             <ThinkingBlock
@@ -308,7 +304,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           )}
 
           {/* 2. Rich Markdown Formatted Answer */}
-          <MarkdownAnswer content={displayedContent} />
+          <MarkdownAnswer
+            content={displayedContent}
+            onLongPress={() => setShowTextSelection(true)}
+          />
 
           {/* 3. Streaming Pulse Dot — driven by animating state, NOT message.isStreaming */}
           {animating && (
@@ -326,7 +325,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           {message.searchResult && (
             <ImagePreviewList searchResult={message.searchResult} />
           )}
-        </Pressable>
+        </View>
 
         {/* Action Toolbar — visible once animation is fully done */}
         {!animating && (

@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, Pressable, ViewStyle, TextStyle } from 'react-native';
-import { useThemeColors, spacing, typography } from '@/theme';
+import { spacing } from '@/theme';
 
 interface AuthFooterLinkProps {
   promptText?: string;
@@ -17,8 +17,6 @@ export const AuthFooterLink: React.FC<AuthFooterLinkProps> = ({
   align = 'center',
   style,
 }) => {
-  const colors = useThemeColors();
-
   const alignmentStyle: TextStyle = {
     textAlign: align,
   };
@@ -32,14 +30,14 @@ export const AuthFooterLink: React.FC<AuthFooterLinkProps> = ({
         { opacity: pressed ? 0.65 : 1 },
         style,
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${promptText || ''} ${linkText}`}
     >
       <Text style={[styles.text, alignmentStyle]}>
-        {promptText && (
-          <Text style={{ color: colors.ink2 }}>{promptText} </Text>
-        )}
-        <Text style={{ color: colors.ink, fontWeight: typography.fontWeight.semibold }}>
-          {linkText}
-        </Text>
+        {promptText ? (
+          <Text style={styles.promptText}>{promptText} </Text>
+        ) : null}
+        <Text style={styles.linkText}>{linkText}</Text>
       </Text>
     </Pressable>
   );
@@ -47,11 +45,21 @@ export const AuthFooterLink: React.FC<AuthFooterLinkProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: spacing.xs,
-    marginTop: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    marginTop: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   text: {
-    fontSize: 13,
+    fontSize: 14,
     letterSpacing: -0.1,
+  },
+  promptText: {
+    color: '#7F7F7F',
+    fontWeight: '500',
+  },
+  linkText: {
+    color: '#ffffff',
+    fontWeight: '600',
   },
 });

@@ -5,22 +5,49 @@ import {
   IconMenu,
   IconEdit,
   IconDotsVertical,
+  IconSpy,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
+
+export interface MenuAnchorPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 interface HeaderProps {
   onOpenDrawer: () => void;
   onNewChat: () => void;
-  onOpenOptionsMenu?: () => void;
+  onOpenOptionsMenu?: (anchor?: MenuAnchorPosition) => void;
+  onIncognitoChat?: () => void;
+  isConversation?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onOpenDrawer,
   onNewChat,
   onOpenOptionsMenu,
+  onIncognitoChat,
+  isConversation = false,
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const optionsButtonRef = React.useRef<View>(null);
+
+  const handleOpenOptionsMenu = () => {
+    if (optionsButtonRef.current?.measureInWindow) {
+      optionsButtonRef.current.measureInWindow((x, y, width, height) => {
+        if (typeof y === 'number' && !isNaN(y) && height > 0) {
+          onOpenOptionsMenu?.({ x, y, width, height });
+        } else {
+          onOpenOptionsMenu?.();
+        }
+      });
+    } else {
+      onOpenOptionsMenu?.();
+    }
+  };
 
   return (
     <View
@@ -51,55 +78,79 @@ export const Header: React.FC<HeaderProps> = ({
           <IconMenu size={22} color={colors.ink} strokeWidth={2} />
         </Pressable>
 
-        {/* Right Segmented Pill: [ New Chat | Divider | Options (⋮) ] */}
-        <View
-          style={[
-            styles.segmentedPill,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.line,
-            },
-          ]}
-        >
-          {/* Action 1: New Chat */}
+        {/* Right Action:
+            - Home screen: Incognito Chat icon (UI-only)
+            - Conversation screen: [ New Chat | Divider | Options (⋮) ]
+        */}
+        {isConversation ? (
+          <View
+            style={[
+              styles.segmentedPill,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.line,
+              },
+            ]}
+          >
+            {/* Action 1: New Chat */}
+            <Pressable
+              onPress={onNewChat}
+              hitSlop={6}
+              accessibilityLabel="Start new chat"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.segmentedButton,
+                styles.iconAction,
+                {
+                  backgroundColor: pressed ? colors.hover : 'transparent',
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <IconEdit size={18} color={colors.ink} />
+            </Pressable>
+
+            {/* Hairline Divider */}
+            <View style={[styles.pillDivider, { backgroundColor: colors.line }]} />
+
+            {/* Action 2: Options / Settings Menu */}
+            <View ref={optionsButtonRef} collapsable={false}>
+              <Pressable
+                onPress={handleOpenOptionsMenu}
+                hitSlop={6}
+                accessibilityLabel="More options"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.segmentedButton,
+                  styles.iconAction,
+                  {
+                    backgroundColor: pressed ? colors.hover : 'transparent',
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+              >
+                <IconDotsVertical size={18} color={colors.ink} />
+              </Pressable>
+            </View>
+          </View>
+        ) : (
           <Pressable
-            onPress={onNewChat}
-            hitSlop={6}
-            accessibilityLabel="Start new chat"
+            onPress={onIncognitoChat}
+            hitSlop={8}
+            accessibilityLabel="Incognito chat"
             accessibilityRole="button"
             style={({ pressed }) => [
-              styles.segmentedButton,
-              styles.iconAction,
+              styles.iconButton,
               {
-                backgroundColor: pressed ? colors.hover : 'transparent',
+                backgroundColor: pressed ? colors.hover : colors.surface,
+                borderColor: colors.line,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}
           >
-            <IconEdit size={18} color={colors.ink} />
+            <IconSpy size={20} color={colors.ink} strokeWidth={1.8} />
           </Pressable>
-
-          {/* Hairline Divider */}
-          <View style={[styles.pillDivider, { backgroundColor: colors.line }]} />
-
-          {/* Action 2: Options / Settings Menu */}
-          <Pressable
-            onPress={onOpenOptionsMenu}
-            hitSlop={6}
-            accessibilityLabel="More options"
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.segmentedButton,
-              styles.iconAction,
-              {
-                backgroundColor: pressed ? colors.hover : 'transparent',
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <IconDotsVertical size={18} color={colors.ink} />
-          </Pressable>
-        </View>
+        )}
       </View>
     </View>
   );

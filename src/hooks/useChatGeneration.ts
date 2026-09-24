@@ -40,7 +40,7 @@ interface UseChatGenerationOptions {
   userEmail: string;
   userId: string;
   userPlan?: string;
-  onConversationCreated?: (libId: string) => void;
+  onConversationCreated?: (libId: string, title?: string) => void;
 }
 
 interface UseChatGenerationReturn {
@@ -301,7 +301,7 @@ export const useChatGeneration = ({
             modelName: model?.name || 'Auto',
           });
           // Notify parent (AppShell → Drawer) via ref callback — stable
-          onConversationCreatedRef.current?.(libId!);
+          onConversationCreatedRef.current?.(libId!, query);
         } catch (err: any) {
           console.warn('[useChatGeneration] createConversation failed:', err?.message || err);
           // Non-fatal: continue to generate response anyway

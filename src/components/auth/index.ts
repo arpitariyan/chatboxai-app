@@ -7,3 +7,4 @@ export * from './PasswordInput';
 export * from './AuthButton';
 export * from './AuthFooterLink';
 export * from './AuthSuccessState';
+export * from './AuthCheckbox';

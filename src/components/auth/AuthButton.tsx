@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, Pressable, ActivityIndicator } from 'react-native';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { spacing } from '@/theme';
 
 interface AuthButtonProps {
   title: string;
@@ -15,8 +15,6 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
   loading = false,
   disabled = false,
 }) => {
-  const colors = useThemeColors();
-
   const isDisabled = disabled || loading;
 
   return (
@@ -26,18 +24,17 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor: colors.primary,
           opacity: isDisabled ? 0.5 : pressed ? 0.92 : 1,
           transform: [{ scale: pressed ? 0.985 : 1 }],
         },
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={title}
     >
       {loading ? (
-        <ActivityIndicator size="small" color={colors.primaryForeground} />
+        <ActivityIndicator size="small" color="#000000" />
       ) : (
-        <Text style={[styles.text, { color: colors.primaryForeground }]}>
-          {title}
-        </Text>
+        <Text style={styles.text}>{title}</Text>
       )}
     </Pressable>
   );
@@ -46,17 +43,23 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
 const styles = StyleSheet.create({
   button: {
     width: '100%',
-    height: 50,
-    borderRadius: radius.control,
+    height: 52,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    borderCurve: radius.borderCurve,
+    marginTop: spacing.md,
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   text: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: -0.1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#000000',
+    letterSpacing: -0.2,
   },
 });
