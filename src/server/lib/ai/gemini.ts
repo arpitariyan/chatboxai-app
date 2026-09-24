@@ -46,19 +46,33 @@ function markKeyFailed(key: string, error: unknown) {
   });
 }
 
-export interface GeminiFilePart {
+export interface GeminiInlineFile {
   mimeType: string;
   buffer: Buffer;
+  fileName?: string;
+}
+
+export interface GeminiDocumentContext {
+  fileName: string;
+  format: string;
+  text: string;
+}
+
+export interface GeminiAnalysisOptions {
+  prompt: string;
+  inlineFiles?: GeminiInlineFile[];
+  documents?: GeminiDocumentContext[];
+  systemInstruction?: string;
 }
 
 /**
- * Executes multimodal analysis using Gemini with key failover.
+ * Executes multimodal & document analysis using Gemini with key failover.
  */
 export async function runGeminiAnalysis(
-  prompt: string,
-  files: GeminiFilePart[],
-  systemInstruction?: string
+  options: GeminiAnalysisOptions
 ): Promise<{ text: string; model: string }> {
+  const { prompt, inlineFiles = [], documents = [], systemInstruction } = options;
+
   if (geminiKeys.length === 0) {
     throw new Error('No Gemini API keys configured on server');
   }
@@ -78,18 +92,30 @@ export async function runGeminiAnalysis(
           parts.push({ text: `System Instructions:\n${systemInstruction}\n\n` });
         }
 
-        // Attach files as inlineData
-        for (const f of files) {
+        // Attach extracted document texts
+        for (const doc of documents) {
+          parts.push({
+            text: `\n=== ATTACHED DOCUMENT: ${doc.fileName} (${doc.format}) ===\n${doc.text}\n=== END DOCUMENT: ${doc.fileName} ===\n`,
+          });
+        }
+
+        // Attach native multimodal files (Images, PDFs, Audio, Video)
+        for (const f of inlineFiles) {
           parts.push({
             inlineData: {
               mimeType: f.mimeType,
               data: f.buffer.toString('base64'),
             },
           });
+          if (f.fileName) {
+            parts.push({ text: `[Attachment: ${f.fileName} (${f.mimeType})]` });
+          }
         }
 
         // Add user prompt
-        parts.push({ text: prompt });
+        parts.push({
+          text: `\n=== USER QUESTION / INSTRUCTIONS ===\n${prompt}\n\nPlease thoroughly analyze all provided attachments and documents to answer the question above accurately.`,
+        });
 
         // Try primary @google/genai client
         try {

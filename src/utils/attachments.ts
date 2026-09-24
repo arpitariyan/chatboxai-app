@@ -273,7 +273,7 @@ export function attachmentCandidates(
 export function resolveAttachment(
   file: unknown,
   cfg?: Partial<AppwriteUrlConfig>,
-): { candidates: string[]; displayName: string; isImage: boolean } {
+): { candidates: string[]; displayName: string; isImage: boolean; mimeType: string } {
   const f = (file && typeof file === 'object' ? file : {}) as Loose;
   const displayName = asString(f.fileName) ?? asString(f.name) ?? 'Document';
   const mimeType = asString(f.fileType) ?? asString(f.mimeType) ?? asString(f.mime) ?? '';
@@ -281,5 +281,5 @@ export function resolveAttachment(
     f.type === 'image' ||
     mimeType.startsWith('image/') ||
     /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/i.test(displayName);
-  return { candidates: attachmentCandidates(f, cfg), displayName, isImage };
+  return { candidates: attachmentCandidates(f, cfg), displayName, isImage, mimeType };
 }

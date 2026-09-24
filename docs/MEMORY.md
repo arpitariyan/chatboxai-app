@@ -1572,6 +1572,101 @@ With the diagnostic loader deployed, Vercel provided the exact crash stack:
   - `GET /api/mobile/health` -> 200 OK (`{ ok: true, service: 'chatboxai-mobile-api', version: '1.0.0' }`)
   - `GET /api/mobile/file` -> 401 Unauthorized (proper auth validation)
 
+---
+
+# 62. Production Cloud Mobile API Integration for Development and Standalone APK Builds (Sept 23, 2026)
+
+## Context
+With the dedicated mobile API live at `https://api-mobile.chatboxai.co.in`, the client app needed to be configured so that:
+1. Active development in Expo Go can use the live cloud API directly.
+2. Building standalone production/preview APKs (`eas build -p android --profile production` or `--profile preview`) automatically and irreversibly targets `https://api-mobile.chatboxai.co.in`, never falling back to local IPs or `localhost`.
+
+## What Was Done
+1. **Production URL Hardening in `src/config/mobileApi.ts`**:
+   - Updated `resolveBackendBaseUrl()`:
+     - When running in release mode (`!__DEV__`), the resolver **guarantees** an HTTPS production endpoint is used (`PRODUCTION_DEFAULT_URL = 'https://api-mobile.chatboxai.co.in'`). It strictly ignores any accidental localhost or private LAN IPs that might exist in a local `.env`.
+2. **EAS Build Configuration (`eas.json`)**:
+   - Added explicit `env: { "EXPO_PUBLIC_MOBILE_API_URL": "https://api-mobile.chatboxai.co.in" }` to both `preview` and `production` profiles.
+   - When building an APK with EAS, the production URL is automatically embedded into the bundle.
+3. **Development `.env` Sync**:
+   - Set `EXPO_PUBLIC_MOBILE_API_URL=https://api-mobile.chatboxai.co.in` in `.env`.
+   - The development environment and physical phone now communicate with the fast live cloud backend out of the box.
+
+---
+
+# 63. Modality-Aware AI File Analysis, Zero-Dependency Document Extraction & Vector File Icons (Sept 24, 2026)
+
+## Context
+1. **File Icons**: PDF and document attachments in `ChatBubble.tsx` previously rendered a generic emoji (`📄`). The composer preview also displayed a monochromatic generic file icon.
+2. **File Analysis Pipeline & Routing Breakdown**:
+   - Audio and video files were routed to NVIDIA Omni, where `nvidia.ts` performed `buffer.toString('utf-8')` on raw binary streams, emitting garbled unprintable bytes or 400 Bad Request errors.
+   - Word (`.docx`), PowerPoint (`.pptx`), and Excel (`.xlsx`) files were passed to Gemini directly as raw zip bytes in `inlineData`. The Gemini API strictly rejects Office MIME types in `inlineData` with `Unsupported MIME type for inlineData`. Failover to NVIDIA also converted raw zip bytes into garbled text.
+   - PowerPoint and Excel MIME types were missing from `ALLOWED_MIME_TYPES` in `validation.ts`, and `detectMagicBytes` hardcoded all `PK\x03\x04` zip containers as `.docx`.
+   - `AttachmentSheet.tsx` omitted Word, PowerPoint, and Excel MIME types from `DocumentPicker.getDocumentAsync`, preventing users on Android from selecting them.
+   - Unsupported file formats did not produce descriptive error states.
+
+## What Was Done
+
+1. **Format-Specific Vector File Icons (`src/components/chat/FileTypeIcon.tsx`)**:
+   - Built a dedicated, theme-consistent icon component using Tabler SVG icons with color coding:
+     - **PDF**: `IconFileTypePdf` (`#ef4444` Red)
+     - **Word**: `IconFileTypeDocx` (`#3b82f6` Blue)
+     - **PowerPoint**: `IconFileTypePpt` (`#f97316` Orange)
+     - **Excel**: `IconFileTypeXls` (`#10b981` Emerald)
+     - **CSV**: `IconFileTypeCsv` (`#059669` Teal)
+     - **Audio**: `IconMusic` (`#a855f7` Purple)
+     - **Video**: `IconVideo` (`#f43f5e` Rose)
+     - **Archives**: `IconFileTypeZip` (`#eab308` Amber)
+     - **Code**: `IconFileCode` (`#6366f1` Indigo)
+     - **Text**: `IconFileTypeTxt` (`#94a3b8` Slate)
+     - **Generic**: `IconFile` (`#71717a` Neutral)
+   - Replaced `<Text style={styles.fileAttachmentIcon}>📄</Text>` in `ChatBubble.tsx` with `<FileTypeIcon />`.
+   - Replaced generic icon in `Composer.tsx` attachment chip strip with `<FileTypeIcon />`.
+   - Updated `resolveAttachment` in `src/utils/attachments.ts` to include `mimeType` in the resolved return object.
+
+2. **Zero-Dependency Document & Tabular Extractor (`src/server/lib/ai/extractor.ts`)**:
+   - Implemented zero-dependency unzipping using Node.js built-in `zlib.inflateRawSync` across the Central Directory:
+     - **DOCX**: Extracts `word/document.xml`, formatting `<w:p>` paragraphs, `<w:t>` text runs, `<w:br/>` breaks, and table rows into clean structured text.
+     - **PPTX**: Extracts all `ppt/slides/slide*.xml`, sorting slides numerically and formatting headings, body text, and bullet points slide by slide (`--- Slide N ---`).
+     - **XLSX**: Decodes `xl/sharedStrings.xml` and worksheet cell grids, rendering structured Markdown tables with row counts and column headers.
+     - **CSV / TSV**: Parses records and formats clean Markdown tables.
+     - **Text / Code / JSON / Markdown / XML / HTML**: Pure UTF-8 decoding.
+     - **PDF**: Extracts `/Filter /FlateDecode` streams with text operators (`Tj`/`TJ`) for text-only fallbacks.
+
+3. **Modality-Aware AI Analysis Router (`src/server/lib/ai/index.ts`)**:
+   - Categorizes incoming files by modality:
+     - **Native Multimodal** (Gemini 2.5 Flash / 2.0 Flash): Images (`image/*`), PDFs (`application/pdf`), Audio (`audio/*`), and Video (`video/*`) are sent natively via `inlineData`.
+     - **Extracted Documents**: Word, PowerPoint, Excel, CSV, and Text files have their text extracted and injected as structured `=== ATTACHED DOCUMENT: [name] ===` sections inside the prompt.
+     - **Unsupported Formats**: If an unsupported file (e.g. `.exe`, `.dll`, `.bin`, `.iso`) is attached, the router returns an explicit, descriptive `BadRequestError` rather than silently hallucinating.
+   - Primary engine: Google Gemini Flash (`gemini-2.5-flash` / `gemini-2.0-flash`) with key rotation.
+   - Fallback engine: NVIDIA Omni (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`):
+     - Sends images via `image_url` data URIs.
+     - Sends documents and PDFs as clean extracted text.
+     - Never stringifies binary streams.
+     - Extracts `<think>...</think>` into `thinkingContent` and strips it from `cleanResponse`.
+
+4. **Upload Validation & MIME Extension Awareness (`src/server/lib/validation.ts`)**:
+   - Expanded `ALLOWED_MIME_TYPES` to include `.docx`, `.doc`, `.pptx`, `.ppt`, `.xlsx`, `.xls`, `.csv`, `.tsv`, `.zip`, and all audio/video formats.
+   - Updated `detectMagicBytes(buffer, fileName)` so `PK\x03\x04` zip containers correctly resolve to `.pptx`, `.xlsx`, `.zip`, or `.docx` based on filename extension.
+
+5. **Mobile Document Picker (`src/components/chat/AttachmentSheet.tsx`)**:
+   - Expanded `DocumentPicker.getDocumentAsync` to `type: '*/*'` with a 20MB guard.
+   - Added automatic extension-based MIME type inference when Android returns missing or generic `application/octet-stream` MIME types.
+
+## Verification
+- `npx tsc --noEmit` (Expo / React Native mobile bundle): 0 errors.
+- `npx tsc --project api/tsconfig.json --noEmit` (Vercel Serverless / Node backend): 0 errors.
+- Unit pipeline test suite:
+  - 12/12 modality classification tests passed (PDF, Word, PPTX, Excel, CSV, Video, Audio, Image, Text, and Unsupported detection).
+  - 11/11 MIME check tests passed.
+  - 7/7 magic byte detection tests passed.
+  - CSV structured table generation passed.
+- Serverless handler test (`api/index.ts`):
+  - Health check returned 200 OK (`{"ok":true,"service":"chatboxai-mobile-api","version":"1.0.0"}`).
+- Website isolation verified: 0 changes to `chatboxai_website_copy`.
+
+
+
 
 
 

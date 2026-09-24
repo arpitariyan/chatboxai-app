@@ -11,11 +11,17 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_MOBILE_API_URL": "https://api-mobile.chatboxai.co.in"
       }
     },
     "production": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_MOBILE_API_URL": "https://api-mobile.chatboxai.co.in"
       }
     }
   },

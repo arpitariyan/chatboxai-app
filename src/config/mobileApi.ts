@@ -16,15 +16,20 @@ const PRODUCTION_DEFAULT_URL = 'https://api-mobile.chatboxai.co.in';
  * Resolves the backend base URL cleanly for development or production APK.
  */
 export function resolveBackendBaseUrl(): string {
-  // 1. Explicit environment variable override takes top priority (configured in .env or EAS build secrets)
-  const envUrl = process.env.EXPO_PUBLIC_MOBILE_API_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
-    return envUrl.trim().replace(/\/+$/, '');
+  const envUrl = process.env.EXPO_PUBLIC_MOBILE_API_URL?.trim().replace(/\/+$/, '');
+
+  // 1. Production standalone release build:
+  // In release APK (!__DEV__), ALWAYS use secure HTTPS production endpoint (never local IP or localhost)
+  if (!__DEV__) {
+    if (envUrl && envUrl.startsWith('https://')) {
+      return envUrl;
+    }
+    return PRODUCTION_DEFAULT_URL;
   }
 
-  // 2. Production standalone release build (never use localhost / 10.0.2.2 in production)
-  if (!__DEV__) {
-    return PRODUCTION_DEFAULT_URL;
+  // 2. Development explicit override:
+  if (envUrl && envUrl.length > 0) {
+    return envUrl;
   }
 
   // 3. Development automatic host detection:

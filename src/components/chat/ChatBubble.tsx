@@ -55,6 +55,7 @@ interface ChatBubbleProps {
 
 import { resolveAttachment } from '@/utils/attachments';
 import { AttachmentImage } from './AttachmentImage';
+import { FileTypeIcon } from './FileTypeIcon';
 
 export const ChatBubble: React.FC<ChatBubbleProps> = ({
   message,
@@ -223,7 +224,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                     { backgroundColor: colors.inset, borderColor: colors.line, marginBottom: 0 },
                   ]}
                 >
-                  <Text style={styles.fileAttachmentIcon}>📄</Text>
+                  <FileTypeIcon
+                    fileName={resolved.displayName}
+                    mimeType={resolved.mimeType}
+                    size={18}
+                  />
                   <Text
                     style={[styles.fileAttachmentText, { color: colors.ink }]}
                     numberOfLines={1}

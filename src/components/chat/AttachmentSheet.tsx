@@ -144,34 +144,56 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
     setIsLoading(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/pdf',
-          'text/plain',
-          'text/markdown',
-          'application/json',
-          'text/html',
-          'text/csv',
-          'video/*',
-          'audio/*',
-        ],
+        type: '*/*',
         multiple: true,
         copyToCacheDirectory: true,
       });
       if (!result.canceled && result.assets.length > 0) {
-        // Validate 10MB limit
-        const invalidFiles = result.assets.filter(a => (a.size ?? 0) > 10 * 1024 * 1024);
+        // Validate 20MB limit
+        const invalidFiles = result.assets.filter((a) => (a.size ?? 0) > 20 * 1024 * 1024);
         if (invalidFiles.length > 0) {
-          Alert.alert('File too large', 'Files must be under 10MB.');
+          Alert.alert('File too large', 'Files must be under 20MB.');
           setIsLoading(false);
           return;
         }
 
+        const inferMime = (name: string, rawMime?: string | null): string => {
+          if (rawMime && rawMime !== 'application/octet-stream') return rawMime;
+          const ext = (name.split('.').pop() || '').toLowerCase();
+          switch (ext) {
+            case 'pdf': return 'application/pdf';
+            case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            case 'doc': return 'application/msword';
+            case 'pptx': return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+            case 'ppt': return 'application/vnd.ms-powerpoint';
+            case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            case 'xls': return 'application/vnd.ms-excel';
+            case 'csv': return 'text/csv';
+            case 'tsv': return 'text/tab-separated-values';
+            case 'txt': return 'text/plain';
+            case 'md': return 'text/markdown';
+            case 'json': return 'application/json';
+            case 'xml': return 'application/xml';
+            case 'html': return 'text/html';
+            case 'zip': return 'application/zip';
+            case 'mp4': return 'video/mp4';
+            case 'mov': return 'video/quicktime';
+            case 'webm': return 'video/webm';
+            case 'mp3': return 'audio/mpeg';
+            case 'wav': return 'audio/wav';
+            case 'm4a': return 'audio/mp4';
+            default: return rawMime || 'application/octet-stream';
+          }
+        };
+
         const attachments: ChatAttachment[] = result.assets.map((asset) => {
+          const resolvedMime = inferMime(asset.name, asset.mimeType);
+          const isImg = resolvedMime.startsWith('image/');
           return {
             uri: asset.uri,
             name: asset.name,
-            mimeType: asset.mimeType || 'application/octet-stream',
-            type: 'file' as const,
+            mimeType: resolvedMime,
+            type: isImg ? ('image' as const) : ('file' as const),
           };
         });
         onAttachmentsSelected(attachments);

@@ -23,11 +23,21 @@ export const ALLOWED_MIME_TYPES = new Set([
   // Documents
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
   'text/plain',
   'text/csv',
+  'text/tab-separated-values',
   'text/markdown',
   'text/html',
   'application/json',
+  'application/xml',
+  'text/xml',
+  'application/zip',
+  'application/x-zip-compressed',
 
   // Audio
   'audio/mpeg',
@@ -38,6 +48,7 @@ export const ALLOWED_MIME_TYPES = new Set([
   'audio/aac',
   'audio/flac',
   'audio/x-wav',
+  'audio/m4a',
 
   // Video
   'video/mp4',
@@ -46,14 +57,18 @@ export const ALLOWED_MIME_TYPES = new Set([
   'video/x-msvideo',
   'video/mpeg',
   'video/ogg',
+  'video/3gpp',
 ]);
 
 const TEXT_TYPES = new Set([
   'text/plain',
   'text/csv',
+  'text/tab-separated-values',
   'text/markdown',
   'text/html',
   'application/json',
+  'application/xml',
+  'text/xml',
 ]);
 
 /**
@@ -70,7 +85,7 @@ export function sanitizeFileName(name?: string): string {
 /**
  * Detects common file types by inspecting magic bytes without external ESM dependencies.
  */
-export function detectMagicBytes(buffer: Buffer): { ext: string; mime: string } | null {
+export function detectMagicBytes(buffer: Buffer, fileName = ''): { ext: string; mime: string } | null {
   if (!buffer || buffer.length < 4) return null;
 
   // JPEG: FF D8 FF
@@ -132,9 +147,12 @@ export function detectMagicBytes(buffer: Buffer): { ext: string; mime: string } 
     return { ext: 'bmp', mime: 'image/bmp' };
   }
 
-  // MP4 / MOV / QuickTime: bytes 4..7 === 'ftyp'
+  // MP4 / MOV / QuickTime / M4A: bytes 4..7 === 'ftyp'
   if (buffer.length >= 8 && buffer.toString('ascii', 4, 8) === 'ftyp') {
     const brand = buffer.length >= 12 ? buffer.toString('ascii', 8, 12) : '';
+    if (brand.startsWith('M4A ') || brand.startsWith('m4a')) {
+      return { ext: 'm4a', mime: 'audio/mp4' };
+    }
     if (brand.startsWith('qt')) {
       return { ext: 'mov', mime: 'video/quicktime' };
     }
@@ -163,7 +181,7 @@ export function detectMagicBytes(buffer: Buffer): { ext: string; mime: string } 
   if (
     buffer[0] === 0x66 &&
     buffer[1] === 0x4c &&
-    buffer[2] === 0x61 &&
+    buffer[2] === 0x43 &&
     buffer[3] === 0x43
   ) {
     return { ext: 'flac', mime: 'audio/flac' };
@@ -179,13 +197,32 @@ export function detectMagicBytes(buffer: Buffer): { ext: string; mime: string } 
     return { ext: 'webm', mime: 'video/webm' };
   }
 
-  // ZIP / OpenXML (docx, xlsx, etc.): PK \x03 \x04
+  // ZIP / OpenXML (docx, pptx, xlsx, zip): PK \x03 \x04
   if (
     buffer[0] === 0x50 &&
     buffer[1] === 0x4b &&
     buffer[2] === 0x03 &&
     buffer[3] === 0x04
   ) {
+    const fileExt = (fileName.split('.').pop() || '').toLowerCase();
+    if (fileExt === 'pptx') {
+      return {
+        ext: 'pptx',
+        mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      };
+    }
+    if (fileExt === 'xlsx') {
+      return {
+        ext: 'xlsx',
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      };
+    }
+    if (fileExt === 'zip') {
+      return {
+        ext: 'zip',
+        mime: 'application/zip',
+      };
+    }
     return {
       ext: 'docx',
       mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -214,8 +251,8 @@ export async function validateUploadedFile(
   const cleanName = sanitizeFileName(fileName);
   const normalizedDeclared = (declaredMime || '').trim().toLowerCase();
 
-  // Try detecting magic bytes
-  const detected = detectMagicBytes(buffer);
+  // Try detecting magic bytes with filename extension context
+  const detected = detectMagicBytes(buffer, cleanName);
 
   if (detected) {
     if (!ALLOWED_MIME_TYPES.has(detected.mime)) {

@@ -26,6 +26,7 @@ import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '@/stores/useModelStore';
 import { ChatAttachment } from '@/hooks/useChatGeneration';
+import { FileTypeIcon } from './FileTypeIcon';
 
 interface ComposerProps {
   /** Optional external value — only used for externally-driven clears (e.g. after send).
@@ -166,7 +167,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 />
               ) : (
                 <View style={styles.attachmentFileIcon}>
-                  <IconFile size={16} color="#8e8e93" />
+                  <FileTypeIcon fileName={att.name} mimeType={att.mimeType} size={18} />
                 </View>
               )}
               <Text style={styles.attachmentName} numberOfLines={1}>

@@ -43,20 +43,33 @@ export function extractThinking(text = ''): { thinkingContent: string | null; cl
   return { thinkingContent, cleanResponse: cleanResponse || text.trim() };
 }
 
-export interface NvidiaFilePart {
+export interface NvidiaImagePart {
   mimeType: string;
   buffer: Buffer;
   fileName: string;
 }
 
+export interface NvidiaDocumentPart {
+  fileName: string;
+  format: string;
+  text: string;
+}
+
+export interface NvidiaAnalysisOptions {
+  prompt: string;
+  images?: NvidiaImagePart[];
+  documents?: NvidiaDocumentPart[];
+  systemInstruction?: string;
+}
+
 /**
- * Executes multimodal analysis using NVIDIA API with key failover.
+ * Executes multimodal & document analysis using NVIDIA API with key failover.
  */
 export async function runNvidiaAnalysis(
-  prompt: string,
-  files: NvidiaFilePart[],
-  systemInstruction?: string
+  options: NvidiaAnalysisOptions
 ): Promise<{ text: string; thinkingContent: string | null; model: string }> {
+  const { prompt, images = [], documents = [], systemInstruction } = options;
+
   if (nvidiaKeys.length === 0) {
     throw new Error('No NVIDIA API keys configured on server');
   }
@@ -67,23 +80,30 @@ export async function runNvidiaAnalysis(
     const apiKey = getNextNvidiaKey()!;
 
     try {
-      const userContentParts: any[] = [{ type: 'text', text: prompt }];
+      const userContentParts: any[] = [];
+
+      // Add extracted document texts as structured text sections
+      for (const doc of documents) {
+        userContentParts.push({
+          type: 'text',
+          text: `=== ATTACHED DOCUMENT: ${doc.fileName} (${doc.format}) ===\n${doc.text.slice(0, 30000)}\n=== END DOCUMENT: ${doc.fileName} ===\n`,
+        });
+      }
 
       // NVIDIA only accepts data URLs for image MIME types
-      for (const f of files) {
-        if (f.mimeType.startsWith('image/')) {
-          const dataUri = `data:${f.mimeType};base64,${f.buffer.toString('base64')}`;
-          userContentParts.push({
-            type: 'image_url',
-            image_url: { url: dataUri, detail: 'high' },
-          });
-        } else {
-          userContentParts.push({
-            type: 'text',
-            text: `[Attached File: ${f.fileName} (${f.mimeType})]\nContent: ${f.buffer.toString('utf-8').slice(0, 10000)}`,
-          });
-        }
+      for (const img of images) {
+        const dataUri = `data:${img.mimeType};base64,${img.buffer.toString('base64')}`;
+        userContentParts.push({
+          type: 'image_url',
+          image_url: { url: dataUri, detail: 'high' },
+        });
       }
+
+      // Add the user prompt
+      userContentParts.push({
+        type: 'text',
+        text: `=== USER QUESTION / INSTRUCTIONS ===\n${prompt}\n\nPlease thoroughly analyze all provided attachments and documents to answer the question above accurately.`,
+      });
 
       const messages: any[] = [];
       if (systemInstruction) {
