@@ -17,6 +17,30 @@ import { logger } from '../lib/logger';
 
 export const analyzeRouter = Router();
 
+// Informational GET endpoint for browser testing and uptime verification
+analyzeRouter.get('/analyze', (_req: Request, res: Response): void => {
+  res.status(200).json({
+    ok: true,
+    service: 'chatboxai-mobile-analyze',
+    endpoint: '/api/mobile/analyze',
+    method: 'POST',
+    status: 'ready',
+    auth: 'Bearer token required',
+    supportedModalities: [
+      'image',
+      'pdf',
+      'word (.docx, .doc)',
+      'powerpoint (.pptx, .ppt)',
+      'excel (.xlsx, .xls)',
+      'csv / tsv',
+      'audio (mp3, wav, m4a, ogg)',
+      'video (mp4, mov, webm)',
+      'plain text / code / json / xml',
+    ],
+    description: 'Multimodal AI analysis endpoint. Accepts POST JSON requests with prompt and fileIds.',
+  });
+});
+
 analyzeRouter.post('/analyze', requireFirebaseUser, async (req: Request, res: Response): Promise<void> => {
   const user = req.user!;
   const { prompt, fileIds, conversationHistory, memoryEnabled = true } = req.body || {};

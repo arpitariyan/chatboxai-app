@@ -18,7 +18,23 @@ import { logger } from '../lib/logger';
 
 export const fileRouter = Router();
 
-fileRouter.get('/file', requireFirebaseUser, async (req: Request, res: Response): Promise<void> => {
+fileRouter.get('/file', (req: Request, res: Response, next) => {
+  // If visited directly in browser without fileId or auth, return helpful endpoint status
+  if (!req.query.fileId && !req.headers.authorization && !req.headers['x-firebase-token']) {
+    res.status(200).json({
+      ok: true,
+      service: 'chatboxai-mobile-file',
+      endpoint: '/api/mobile/file',
+      method: 'GET',
+      status: 'ready',
+      auth: 'Bearer token required',
+      usage: 'GET /api/mobile/file?fileId=<id> with Authorization: Bearer <token>',
+      description: 'Authenticated binary file retrieval endpoint for mobile attachments.',
+    });
+    return;
+  }
+  next();
+}, requireFirebaseUser, async (req: Request, res: Response): Promise<void> => {
   const user = req.user!;
   const fileId = req.query.fileId as string;
 

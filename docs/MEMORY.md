@@ -1653,6 +1653,9 @@ With the dedicated mobile API live at `https://api-mobile.chatboxai.co.in`, the 
    - Expanded `DocumentPicker.getDocumentAsync` to `type: '*/*'` with a 20MB guard.
    - Added automatic extension-based MIME type inference when Android returns missing or generic `application/octet-stream` MIME types.
 
+6. **Browser Diagnostic GET Handlers (`upload.ts`, `analyze.ts`, `file.ts`)**:
+   - Added informative `200 OK` GET diagnostic handlers on `/api/mobile/upload`, `/api/mobile/analyze`, and `/api/mobile/file` so browser testing displays operational readiness (`{"ok": true, "status": "ready"}`) instead of confusing 404 `ROUTE_NOT_FOUND` or 401 `AUTH_REQUIRED` errors.
+
 ## Verification
 - `npx tsc --noEmit` (Expo / React Native mobile bundle): 0 errors.
 - `npx tsc --project api/tsconfig.json --noEmit` (Vercel Serverless / Node backend): 0 errors.

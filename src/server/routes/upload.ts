@@ -19,6 +19,21 @@ import { logger } from '../lib/logger';
 
 export const uploadRouter = Router();
 
+// Informational GET endpoint for browser testing and uptime verification
+uploadRouter.get('/upload', (_req: Request, res: Response): void => {
+  res.status(200).json({
+    ok: true,
+    service: 'chatboxai-mobile-upload',
+    endpoint: '/api/mobile/upload',
+    method: 'POST',
+    status: 'ready',
+    enctype: 'multipart/form-data',
+    field: 'file',
+    auth: 'Bearer token required',
+    description: 'Mobile attachment upload endpoint. Accepts POST multipart/form-data requests with user authentication.',
+  });
+});
+
 // Store uploads in memory for validation before passing to Appwrite
 const uploadMiddleware = multer({
   storage: multer.memoryStorage(),
