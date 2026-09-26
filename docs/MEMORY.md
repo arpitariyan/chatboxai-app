@@ -1866,4 +1866,89 @@ Specific requirements:
   2. Wrapped options button in `<View ref={optionsButtonRef} collapsable={false}>` and dynamically measured its screen coordinates via `measureInWindow((x, y, width, height) => ...)`.
   3. Placed popup card dynamically at `top = y + height + 4` and right-aligned to the button/margin (`width - (x + width)`), positioning the popup immediately below the 3-dot button.
 
+---
 
+### Session 29 — Complete Image Generation & Image-to-Image System Implementation
+
+#### 1. Architecture & Website Adaptation
+- **Analyzed Website Implementation (`chatboxai_website_copy`)**:
+  - Traced `app/_components/ChatBoxAiInput.jsx`, `app/_components/AppSidebar.jsx`, `app/(routes)/image-gen`, `app/(routes)/image-gen/[libId]/page.jsx`, `app/api/generate-image/route.js`, `app/api/generate-image/file/route.js`, `lib/image-generation.js`, `lib/hf-image-config.js`, and environment secrets.
+  - Adapted the website's multi-provider architecture: Hugging Face (3-key rotation with 503 model-loading backoff) and Leonardo AI (4-key rotation with generation and polling workflow).
+  - Preserved the existing Appwrite database architecture: Database ID `69a6aeff003b4922f883`, Collection `image_generation`, and Storage Bucket `69a69b9c0009d1b683dd`.
+  - Implemented exact document schema: `created_at`, `libId`, `userEmail`, `prompt`, `generatedImagePath`, `publicUrl`, `status`, `model`, `width`, `height`.
+
+#### 2. Server-Side Pipeline (`src/server/`)
+- **Strict Server-Side Secret Isolation**: All Hugging Face (`HUGGINGFACE_API_KEY*`) and Leonardo (`LEONARDO_API_KEY*`) private tokens remain in the Express backend environment (`src/server`) and are never exposed via `EXPO_PUBLIC_` to the client.
+- **Model Registry (`src/config/imageModels.ts`)**:
+  - Standardized image models: `black-forest-labs/FLUX.1-schnell` (Default HF), `stabilityai/stable-diffusion-xl-base-1.0` (HF & Img2Img), `ByteDance/Hyper-SD` (HF), `flux-schnell` (Leonardo Pro), `sd-1.5` (Leonardo).
+  - Supported aspect ratios: `1:1` (1024x1024), `16:9` (1344x768), `9:16` (768x1344), `4:3` (1152x864), `3:4` (864x1152).
+- **Core Generator Pipeline (`src/server/lib/image-generator.ts`)**:
+  - Text-to-Image and Image-to-Image execution engine.
+  - Multi-key rotation with exponential backoff on Hugging Face 503 loading statuses.
+  - Asynchronous polling mechanism for Leonardo AI generations (`/generations/{id}`).
+  - Image buffer normalization and resizing using `sharp`.
+  - Direct upload of PNG buffers to Appwrite Storage with `Permission.read(Role.any())`.
+  - Document creation and status tracking in Appwrite `image_generation` collection.
+- **Dedicated Image Routes (`src/server/routes/image.ts`)**:
+  - `POST /api/mobile/image/generate`: Accepts prompt, referenceImageBase64/mimeType, model, width, height, libId, and userEmail.
+  - `GET /api/mobile/image/generations`: Fetches turns for a given `libId` and `userEmail`.
+  - `GET /api/mobile/image/file`: Fallback proxy endpoint to stream file buffers if direct CDN access is restricted.
+  - `DELETE /api/mobile/image/conversation/:libId`: Deletes all generation turns and storage files for a conversation.
+- **Server Index & Proxy Integration (`src/server/index.ts`, `src/server/routes/proxy.ts`)**:
+  - Mounted `/api/mobile/image` routes on the Express server.
+  - Updated conversation history and delete handlers to support both chat (`chats` / `library`) and image generation (`image_generation`).
+
+#### 3. Client Services & UI Components
+- **Client Service (`src/services/imageService.ts`)**:
+  - Endpoints for `generateImage`, `getGenerationsByLibId`, `deleteImageConversation`, and `downloadOrShareImage` (using `expo-file-system` and `Share.share`).
+- **UI Components (`src/components/image/`)**:
+  - `AspectRatioSelector.tsx`: Horizontal chips for aspect ratios with visual dimension indicators.
+  - `ImageModelSelectorSheet.tsx`: Bottom sheet allowing selection between Hugging Face and Leonardo models with provider badges and Img2Img tags.
+  - `ImageCard.tsx`: Turn card rendering prompt bubble, metadata badges, `<ExpoImage />` presentation, smooth loading pulse, error retry state, and action bar (share, copy prompt, regenerate, like/dislike, full-screen inspect).
+- **Dedicated Screen (`src/features/image/ImageGenScreen.tsx`)**:
+  - Multi-turn conversation container preserving `libId` across generations.
+  - Image-to-Image picker using `expo-image-picker` with thumbnail preview and removal.
+  - Floating responsive composer adhering to dark mode design system (#18181b surfaces, 48px touch targets, violet accents).
+- **Navigation & Drawer Integration (`src/components/common/Drawer.tsx`, `src/features/chat/AppShell.tsx`)**:
+  - Drawer displays `IconPhoto` for `image-generation` conversations.
+  - Added "Images" shortcut under Explore that navigates to a fresh image generation screen.
+  - `AppShell.tsx` orchestrates switching between `'chat'`, `'image-gen'`, and `'settings'` views seamlessly.
+  - Added "Create image" entry points in Composer mode pill and `AttachmentSheet.tsx`.
+
+#### 4. Verification
+- `npx tsc --noEmit` executed with 0 errors across the entire codebase.
+- Verified server and client type definitions, key rotation, and Appwrite collection field synchronization.
+
+### Addendum: Hermes `crypto` Fix & Home Composer Clean Up
+- **Resolved Render Error (`Property 'crypto' doesn't exist`)**: Replaced `crypto.randomUUID()` in [`ImageGenScreen.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/features/image/ImageGenScreen.tsx) with standard React Native compatible `generateUUID()` from [`chatService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/chatService.ts).
+- **Restored Home Composer Layout**: Removed the "Image" mode toggle button from [`Composer.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/Composer.tsx) top controls, preserving the clean original design featuring only `ModelSelector`, `Search`, and `Research`.
+- **Wired `+` Attachment Sheet "Create image" Logic**: Connected "Create image" in [`AttachmentSheet.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/AttachmentSheet.tsx) directly to `onSelectCreateImage` with automatic detection and passing of any pending image attachment for Image-to-Image mode.
+
+### Addendum: Appwrite Environment Variables & Resilient Backend Fallback
+- **Missing Appwrite Collection IDs Added to `.env`**:
+  - `EXPO_PUBLIC_APPWRITE_IMAGE_GENERATION_COLLECTION_ID=image_generation`
+  - `APPWRITE_IMAGE_GENERATION_COLLECTION_ID=image_generation`
+  - `EXPO_PUBLIC_APPWRITE_WEBSITE_PROJECTS_COLLECTION_ID=website_projects`
+  - `APPWRITE_WEBSITE_PROJECTS_COLLECTION_ID=website_projects`
+  - `EXPO_PUBLIC_WEB_API_URL=https://chatboxai.co.in`
+  - Added server-side `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`, `APPWRITE_DATABASE_ID`, and `APPWRITE_STORAGE_BUCKET_ID` for local Express execution.
+- **Fixed 404 & Appwrite Permission Errors**:
+  - Updated [`src/services/imageService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/imageService.ts): When the mobile proxy returns 404 (due to remote server not yet containing new routes), it seamlessly falls back to the live production web backend (`https://chatboxai.co.in/api/generate-image`) passing the user's Firebase auth token.
+  - Eliminated noisy `console.error` and `console.warn` in LogBox when direct Appwrite client SDK hits collection permission limitations.
+  - Updated [`src/services/chatService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/chatService.ts) to fallback to `https://chatboxai.co.in/api/library/history` for conversation history including image generation records.
+- **Canonical Image Endpoint Direct Routing**:
+  - Eliminated the initial 404 request to `api-mobile.chatboxai.co.in` in [`src/services/imageService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/imageService.ts).
+  - `generateImage`, `fetchGenerations`, and `deleteConversation` now route directly to the active production backend (`https://chatboxai.co.in/api/generate-image` and `/api/library/delete`) with the user's Firebase Bearer token.
+  - Removed all `DEBUG Mobile API generate error: 404` console warnings and eliminated network latency overhead.
+
+### Addendum: Shift to Dedicated Mobile API Domain (`https://api-mobile.chatboxai.co.in`)
+- **Domain Shift Configuration**:
+  - As requested, switched client image service [`src/services/imageService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/imageService.ts) to target `https://api-mobile.chatboxai.co.in` via `apiClient`.
+  - Configured endpoints:
+    - `POST /api/mobile/image/generate` (timeout: 90s)
+    - `GET  /api/mobile/image/generations?libId=...` (timeout: 20s)
+    - `DELETE /api/mobile/image/conversation/:libId`
+  - URL normalization in [`normalizeImageUrl`](file:///d:/All%20Projects/Chatboxai_APK/src/services/imageService.ts) and [`ImageCard.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/image/ImageCard.tsx) now prefixes relative paths with `https://api-mobile.chatboxai.co.in`.
+  - The dedicated mobile backend server codebase in `src/server` (`routes/image.ts`, `lib/image-generator.ts`, `index.ts`) is ready for live deployment to `https://api-mobile.chatboxai.co.in`.
+- **Validation**:
+  - `npx tsc --noEmit` passed with 0 errors.

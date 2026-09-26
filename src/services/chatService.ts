@@ -132,7 +132,58 @@ export const chatService = {
         }
       } catch (err: any) {
         if (__DEV__) {
-          console.debug('[chatService] Proxy fetchUserConversations fallback to direct Appwrite:', err?.message || err);
+          console.debug('[chatService] Proxy fetchUserConversations fallback to Web API:', err?.message || err);
+        }
+      }
+
+      // 1b. Official Web API Fallback (/api/library/history)
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const webUrl = `${process.env.EXPO_PUBLIC_WEB_API_URL || 'https://chatboxai.co.in'}/api/library/history?email=${encodeURIComponent(normalizedEmail)}`;
+        const res = await fetch(webUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success) {
+            const webItems: ConversationItem[] = [];
+            for (const doc of data.libraryDocs || []) {
+              const rawTitle = doc.searchInput || 'Untitled';
+              webItems.push({
+                libId: doc.libId || doc.$id,
+                title: cleanConversationTitle(rawTitle),
+                rawTitle,
+                userEmail: doc.userEmail || normalizedEmail,
+                type: doc.type || 'search',
+                selectedModel: doc.selectedModel,
+                modelName: doc.modelName,
+                createdAt: doc.created_at || doc.$createdAt,
+                docId: doc.$id,
+              });
+            }
+            for (const doc of data.imageGenDocs || []) {
+              const rawTitle = doc.prompt || 'Image Generation';
+              webItems.push({
+                libId: doc.libId || doc.$id,
+                title: cleanConversationTitle(rawTitle),
+                rawTitle,
+                userEmail: doc.userEmail || normalizedEmail,
+                type: 'image-generation',
+                selectedModel: doc.model,
+                modelName: doc.model,
+                createdAt: doc.created_at || doc.$createdAt,
+                docId: doc.$id,
+              });
+            }
+            if (webItems.length > 0) {
+              webItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+              return webItems;
+            }
+          }
+        }
+      } catch (webErr: any) {
+        if (__DEV__) {
+          console.debug('[chatService] Web library history fallback error:', webErr?.message || webErr);
         }
       }
     }
@@ -685,6 +736,8 @@ export const chatService = {
     const normalizedEmail = userEmail.trim().toLowerCase();
 
     try {
+      let deletedAny = false;
+
       // 1. Confirm ownership in library collection
       const libRes = await databases.listDocuments(DB_ID, LIBRARY_COLLECTION_ID, [
         Query.equal('libId', libId),
@@ -695,29 +748,43 @@ export const chatService = {
         (doc: any) => (doc.userEmail || '').trim().toLowerCase() === normalizedEmail
       );
 
-      if (!matchingDoc) {
-        console.warn(`[chatService] Conversation ${libId} not owned by ${normalizedEmail}, delete skipped`);
-        return false;
+      if (matchingDoc) {
+        // 2. Delete all chat message turns belonging to this libId
+        try {
+          const chatsRes = await databases.listDocuments(DB_ID, CHATS_COLLECTION_ID, [
+            Query.equal('libId', libId),
+            Query.limit(200),
+          ]);
+
+          for (const chatDoc of chatsRes.documents || []) {
+            await databases.deleteDocument(DB_ID, CHATS_COLLECTION_ID, chatDoc.$id);
+          }
+        } catch (err: any) {
+          console.warn('[chatService] Warning deleting associated chats:', err?.message || err);
+        }
+
+        // 3. Delete the conversation record from library collection
+        await databases.deleteDocument(DB_ID, LIBRARY_COLLECTION_ID, matchingDoc.$id);
+        deletedAny = true;
       }
 
-      // 2. Delete all chat message turns belonging to this libId
+      // 4. Also delete any image_generation records associated with this libId
       try {
-        const chatsRes = await databases.listDocuments(DB_ID, CHATS_COLLECTION_ID, [
+        const imgRes = await databases.listDocuments(DB_ID, IMAGE_GENERATION_COLLECTION_ID, [
           Query.equal('libId', libId),
-          Query.limit(200),
+          Query.equal('userEmail', normalizedEmail),
+          Query.limit(100),
         ]);
 
-        for (const chatDoc of chatsRes.documents || []) {
-          await databases.deleteDocument(DB_ID, CHATS_COLLECTION_ID, chatDoc.$id);
+        for (const imgDoc of imgRes.documents || []) {
+          await databases.deleteDocument(DB_ID, IMAGE_GENERATION_COLLECTION_ID, imgDoc.$id);
+          deletedAny = true;
         }
       } catch (err: any) {
-        console.warn('[chatService] Warning deleting associated chats:', err?.message || err);
+        console.warn('[chatService] Warning deleting image generation records:', err?.message || err);
       }
 
-      // 3. Delete the conversation record from library collection
-      await databases.deleteDocument(DB_ID, LIBRARY_COLLECTION_ID, matchingDoc.$id);
-
-      return true;
+      return deletedAny;
     } catch (error: any) {
       console.error('[chatService] Error deleting conversation:', error?.message || error);
       return false;

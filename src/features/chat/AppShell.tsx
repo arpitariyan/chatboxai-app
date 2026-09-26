@@ -5,6 +5,7 @@ import { Drawer } from '@/components/common/Drawer';
 import { ConversationOptionsMenu } from '@/components/common/ConversationOptionsMenu';
 import { ChatScreen } from './ChatScreen';
 import { SettingsScreen } from '@/components/settings/SettingsScreen';
+import { ImageGenScreen } from '@/features/image/ImageGenScreen';
 import { useThemeColors } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { pinService } from '@/services/pinService';
@@ -14,12 +15,14 @@ export const AppShell: React.FC = () => {
   const colors = useThemeColors();
   const { currentUser } = useAuth();
 
-  const [activeView, setActiveView] = useState<'chat' | 'settings'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen'>('chat');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeLibId, setActiveLibId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
   const [isConversation, setIsConversation] = useState<boolean>(Boolean(activeLibId));
   const [chatSessionId, setChatSessionId] = useState(() => Date.now().toString());
+  const [imagePrompt, setImagePrompt] = useState<string | undefined>(undefined);
+  const [imageReferenceUri, setImageReferenceUri] = useState<string | undefined>(undefined);
   // Incremented whenever a new conversation is created — triggers Drawer history refresh
   const [drawerRefreshTrigger, setDrawerRefreshTrigger] = useState(0);
 
@@ -69,6 +72,8 @@ export const AppShell: React.FC = () => {
     setActiveLibId(null);
     setActiveTitle('');
     setIsConversation(false);
+    setImagePrompt(undefined);
+    setImageReferenceUri(undefined);
     setChatSessionId(Date.now().toString());
     // 3. Reset refresh counter for new user session
     setDrawerRefreshTrigger(0);
@@ -80,16 +85,38 @@ export const AppShell: React.FC = () => {
     setActiveLibId(null);
     setActiveTitle('');
     setIsConversation(false);
+    setImagePrompt(undefined);
+    setImageReferenceUri(undefined);
     setChatSessionId(Date.now().toString());
     setActiveView('chat');
   }, []);
 
-  const handleSelectChatHistory = useCallback((libId: string, title?: string) => {
+  const handleSelectCreateImage = useCallback((prompt?: string, referenceImageUri?: string) => {
+    setActiveLibId(null);
+    setActiveTitle('');
+    setIsConversation(false);
+    setImagePrompt(prompt);
+    setImageReferenceUri(referenceImageUri);
+    setChatSessionId(`img-${Date.now()}`);
+    setActiveView('image-gen');
+  }, []);
+
+  const handleSelectNewImageGeneration = useCallback(() => {
+    handleSelectCreateImage();
+  }, [handleSelectCreateImage]);
+
+  const handleSelectChatHistory = useCallback((libId: string, title?: string, type?: string) => {
     setActiveLibId(libId);
     setActiveTitle(title || '');
     setIsConversation(true);
     setChatSessionId(libId);
-    setActiveView('chat');
+    setImagePrompt(undefined);
+    setImageReferenceUri(undefined);
+    if (type === 'image-generation') {
+      setActiveView('image-gen');
+    } else {
+      setActiveView('chat');
+    }
   }, []);
 
   const handleConversationCreated = useCallback((libId: string, title?: string) => {
@@ -120,18 +147,20 @@ export const AppShell: React.FC = () => {
 
   const handleShareConversation = useCallback(async () => {
     if (!activeLibId) return;
-    const shareUrl = `https://chatboxai.co.in/search/${activeLibId}`;
-    const shareTitle = activeTitle || 'Conversation';
+    const shareUrl = activeView === 'image-gen'
+      ? `https://chatboxai.co.in/image-gen/${activeLibId}`
+      : `https://chatboxai.co.in/search/${activeLibId}`;
+    const shareTitle = activeTitle || (activeView === 'image-gen' ? 'Image Generation' : 'Conversation');
     try {
       await Share.share({
         title: shareTitle,
-        message: `Check out this conversation on ChatBox AI:\n${shareUrl}`,
+        message: `Check out this ${activeView === 'image-gen' ? 'image' : 'conversation'} on ChatBox AI:\n${shareUrl}`,
         url: shareUrl,
       });
     } catch (error) {
       console.warn('[AppShell] Share error:', error);
     }
-  }, [activeLibId, activeTitle]);
+  }, [activeLibId, activeTitle, activeView]);
 
   const handleTogglePin = useCallback(async () => {
     if (!activeLibId || !currentUser?.email) return;
@@ -193,7 +222,7 @@ export const AppShell: React.FC = () => {
   return (
     <View style={[styles.shell, { backgroundColor: colors.background }]}>
       {/* Top Header */}
-      {activeView === 'chat' && (
+      {activeView !== 'settings' && (
         <Header
           onOpenDrawer={handleOpenDrawer}
           onNewChat={handleNewChat}
@@ -211,6 +240,17 @@ export const AppShell: React.FC = () => {
           onConversationCreated={handleConversationCreated}
           onConversationActiveChange={handleConversationActiveChange}
           onConversationTitleChange={setActiveTitle}
+          onSelectCreateImage={handleSelectCreateImage}
+        />
+      ) : activeView === 'image-gen' ? (
+        <ImageGenScreen
+          key={chatSessionId}
+          initialLibId={activeLibId}
+          initialPrompt={imagePrompt}
+          initialReferenceImageUri={imageReferenceUri}
+          onConversationCreated={handleConversationCreated}
+          onConversationActiveChange={handleConversationActiveChange}
+          onConversationTitleChange={setActiveTitle}
         />
       ) : (
         <SettingsScreen onBack={handleBackFromSettings} />
@@ -223,6 +263,7 @@ export const AppShell: React.FC = () => {
         onClose={handleCloseDrawer}
         onSelectNewChat={handleNewChat}
         onSelectChatHistory={handleSelectChatHistory}
+        onSelectNewImageGeneration={handleSelectNewImageGeneration}
         onOpenSettings={handleOpenSettings}
         refreshTrigger={drawerRefreshTrigger}
       />

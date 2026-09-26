@@ -305,35 +305,58 @@ proxyRouter.put('/conversations/:libId', requireFirebaseUser, async (req: Reques
 proxyRouter.delete('/conversations/:libId', requireFirebaseUser, async (req: Request, res: Response) => {
   const user = req.user!;
   const libId = req.params.libId;
+  const normalizedEmail = user.email.toLowerCase();
 
   try {
+    let deletedAny = false;
+
+    // 1. Try finding in library collection
     const resDocs = await databases.listDocuments(DB_ID, LIBRARY_COLLECTION_ID, [
       Query.equal('libId', libId),
       Query.limit(5),
     ]);
 
     const matching = (resDocs.documents || []).find(
-      (doc: any) => (doc.userEmail || '').toLowerCase() === user.email.toLowerCase()
+      (doc: any) => (doc.userEmail || '').toLowerCase() === normalizedEmail
     );
 
-    if (!matching) {
-      return res.status(404).json({ error: 'Conversation not found or unauthorized' });
+    if (matching) {
+      // Delete associated chats
+      try {
+        const chatsRes = await databases.listDocuments(DB_ID, CHATS_COLLECTION_ID, [
+          Query.equal('libId', libId),
+          Query.limit(200),
+        ]);
+        for (const chat of chatsRes.documents || []) {
+          await databases.deleteDocument(DB_ID, CHATS_COLLECTION_ID, chat.$id);
+        }
+      } catch {
+        // Continue
+      }
+
+      await databases.deleteDocument(DB_ID, LIBRARY_COLLECTION_ID, matching.$id);
+      deletedAny = true;
     }
 
-    // Delete associated chats
+    // 2. Also check if there are image_generation documents with this libId
     try {
-      const chatsRes = await databases.listDocuments(DB_ID, CHATS_COLLECTION_ID, [
+      const imgDocs = await databases.listDocuments(DB_ID, IMAGE_GENERATION_COLLECTION_ID, [
         Query.equal('libId', libId),
-        Query.limit(200),
+        Query.equal('userEmail', normalizedEmail),
+        Query.limit(100),
       ]);
-      for (const chat of chatsRes.documents || []) {
-        await databases.deleteDocument(DB_ID, CHATS_COLLECTION_ID, chat.$id);
+      for (const imgDoc of imgDocs.documents || []) {
+        await databases.deleteDocument(DB_ID, IMAGE_GENERATION_COLLECTION_ID, imgDoc.$id);
+        deletedAny = true;
       }
     } catch {
       // Continue
     }
 
-    await databases.deleteDocument(DB_ID, LIBRARY_COLLECTION_ID, matching.$id);
+    if (!deletedAny) {
+      return res.status(404).json({ error: 'Conversation not found or unauthorized' });
+    }
+
     res.status(200).json({ success: true, deleted: libId });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to delete conversation' });

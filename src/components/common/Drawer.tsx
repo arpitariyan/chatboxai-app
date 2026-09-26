@@ -44,7 +44,8 @@ interface DrawerProps {
   visible: boolean;
   onClose: () => void;
   onSelectNewChat: () => void;
-  onSelectChatHistory: (libId: string, title?: string) => void;
+  onSelectChatHistory: (libId: string, title?: string, type?: string) => void;
+  onSelectNewImageGeneration?: () => void;
   onOpenSettings: () => void;
   /** Increment to force a history refresh */
   refreshTrigger?: number;
@@ -55,6 +56,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   onClose,
   onSelectNewChat,
   onSelectChatHistory,
+  onSelectNewImageGeneration,
   onOpenSettings,
   refreshTrigger = 0,
 }) => {
@@ -386,7 +388,13 @@ export const Drawer: React.FC<DrawerProps> = ({
                 return (
                   <Pressable
                     key={item.id}
-                    onPress={() => handleClose()}
+                    onPress={() => {
+                      if (item.id === 'images') {
+                        handleClose(onSelectNewImageGeneration);
+                      } else {
+                        handleClose();
+                      }
+                    }}
                     style={({ pressed }) => [
                       styles.featureRow,
                       {
@@ -420,7 +428,7 @@ export const Drawer: React.FC<DrawerProps> = ({
                   {pinnedConversations.map((chat: ConversationItem) => (
                     <View key={`pinned-${chat.libId}`} style={styles.recentRowContainer}>
                       <Pressable
-                        onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title))}
+                        onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title, chat.type))}
                         style={({ pressed }) => [
                           styles.recentMainButton,
                           {
@@ -429,11 +437,19 @@ export const Drawer: React.FC<DrawerProps> = ({
                           },
                         ]}
                       >
-                        <IconPin
-                          size={16}
-                          color={colors.accent || colors.ink2}
-                          style={{ marginRight: spacing.sm + 2 }}
-                        />
+                        {chat.type === 'image-generation' ? (
+                          <IconPhoto
+                            size={16}
+                            color={colors.accent || colors.ink2}
+                            style={{ marginRight: spacing.sm + 2 }}
+                          />
+                        ) : (
+                          <IconPin
+                            size={16}
+                            color={colors.accent || colors.ink2}
+                            style={{ marginRight: spacing.sm + 2 }}
+                          />
+                        )}
                         <Text
                           style={[styles.recentTitle, { color: colors.ink, fontWeight: '500' }]}
                           numberOfLines={1}
@@ -483,7 +499,7 @@ export const Drawer: React.FC<DrawerProps> = ({
                 recentConversations.map((chat: ConversationItem) => (
                   <View key={chat.libId} style={styles.recentRowContainer}>
                     <Pressable
-                      onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title))}
+                      onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title, chat.type))}
                       style={({ pressed }) => [
                         styles.recentMainButton,
                         {
@@ -492,11 +508,19 @@ export const Drawer: React.FC<DrawerProps> = ({
                         },
                       ]}
                     >
-                      <IconMessage2
-                        size={17}
-                        color={colors.ink3}
-                        style={{ marginRight: spacing.sm + 2 }}
-                      />
+                      {chat.type === 'image-generation' ? (
+                        <IconPhoto
+                          size={17}
+                          color={colors.accent}
+                          style={{ marginRight: spacing.sm + 2 }}
+                        />
+                      ) : (
+                        <IconMessage2
+                          size={17}
+                          color={colors.ink3}
+                          style={{ marginRight: spacing.sm + 2 }}
+                        />
+                      )}
                       <Text
                         style={[styles.recentTitle, { color: colors.ink }]}
                         numberOfLines={1}

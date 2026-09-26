@@ -52,6 +52,7 @@ interface ChatScreenProps {
   onConversationCreated?: (libId: string, title?: string) => void;
   onConversationActiveChange?: (isActive: boolean) => void;
   onConversationTitleChange?: (title: string) => void;
+  onSelectCreateImage?: (initialPrompt?: string, initialReferenceUri?: string) => void;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
@@ -59,6 +60,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   onConversationCreated,
   onConversationActiveChange,
   onConversationTitleChange,
+  onSelectCreateImage,
 }) => {
   const colors = useThemeColors();
   const { currentUser, userProfile } = useAuth();
@@ -666,6 +668,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         visible={isAttachmentOpen}
         onClose={handleCloseAttachments}
         onAttachmentsSelected={handleAttachmentsSelected}
+        onSelectCreateImage={() => {
+          const imgAtt = pendingAttachments.find((a) => a.type === 'image');
+          onSelectCreateImage?.(undefined, imgAtt?.uri);
+        }}
       />
       <VoiceOverlay visible={isVoiceOpen} onClose={handleCloseVoice} />
     </View>
@@ -800,6 +806,32 @@ const ConversationContent: React.FC<ContentProps> = ({
   colors,
   pendingAttachments,
   onClearAttachment,
+}: {
+  messages: MessageItem[];
+  isLoadingHistory: boolean;
+  isSearching: boolean;
+  isThinking: boolean;
+  progressMessage: string;
+  showScrollDown: boolean;
+  scrollButtonOpacity: any;
+  scrollViewRef: any;
+  isNearBottomRef: any;
+  handleScroll: any;
+  handleSendMessage: any;
+  handleRegenerate: any;
+  handleFeedback: any;
+  handleVersionChange: any;
+  handleComposerFocus: any;
+  handleStop: any;
+  handleOpenAttachments: any;
+  handleOpenVoice: any;
+  isGenerating: boolean;
+  isFileAnalyzing: boolean;
+  currentUser: any;
+  userProfile: any;
+  colors: any;
+  pendingAttachments: ChatAttachment[];
+  onClearAttachment: (uri: string) => void;
 }) => {
   const { thinkingMode } = useModelStore();
   const isEmptyChat = !isLoadingHistory && messages.length === 0;

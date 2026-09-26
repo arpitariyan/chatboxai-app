@@ -48,6 +48,12 @@ export class FileNotFoundError extends AppError {
   }
 }
 
+export class NotFoundError extends AppError {
+  constructor(message = 'Resource not found') {
+    super(message, 404, 'FILE_NOT_FOUND');
+  }
+}
+
 export class FileTooLargeError extends AppError {
   constructor(message = 'File too large') {
     super(message, 413, 'FILE_TOO_LARGE');

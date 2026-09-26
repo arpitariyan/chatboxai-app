@@ -31,6 +31,7 @@ interface AddMenuSheetProps {
   visible: boolean;
   onClose: () => void;
   onAttachmentsSelected: (attachments: ChatAttachment[]) => void;
+  onSelectCreateImage?: () => void;
 }
 
 const EFFORT_LEVELS: EffortLevel[] = ['Low', 'Medium', 'High', 'Extra High'];
@@ -51,6 +52,7 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
   visible,
   onClose,
   onAttachmentsSelected,
+  onSelectCreateImage,
 }) => {
   const colors = useThemeColors();
   const { effortLevel, setEffortLevel, thinkingMode, setThinkingMode } = useModelStore();
@@ -344,7 +346,7 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
           />
         </View>
 
-        {/* ── Create Image (UI only) ── */}
+        {/* ── Create Image ── */}
         <Pressable
           style={({ pressed }) => [
             styles.listRow,
@@ -354,10 +356,13 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
               opacity: pressed ? 0.75 : 1,
             },
           ]}
-          onPress={() => Alert.alert('Coming Soon', 'Image generation will be available in a future update.')}
+          onPress={() => {
+            onClose();
+            onSelectCreateImage?.();
+          }}
         >
           <View style={[styles.listIconWrap, { backgroundColor: colors.inset }]}>
-            <IconSparkles size={17} color={colors.ink} strokeWidth={1.5} />
+            <IconSparkles size={17} color={colors.accent || colors.ink} strokeWidth={1.5} />
           </View>
           <View style={styles.listContent}>
             <Text style={[styles.listTitle, { color: colors.ink }]}>Create image</Text>
