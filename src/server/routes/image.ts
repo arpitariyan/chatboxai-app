@@ -25,6 +25,7 @@ import {
 } from '../lib/appwrite-admin';
 import { BadRequestError, NotFoundError } from '../lib/errors';
 import { logger } from '../lib/logger';
+import { imageGenerationLimiter } from '../lib/rate-limit';
 
 export const imageRouter = Router();
 
@@ -45,6 +46,18 @@ imageRouter.get('/image', (_req: Request, res: Response) => {
 // ── 1. Generate Image (Text-to-Image or Image-to-Image) ──────────────────────
 imageRouter.post('/image/generate', requireFirebaseUser, async (req: Request, res: Response) => {
   const user = req.user!;
+  const userKey = user.email || user.uid;
+
+  // Rate limiting guard (protects Cloudflare neuron allocation & server load)
+  const rateCheck = imageGenerationLimiter.check(userKey);
+  if (!rateCheck.allowed) {
+    logger.warn(`Rate limit exceeded for user ${userKey}`);
+    return res.status(429).json({
+      success: false,
+      error: `Rate limit exceeded. Please wait ${rateCheck.retryAfter || 30} seconds before generating another image.`,
+    });
+  }
+
   const {
     prompt,
     model,
@@ -53,6 +66,7 @@ imageRouter.post('/image/generate', requireFirebaseUser, async (req: Request, re
     height,
     referenceImage,
     referenceImageBase64,
+    referenceImages,
     libId,
   } = req.body || {};
 
@@ -60,7 +74,9 @@ imageRouter.post('/image/generate', requireFirebaseUser, async (req: Request, re
     throw new BadRequestError('Prompt is required for image generation');
   }
 
-  logger.info(`Received image generation request: user=${user.email}, model=${model || 'default'}, prompt="${prompt.slice(0, 40)}..."`);
+  logger.info(
+    `Received image generation request: user=${user.email}, model=${model || 'default'}, prompt="${prompt.slice(0, 40)}..."`
+  );
 
   try {
     const result = await executeImageGeneration({
@@ -72,13 +88,14 @@ imageRouter.post('/image/generate', requireFirebaseUser, async (req: Request, re
       height,
       referenceImage,
       referenceImageBase64,
+      referenceImages,
       libId,
     });
 
     res.status(200).json(result);
   } catch (err: any) {
     logger.error('Image generation route error:', { error: err.message, stack: err.stack });
-    const status = err.statusCode || 500;
+    const status = err.statusCode || (err.message?.includes('Insufficient credits') ? 402 : 500);
     res.status(status).json({
       success: false,
       error: err.message || 'Image generation failed',
@@ -120,19 +137,9 @@ imageRouter.get('/image/file', async (req: Request, res: Response) => {
   }
 
   try {
-    const fileViewUrl = getPublicFileUrl(fileId);
-    const upstreamRes = await fetch(fileViewUrl);
-
-    if (!upstreamRes.ok) {
-      throw new NotFoundError(`Image file ${fileId} not accessible`);
-    }
-
-    const contentType = upstreamRes.headers.get('content-type') || 'image/png';
-    const cacheControl = upstreamRes.headers.get('cache-control') || 'public, max-age=86400';
-    const arrayBuffer = await upstreamRes.arrayBuffer();
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', cacheControl);
+    const arrayBuffer = await storage.getFileView(STORAGE_BUCKET_ID, fileId);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     res.status(200).send(Buffer.from(arrayBuffer));
   } catch (err: any) {
     const status = err.statusCode || 500;

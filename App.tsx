@@ -7,8 +7,9 @@ import { AuthContainer } from '@/features/auth';
 import { AppShell } from '@/features/chat';
 import { getColors } from '@/theme';
 
-// Ignore non-fatal API key fallback warnings from showing up in the LogBox UI
+// Ignore non-fatal API key fallback and Expo Go media library warnings from showing up in the LogBox UI
 LogBox.ignoreLogs([
+  'Due to changes in Androids permission requirements, Expo Go can no longer provide full access to the media library',
   '[groq] API key failed',
   '[openrouter] API key failed',
   '[google] API key failed',

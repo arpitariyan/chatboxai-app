@@ -1,9 +1,12 @@
 /**
  * src/components/image/ImageModelSelectorSheet.tsx
  *
- * Bottom sheet for selecting image generation models.
- * Shows model names, providers (Hugging Face vs Leonardo AI), descriptions,
- * and capability badges (e.g. "Image-to-Image").
+ * Refined, minimal bottom sheet for selecting image generation models.
+ * Complies with specification:
+ * - Shows only the model name and appropriate icon
+ * - No provider names
+ * - No model descriptions
+ * - Minimal, clean layout consistent with the rest of the APK
  */
 
 import React from 'react';
@@ -46,8 +49,19 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
     }
   }
 
+  const getModelIcon = (model: ImageModelConfig, isSelected: boolean) => {
+    const iconColor = isSelected ? colors.ink : colors.ink2;
+    if (model.provider === 'leonardo') {
+      return <IconSparkles size={18} color={iconColor} strokeWidth={1.8} />;
+    }
+    if (model.supportsImageToImage) {
+      return <IconWand size={18} color={iconColor} strokeWidth={1.8} />;
+    }
+    return <IconPhoto size={18} color={iconColor} strokeWidth={1.8} />;
+  };
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Select Image Model">
+    <BottomSheet visible={visible} onClose={onClose} title="Select Model">
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.container}
@@ -55,7 +69,6 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
       >
         {uniqueModels.map((model) => {
           const isSelected = model.id === selectedModelId;
-          const isLeonardo = model.provider === 'leonardo';
 
           return (
             <Pressable
@@ -65,7 +78,7 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
                 onClose();
               }}
               style={({ pressed }) => [
-                styles.modelCard,
+                styles.modelRow,
                 {
                   backgroundColor: isSelected
                     ? 'rgba(192, 132, 252, 0.08)'
@@ -77,7 +90,7 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
             >
               <View
                 style={[
-                  styles.iconBox,
+                  styles.iconWrap,
                   {
                     backgroundColor: isSelected
                       ? 'rgba(192, 132, 252, 0.16)'
@@ -85,76 +98,46 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
                   },
                 ]}
               >
-                {isLeonardo ? (
-                  <IconSparkles
-                    size={20}
-                    color={isSelected ? colors.accent : colors.ink}
-                  />
-                ) : model.supportsImageToImage ? (
-                  <IconWand
-                    size={20}
-                    color={isSelected ? colors.accent : colors.ink}
-                  />
-                ) : (
-                  <IconPhoto
-                    size={20}
-                    color={isSelected ? colors.accent : colors.ink}
-                  />
-                )}
+                {getModelIcon(model, isSelected)}
               </View>
 
-              <View style={styles.content}>
-                <View style={styles.titleRow}>
-                  <Text
-                    style={[
-                      styles.title,
-                      { color: isSelected ? colors.accent : colors.ink },
-                    ]}
-                  >
-                    {model.name}
-                  </Text>
-                  {model.supportsImageToImage && (
-                    <View
-                      style={[
-                        styles.badge,
-                        {
-                          backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                          borderColor: 'rgba(59, 130, 246, 0.3)',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.badgeText, { color: '#60a5fa' }]}>
-                        Image-to-Image
-                      </Text>
-                    </View>
-                  )}
-                  {isLeonardo && (
-                    <View
-                      style={[
-                        styles.badge,
-                        {
-                          backgroundColor: 'rgba(234, 179, 8, 0.15)',
-                          borderColor: 'rgba(234, 179, 8, 0.3)',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.badgeText, { color: '#facc15' }]}>
-                        Leonardo
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Text
-                  style={[styles.desc, { color: colors.ink3 }]}
-                  numberOfLines={2}
+              <Text
+                style={[
+                  styles.modelName,
+                  {
+                    color: isSelected ? colors.ink : colors.ink,
+                    fontWeight: isSelected ? '600' : '400',
+                  },
+                ]}
+              >
+                {model.name}
+              </Text>
+
+              {model.supportsImageToImage && (
+                <View
+                  style={[
+                    styles.tagBadge,
+                    {
+                      backgroundColor: isSelected
+                        ? 'rgba(192, 132, 252, 0.18)'
+                        : 'rgba(255, 255, 255, 0.06)',
+                      borderColor: isSelected
+                        ? 'rgba(192, 132, 252, 0.35)'
+                        : 'rgba(255, 255, 255, 0.1)',
+                    },
+                  ]}
                 >
-                  {model.desc}
-                </Text>
-              </View>
+                  <Text style={[styles.tagBadgeText, { color: colors.accent }]}>
+                    {model.maxReferenceImages && model.maxReferenceImages > 1
+                      ? `Img2Img (${model.maxReferenceImages} refs)`
+                      : 'Img2Img'}
+                  </Text>
+                </View>
+              )}
 
               {isSelected && (
                 <View style={styles.checkWrap}>
-                  <IconCheck size={18} color={colors.accent} strokeWidth={2.5} />
+                  <IconCheck size={18} color={colors.accent} strokeWidth={2.2} />
                 </View>
               )}
             </Pressable>
@@ -167,62 +150,46 @@ export const ImageModelSelectorSheet: React.FC<ImageModelSelectorSheetProps> = (
 
 const styles = StyleSheet.create({
   scroll: {
-    maxHeight: 460,
+    maxHeight: 380,
   },
   container: {
-    gap: spacing.sm,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs + 2,
   },
-  modelCard: {
+  modelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: radius.xl,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: spacing.md,
-    minHeight: 64,
+    minHeight: 48,
   },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.lg,
+  iconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: spacing.sm + 2,
   },
-  content: {
+  modelName: {
     flex: 1,
-    gap: 3,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  title: {
     fontSize: typography.fontSize.sm,
-    fontWeight: '600',
+    letterSpacing: -0.1,
   },
-  badge: {
-    paddingHorizontal: 6,
+  tagBadge: {
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: radius.full,
     borderWidth: 1,
+    marginRight: 6,
   },
-  badgeText: {
-    fontSize: 9,
+  tagBadgeText: {
+    fontSize: 10,
     fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  desc: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 16,
   },
   checkWrap: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginLeft: spacing.xs,
   },
 });

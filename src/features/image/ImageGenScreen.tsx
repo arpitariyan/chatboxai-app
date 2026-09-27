@@ -2,17 +2,24 @@
  * src/features/image/ImageGenScreen.tsx
  *
  * Dedicated screen for multi-turn Image Generation and Image-to-Image editing.
+ * Uses the exact same KeyboardWrapper architecture as ChatScreen for correct
+ * keyboard handling on both iOS and Android.
  * Features:
  * - Real-time generation thread persistence with libId
  * - Follow-up generations within the same conversation
- * - Image model selector sheet
- * - Aspect ratio selector pills
+ * - Design-system-aligned image model selector and aspect ratio chips
  * - Single reference image picker for Image-to-Image mode
  * - Action toolbar (Download, Regenerate, Thumbs, Copy Prompt)
- * - Safe-area aware floating bottom composer
+ * - Top/bottom cinematic fade gradients matching ChatScreen
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   StyleSheet,
   View,
@@ -20,14 +27,20 @@ import {
   TextInput,
   Pressable,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
+  Keyboard,
+  Animated,
+  LayoutChangeEvent,
+  Image as RNImage,
+  ScrollView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   IconArrowUp,
   IconPhoto,
@@ -35,7 +48,7 @@ import {
   IconX,
   IconWand,
   IconChevronDown,
-  IconSparkles,
+  IconMicrophone,
 } from '@tabler/icons-react-native';
 import {
   imageService,
@@ -44,15 +57,107 @@ import {
 import { generateUUID } from '@/services/chatService';
 import {
   DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_CLOUDFLARE_MODEL_ID,
   getModelById,
+  getMaxReferenceImagesForModel,
   ImageModelConfig,
-  getProviderIdByModelId,
 } from '@/config/imageModels';
 import { ImageCard } from '@/components/image/ImageCard';
 import { AspectRatioSelector } from '@/components/image/AspectRatioSelector';
 import { ImageModelSelectorSheet } from '@/components/image/ImageModelSelectorSheet';
+import { SuggestionCards } from '@/components/chat/SuggestionCards';
+import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { useThemeColors, typography, radius, spacing } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFadeGradientConfig } from '@/utils/gradientFade';
+
+const logoImg = require('../../../assets/images/logo.png');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KeyboardWrapper — exact mirror of ChatScreen's approach.
+// Placed at module level so the animated component type is created exactly once.
+// ─────────────────────────────────────────────────────────────────────────────
+const AnimatedView = Animated.createAnimatedComponent(View);
+
+const KeyboardWrapper: React.FC<{
+  children: React.ReactNode;
+  backgroundColor: string;
+}> = ({ children, backgroundColor }) => {
+  const androidKeyboardOffset = useRef(new Animated.Value(0)).current;
+  const initialLayoutHeight = useRef<number>(0);
+  const currentLayoutHeight = useRef<number>(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      const kh = e?.endCoordinates?.height || 0;
+      const heightDiff =
+        initialLayoutHeight.current - currentLayoutHeight.current;
+
+      if (heightDiff >= kh * 0.7) {
+        // OS resized the window itself — no extra padding needed
+        Animated.timing(androidKeyboardOffset, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: false,
+        }).start();
+      } else {
+        // Manual offset required
+        Animated.timing(androidKeyboardOffset, {
+          toValue: kh,
+          duration: 250,
+          useNativeDriver: false,
+        }).start();
+      }
+    });
+
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      Animated.timing(androidKeyboardOffset, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [androidKeyboardOffset]);
+
+  const handleLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (initialLayoutHeight.current === 0 || h > initialLayoutHeight.current) {
+      initialLayoutHeight.current = h;
+    }
+    currentLayoutHeight.current = h;
+  }, []);
+
+  return (
+    <AnimatedView
+      style={[
+        { flex: 1, backgroundColor },
+        Platform.OS === 'android' && {
+          paddingBottom: androidKeyboardOffset,
+        },
+      ]}
+      onLayout={Platform.OS === 'android' ? handleLayout : undefined}
+    >
+      {children}
+    </AnimatedView>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ReferenceImageItem {
+  id: string;
+  uri: string;
+  name?: string;
+}
 
 interface ImageGenScreenProps {
   initialLibId?: string | null;
@@ -73,32 +178,59 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
+  const inputRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  const [libId, setLibId] = useState<string>(() => initialLibId || generateUUID());
+  // libId is stable for the lifetime of this screen instance
+  const [libId] = useState<string>(() => initialLibId || generateUUID());
   const [generations, setGenerations] = useState<GeneratedImageItem[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(Boolean(initialLibId));
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(
+    Boolean(initialLibId)
+  );
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
-  // Model & Ratio state
-  const [selectedModel, setSelectedModel] = useState<ImageModelConfig>(() =>
-    getModelById(DEFAULT_IMAGE_MODEL_ID)
-  );
+  // Model & Ratio - default to Cloudflare Klein 4B if starting with a reference image
+  const [selectedModel, setSelectedModel] = useState<ImageModelConfig>(() => {
+    if (initialReferenceImageUri) {
+      return getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
+    }
+    return getModelById(DEFAULT_IMAGE_MODEL_ID);
+  });
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
   const [isModelSheetOpen, setIsModelSheetOpen] = useState<boolean>(false);
+  const [isVoiceOpen, setIsVoiceOpen] = useState<boolean>(false);
 
-  // Reference image for Image-to-Image
-  const [referenceImageUri, setReferenceImageUri] = useState<string | null>(
-    initialReferenceImageUri || null
+  // Reference images (multi-reference support up to model limit)
+  const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(() => {
+    if (initialReferenceImageUri) {
+      return [{ id: `ref_init_${Date.now()}`, uri: initialReferenceImageUri }];
+    }
+    return [];
+  });
+
+  const maxRefImages = useMemo(
+    () => getMaxReferenceImagesForModel(selectedModel.id),
+    [selectedModel.id]
   );
 
-  // Text composer state
+  // Composer text
   const [promptText, setPromptText] = useState<string>('');
   const flatListRef = useRef<FlatList>(null);
   const isInitialGeneratedRef = useRef(false);
 
-  // Synchronize active conversation state with AppShell
+  // Stable gradient configs
+  const topFadeConfig = useMemo(
+    () => getFadeGradientConfig(colors.background, 'toTransparent'),
+    [colors.background]
+  );
+  const bottomFadeConfig = useMemo(
+    () => getFadeGradientConfig(colors.background, 'fromTransparent'),
+    [colors.background]
+  );
+
+  // Active conversation guard for AppShell header
   useEffect(() => {
     const hasItems = Boolean(initialLibId) || generations.length > 0;
     onConversationActiveChange?.(hasItems);
@@ -107,7 +239,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
     };
   }, [generations.length, initialLibId, onConversationActiveChange]);
 
-  // Load previous generations if opening existing libId
+  // Load history for existing libId
   useEffect(() => {
     if (!initialLibId) {
       setIsLoadingHistory(false);
@@ -119,9 +251,15 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
       .fetchGenerations(initialLibId)
       .then((items) => {
         if (!isMounted) return;
-        setGenerations(items);
-        if (items.length > 0 && items[0].prompt) {
-          onConversationTitleChange?.(items[0].prompt);
+        // Ensure both URL fields are populated consistently
+        const normalized = items.map((item) => ({
+          ...item,
+          publicUrl: item.publicUrl || item.displayUrl || '',
+          displayUrl: item.displayUrl || item.publicUrl || '',
+        }));
+        setGenerations(normalized);
+        if (normalized.length > 0 && normalized[0].prompt) {
+          onConversationTitleChange?.(normalized[0].prompt);
         }
       })
       .catch((err) => {
@@ -136,41 +274,188 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
     };
   }, [initialLibId, onConversationTitleChange]);
 
-  // Handle auto-generation if initialPrompt was provided
+  // Auto-generate on first mount if initialPrompt provided
   useEffect(() => {
-    if (initialPrompt && !isInitialGeneratedRef.current && generations.length === 0) {
+    if (
+      initialPrompt &&
+      !isInitialGeneratedRef.current &&
+      generations.length === 0
+    ) {
       isInitialGeneratedRef.current = true;
-      handleGenerate(initialPrompt, referenceImageUri);
+      handleGenerate(initialPrompt, referenceImages);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
-  // ── Reference image picker ────────────────────────────────────────────────
-  const handlePickReferenceImage = useCallback(async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Photo library permission is needed to choose a reference image.');
+  // ── Reference image picker (Camera or Photos) ─────────────────────────────
+  const handlePickFromSource = useCallback(
+    async (source: 'camera' | 'library') => {
+      const currentMax = getMaxReferenceImagesForModel(selectedModel.id);
+      const remainingSlots = Math.max(0, currentMax - referenceImages.length);
+
+      if (remainingSlots <= 0) {
+        Alert.alert(
+          'Limit Reached',
+          `The selected model (${selectedModel.name}) supports up to ${currentMax} reference image${currentMax > 1 ? 's' : ''}. Please remove an image before adding another.`
+        );
+        return;
+      }
+
+      try {
+        if (source === 'camera') {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert(
+              'Permission Required',
+              'Camera permission is needed to take a photo for image editing.'
+            );
+            return;
+          }
+
+          const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: 'images',
+            // Requesting quality 0.85 causes expo-image-picker to transcode
+            // any HEIC/HEIF camera output to JPEG before returning the URI.
+            quality: 0.85,
+            base64: false,
+            exif: false,
+          });
+
+          if (!result.canceled && result.assets && result.assets.length > 0) {
+            const asset = result.assets[0];
+            const newItem: ReferenceImageItem = {
+              id: `ref_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              uri: asset.uri,
+              name: asset.fileName || 'camera_photo.jpg',
+            };
+
+            setReferenceImages((prev) => [...prev, newItem]);
+
+            // Auto-switch to Cloudflare model if currently on a text-only model
+            if (!selectedModel.supportsImageToImage) {
+              const cfModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
+              setSelectedModel(cfModel);
+              if (!cfModel.ratios.some((r) => r.value === selectedRatio)) {
+                setSelectedRatio('1:1');
+              }
+            }
+          }
+        } else {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert(
+              'Permission Required',
+              'Photo library permission is needed to select reference images.'
+            );
+            return;
+          }
+
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: 'images',
+            allowsMultipleSelection: remainingSlots > 1,
+            selectionLimit: remainingSlots,
+            // Setting quality forces a JPEG transcode of HEIC/HEIF images
+            // on Android/iOS before the URI is returned.
+            quality: 0.85,
+            base64: false,
+            exif: false,
+          });
+
+          if (!result.canceled && result.assets && result.assets.length > 0) {
+            const picked: ReferenceImageItem[] = result.assets.slice(0, remainingSlots).map((asset, idx) => ({
+              id: `ref_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
+              uri: asset.uri,
+              name: asset.fileName || `photo_${idx}.jpg`,
+            }));
+
+            setReferenceImages((prev) => [...prev, ...picked]);
+
+            // Auto-switch to Cloudflare model if currently on a text-only model
+            if (!selectedModel.supportsImageToImage) {
+              const cfModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
+              setSelectedModel(cfModel);
+              if (!cfModel.ratios.some((r) => r.value === selectedRatio)) {
+                setSelectedRatio('1:1');
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[ImageGenScreen] Failed to pick image:', err);
+        Alert.alert('Error', 'Failed to pick image. Please try again.');
+      }
+    },
+    [referenceImages.length, selectedModel, selectedRatio]
+  );
+
+  const handleChooseImageSource = useCallback(() => {
+    const currentMax = getMaxReferenceImagesForModel(selectedModel.id);
+    if (referenceImages.length >= currentMax) {
+      Alert.alert(
+        'Limit Reached',
+        `${selectedModel.name} supports a maximum of ${currentMax} reference image${currentMax > 1 ? 's' : ''}.`
+      );
       return;
     }
 
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images',
-        quality: 0.85,
-        base64: true,
-      });
+    Alert.alert(
+      'Add Reference Image',
+      `Choose image source (up to ${currentMax} reference images supported for ${selectedModel.name})`,
+      [
+        {
+          text: 'Take Photo',
+          onPress: () => handlePickFromSource('camera'),
+        },
+        {
+          text: 'Choose from Photos',
+          onPress: () => handlePickFromSource('library'),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  }, [handlePickFromSource, referenceImages.length, selectedModel.id, selectedModel.name]);
 
-      if (!result.canceled && result.assets.length > 0) {
-        const asset = result.assets[0];
-        setReferenceImageUri(asset.uri);
-      }
-    } catch {
-      Alert.alert('Error', 'Failed to pick reference image.');
-    }
+  const handleRemoveReferenceImage = useCallback((id: string) => {
+    setReferenceImages((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
-  // ── Generation submission ─────────────────────────────────────────────────
+  const handleUseAsReference = useCallback(
+    (imageUrl: string) => {
+      let targetModel = selectedModel;
+      let targetMax = getMaxReferenceImagesForModel(selectedModel.id);
+
+      if (!selectedModel.supportsImageToImage) {
+        targetModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
+        setSelectedModel(targetModel);
+        if (!targetModel.ratios.some((r) => r.value === selectedRatio)) {
+          setSelectedRatio('1:1');
+        }
+        targetMax = targetModel.maxReferenceImages || 4;
+      }
+
+      setReferenceImages((prev) => {
+        if (prev.length >= targetMax) {
+          return [
+            ...prev.slice(0, targetMax - 1),
+            { id: `ref_use_${Date.now()}`, uri: imageUrl },
+          ];
+        }
+        return [...prev, { id: `ref_use_${Date.now()}`, uri: imageUrl }];
+      });
+
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    },
+    [selectedModel, selectedRatio]
+  );
+
+  // ── Generation ────────────────────────────────────────────────────────────
   const handleGenerate = useCallback(
-    async (textToGenerate: string, refUri?: string | null) => {
+    async (textToGenerate: string, overrideRefImages?: ReferenceImageItem[]) => {
       const cleanPrompt = textToGenerate.trim();
       if (!cleanPrompt || isGenerating) return;
 
@@ -179,11 +464,14 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         return;
       }
 
-      const activeRatio = selectedModel.ratios.find((r) => r.value === selectedRatio) || selectedModel.ratios[0];
+      const activeRatio =
+        selectedModel.ratios.find((r) => r.value === selectedRatio) ||
+        selectedModel.ratios[0];
       const currentLibId = libId;
       const tempEntryId = `temp_${Date.now()}`;
+      const refsToUse = overrideRefImages !== undefined ? overrideRefImages : referenceImages;
+      const isImg2Img = refsToUse.length > 0;
 
-      // Optimistic item
       const optimisticItem: GeneratedImageItem = {
         entryId: tempEntryId,
         libId: currentLibId,
@@ -196,35 +484,48 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         status: 'generating',
         created_at: new Date().toISOString(),
         publicUrl: '',
-        generationType: refUri ? 'image-to-image' : 'text-to-image',
-        hasReferenceImage: Boolean(refUri),
+        generationType: isImg2Img ? 'image-to-image' : 'text-to-image',
+        hasReferenceImage: isImg2Img,
+        referenceImageCount: refsToUse.length,
         isLocalPending: true,
       };
 
       setGenerations((prev) => [...prev, optimisticItem]);
       setPromptText('');
       setIsGenerating(true);
+      Keyboard.dismiss();
 
-      // Scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
 
       try {
-        // Encode reference image to base64 if available
-        let base64Data: string | null = null;
-        if (refUri) {
-          try {
-            const response = await fetch(refUri);
-            const blob = await response.blob();
-            base64Data = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-          } catch (e) {
-            console.warn('[ImageGenScreen] Error converting image to base64:', e);
+        const base64List: string[] = [];
+        if (isImg2Img) {
+          for (const ref of refsToUse) {
+            try {
+              if (ref.uri.startsWith('data:image/')) {
+                // Already a valid data URI — use as-is
+                base64List.push(ref.uri);
+              } else if (ref.uri.startsWith('http://') || ref.uri.startsWith('https://')) {
+                // Remote URL — pass raw URL to the server so it can fetch on
+                // its own without going through the slow RN blob bridge
+                base64List.push(ref.uri);
+              } else {
+                // Local file URI (file:// or content://) ─ read directly with
+                // FileSystem to avoid React Native's Blob bridge overhead
+                const b64 = await FileSystem.readAsStringAsync(ref.uri, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                if (b64) {
+                  // Wrap in a data URI with a safe JPEG content-type;
+                  // the server strips the prefix before passing to sharp.
+                  base64List.push(`data:image/jpeg;base64,${b64}`);
+                }
+              }
+            } catch (e) {
+              console.warn('[ImageGenScreen] ref-image base64 conversion failed:', ref.uri, e);
+            }
           }
         }
 
@@ -234,11 +535,13 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
           provider: selectedModel.provider,
           width: activeRatio.width,
           height: activeRatio.height,
-          referenceImageBase64: base64Data,
+          referenceImageBase64: base64List[0] || null,
+          referenceImages: base64List.length > 0 ? base64List : undefined,
           libId: currentLibId,
         });
 
         if (result.success) {
+          const finalUrl = result.imageUrl || result.publicUrl;
           const completedItem: GeneratedImageItem = {
             $id: result.docId,
             entryId: result.docId,
@@ -251,20 +554,24 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             height: result.height,
             status: 'completed',
             created_at: result.createdAt,
-            publicUrl: result.publicUrl,
-            displayUrl: result.imageUrl,
+            publicUrl: finalUrl,
+            displayUrl: finalUrl,
             generationType: result.generationType,
             hasReferenceImage: result.hasReferenceImage,
+            referenceImageCount: result.referenceImageCount || base64List.length,
           };
 
           setGenerations((prev) =>
-            prev.map((item) => (item.entryId === tempEntryId ? completedItem : item))
+            prev.map((item) =>
+              item.entryId === tempEntryId ? completedItem : item
+            )
           );
 
-          // Clear reference image after generation
-          setReferenceImageUri(null);
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 200);
 
-          // Notify parent on first generation of the thread
+          setReferenceImages([]);
           onConversationCreated?.(currentLibId, cleanPrompt);
           onConversationTitleChange?.(cleanPrompt);
         } else {
@@ -276,10 +583,13 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
           prev.map((item) =>
             item.entryId === tempEntryId
               ? {
-                  ...item,
-                  status: 'failed',
-                  failMessage: err?.response?.data?.error || err.message || 'Generation failed',
-                }
+                ...item,
+                status: 'failed',
+                failMessage:
+                  err?.response?.data?.error ||
+                  err.message ||
+                  'Generation failed',
+              }
               : item
           )
         );
@@ -293,99 +603,141 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
       libId,
       onConversationCreated,
       onConversationTitleChange,
+      referenceImages,
       selectedModel,
       selectedRatio,
     ]
   );
 
-  // ── Regeneration handler ──
   const handleRegenerate = useCallback(
     async (item: GeneratedImageItem) => {
       setRegeneratingId(item.entryId || item.libId);
       try {
-        await handleGenerate(item.prompt, item.hasReferenceImage ? referenceImageUri : null);
+        await handleGenerate(
+          item.prompt,
+          item.hasReferenceImage && referenceImages.length > 0 ? referenceImages : []
+        );
       } finally {
         setRegeneratingId(null);
       }
     },
-    [handleGenerate, referenceImageUri]
+    [handleGenerate, referenceImages]
   );
 
-  return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      {/* ── Generations Gallery List ── */}
-      {isLoadingHistory ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={[styles.loadingText, { color: colors.ink3 }]}>
-            Loading images...
-          </Text>
-        </View>
-      ) : generations.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={[styles.emptyIconBox, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-            <IconSparkles size={32} color={colors.accent} />
-          </View>
-          <Text style={[styles.emptyTitle, { color: colors.ink }]}>
-            Create Amazing Images
-          </Text>
-          <Text style={[styles.emptySub, { color: colors.ink3 }]}>
-            Describe what you want to see, or attach an image to modify it with AI.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={generations}
-          keyExtractor={(item, index) => item.entryId || item.$id || String(index)}
-          renderItem={({ item }) => (
-            <ImageCard
-              generation={item}
-              onRegenerate={handleRegenerate}
-              isRegenerating={regeneratingId === (item.entryId || item.libId)}
-            />
-          )}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 140 },
-          ]}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+  const composerBottomPadding = Math.max(insets.bottom, 16);
 
-      {/* ── Persistent Floating Image Composer ── */}
+  return (
+    <KeyboardWrapper backgroundColor={colors.background}>
+      {/* ── Gallery + fade edges ── */}
+      <View style={styles.scrollWrapper}>
+        {isLoadingHistory ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[styles.loadingText, { color: colors.ink3 }]}>
+              Loading images...
+            </Text>
+          </View>
+        ) : generations.length === 0 ? (
+          <ScrollView
+            ref={scrollViewRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 72 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
+            <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
+              <RNImage source={logoImg} style={styles.brandLogo} resizeMode="contain" />
+              <Text style={[styles.greetingTitle, { color: colors.ink }]}>
+                Hello, {currentUser?.displayName || userProfile?.name || 'there'}!
+              </Text>
+              <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
+                What can I help you build or explore today?
+              </Text>
+              <View style={{ width: '100%', marginTop: spacing.md }}>
+                <SuggestionCards
+                  onSelectSuggestion={(prompt) => {
+                    setPromptText(prompt);
+                    inputRef.current?.focus();
+                  }}
+                />
+              </View>
+            </Pressable>
+          </ScrollView>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={generations}
+            keyExtractor={(item, index) =>
+              item.entryId || item.$id || String(index)
+            }
+            renderItem={({ item }) => (
+              <ImageCard
+                generation={item}
+                onRegenerate={handleRegenerate}
+                onUseAsReference={handleUseAsReference}
+                isRegenerating={
+                  regeneratingId === (item.entryId || item.libId)
+                }
+              />
+            )}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: composerBottomPadding + 160 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          />
+        )}
+
+        {/* Cinematic top fade */}
+        <LinearGradient
+          colors={topFadeConfig.colors}
+          locations={topFadeConfig.locations}
+          style={styles.topFade}
+          pointerEvents="none"
+        />
+
+        {/* Cinematic bottom fade */}
+        <LinearGradient
+          colors={bottomFadeConfig.colors}
+          locations={bottomFadeConfig.locations}
+          style={styles.bottomFade}
+          pointerEvents="none"
+        />
+      </View>
+
+      {/* ── Composer ── */}
       <View
         style={[
           styles.composerContainer,
           {
             backgroundColor: colors.background,
-            borderColor: colors.line,
-            paddingBottom: Math.max(insets.bottom, 16),
+            paddingBottom: composerBottomPadding,
           },
         ]}
       >
-        {/* Top Controls: Model Selector Pill + Aspect Ratios */}
-        <View style={styles.composerHeader}>
+        {/* Model pill + aspect ratio row */}
+        <View style={styles.composerTopRow}>
           <Pressable
             onPress={() => setIsModelSheetOpen(true)}
             style={({ pressed }) => [
               styles.modelPill,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.line,
-                opacity: pressed ? 0.75 : 1,
-              },
+              { opacity: pressed ? 0.7 : 1 },
             ]}
+            hitSlop={4}
           >
-            <IconPhoto size={15} color={colors.accent} />
-            <Text style={[styles.modelPillText, { color: colors.ink }]}>
+            <Text
+              style={styles.modelPillText}
+              numberOfLines={1}
+            >
               {selectedModel.name}
             </Text>
-            <IconChevronDown size={14} color={colors.ink3} />
+            <IconChevronDown size={14} color="#8e8e93" />
           </Pressable>
 
           <View style={styles.ratioWrapper}>
@@ -398,108 +750,225 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
           </View>
         </View>
 
-        {/* Reference Image Thumbnail Preview (if attached) */}
-        {referenceImageUri && (
-          <View style={styles.referencePreviewRow}>
-            <View style={[styles.refThumbWrap, { borderColor: colors.line }]}>
-              <ExpoImage
-                source={{ uri: referenceImageUri }}
-                style={styles.refThumb}
-                contentFit="cover"
-              />
+        {/* Reference images multi-strip */}
+        {referenceImages.length > 0 && (
+          <View style={styles.referenceStripContainer}>
+            <View style={styles.referenceStripHeader}>
+              <View style={styles.referenceBadgeRow}>
+                <IconWand size={13} color={colors.accent} strokeWidth={2} />
+                <Text style={[styles.referenceStripTitle, { color: colors.ink }]}>
+                  Reference Images ({referenceImages.length}/{maxRefImages})
+                </Text>
+                <View
+                  style={[
+                    styles.modelBadge,
+                    {
+                      backgroundColor: 'rgba(192, 132, 252, 0.12)',
+                      borderColor: 'rgba(192, 132, 252, 0.25)',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.modelBadgeText, { color: colors.accent }]}>
+                    {selectedModel.name}
+                  </Text>
+                </View>
+              </View>
               <Pressable
-                onPress={() => setReferenceImageUri(null)}
-                style={styles.removeRefBtn}
+                onPress={() => setReferenceImages([])}
                 hitSlop={6}
+                style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
               >
-                <IconX size={12} color="#ffffff" />
+                <Text style={[styles.clearAllText, { color: colors.ink3 }]}>
+                  Clear all
+                </Text>
               </Pressable>
             </View>
-            <View style={styles.refInfo}>
-              <Text style={[styles.refTitle, { color: colors.ink }]}>Reference Image</Text>
-              <Text style={[styles.refSub, { color: colors.ink3 }]}>Image-to-Image editing active</Text>
-            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.referenceThumbsList}
+              keyboardShouldPersistTaps="handled"
+            >
+              {referenceImages.map((ref, idx) => (
+                <View
+                  key={ref.id}
+                  style={[styles.refThumbWrap, { borderColor: colors.line }]}
+                >
+                  <ExpoImage
+                    source={{ uri: ref.uri }}
+                    style={styles.refThumb}
+                    contentFit="cover"
+                  />
+                  <View style={styles.refIndexBadge}>
+                    <Text style={styles.refIndexText}>#{idx}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => handleRemoveReferenceImage(ref.id)}
+                    style={styles.removeRefBtn}
+                    hitSlop={6}
+                    accessibilityLabel={`Remove reference image ${idx + 1}`}
+                  >
+                    <IconX size={11} color="#ffffff" strokeWidth={2.5} />
+                  </Pressable>
+                </View>
+              ))}
+
+              {referenceImages.length < maxRefImages && (
+                <Pressable
+                  onPress={handleChooseImageSource}
+                  disabled={isGenerating}
+                  style={({ pressed }) => [
+                    styles.addRefThumbBtn,
+                    {
+                      borderColor: colors.line,
+                      backgroundColor: colors.surface,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                  accessibilityLabel="Add another reference image"
+                >
+                  <IconPlus size={18} color={colors.ink2} />
+                  <Text style={[styles.addRefThumbText, { color: colors.ink3 }]}>
+                    Add
+                  </Text>
+                </Pressable>
+              )}
+            </ScrollView>
           </View>
         )}
 
-        {/* Input Bar */}
-        <View style={[styles.inputBar, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-          {/* Pick Reference Image (+) */}
+        {/* Input bar */}
+        <View style={styles.inputBar}>
           <Pressable
-            onPress={handlePickReferenceImage}
+            onPress={handleChooseImageSource}
             disabled={isGenerating}
-            hitSlop={6}
+            hitSlop={8}
             style={({ pressed }) => [
               styles.attachBtn,
-              referenceImageUri && styles.attachBtnActive,
+              referenceImages.length > 0 && styles.attachBtnActive,
               { opacity: pressed ? 0.7 : 1 },
             ]}
+            accessibilityLabel={
+              referenceImages.length > 0
+                ? 'Manage reference images'
+                : 'Attach reference image'
+            }
           >
-            {referenceImageUri ? (
-              <IconWand size={19} color={colors.accent} />
+            {referenceImages.length > 0 ? (
+              <IconWand size={18} color={colors.accent} strokeWidth={2} />
             ) : (
-              <IconPlus size={20} color={colors.ink3} />
+              <IconPlus size={22} color="#8e8e93" />
             )}
           </Pressable>
 
-          {/* Prompt TextInput */}
           <TextInput
-            style={[styles.input, { color: colors.ink }]}
+            ref={inputRef}
+            style={[styles.input, { color: '#ffffff' }]}
             placeholder={
-              referenceImageUri
-                ? 'Describe the changes or edits you want...'
-                : 'Describe the image you want to generate...'
+              referenceImages.length > 0
+                ? referenceImages.length === 1
+                  ? 'Describe changes to your image...'
+                  : `Describe changes across ${referenceImages.length} images...`
+                : 'Generate Image'
             }
-            placeholderTextColor={colors.ink3}
+            placeholderTextColor="#8e8e93"
             value={promptText}
             onChangeText={setPromptText}
             multiline
             maxLength={1000}
             editable={!isGenerating}
+            blurOnSubmit={false}
           />
 
-          {/* Submit Button */}
-          <Pressable
-            disabled={!promptText.trim() || isGenerating}
-            onPress={() => handleGenerate(promptText, referenceImageUri)}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.sendBtn,
-              {
-                backgroundColor: promptText.trim() ? colors.accent : colors.inset,
-                opacity: pressed ? 0.8 : promptText.trim() ? 1 : 0.5,
-              },
-            ]}
-          >
-            {isGenerating ? (
-              <ActivityIndicator size="small" color="#ffffff" />
-            ) : (
-              <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
-            )}
-          </Pressable>
+          <View style={styles.rightGroup}>
+            <Pressable
+              disabled={isGenerating}
+              onPress={() => setIsVoiceOpen(true)}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.micBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <IconMicrophone size={20} color="#8e8e93" />
+            </Pressable>
+
+            <Pressable
+              disabled={!promptText.trim() || isGenerating}
+              onPress={() => handleGenerate(promptText)}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.sendBtn,
+                {
+                  backgroundColor: promptText.trim()
+                    ? colors.accent
+                    : '#2c2c2e',
+                  opacity: pressed
+                    ? 0.8
+                    : promptText.trim()
+                      ? 1
+                      : 0.4,
+                },
+              ]}
+            >
+              {isGenerating ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
+              )}
+            </Pressable>
+          </View>
         </View>
       </View>
 
-      {/* ── Image Model Selector Bottom Sheet ── */}
+      {/* Model selector sheet */}
       <ImageModelSelectorSheet
         visible={isModelSheetOpen}
         onClose={() => setIsModelSheetOpen(false)}
         selectedModelId={selectedModel.id}
         onSelectModel={(model) => {
           setSelectedModel(model);
-          // Adjust aspect ratio if current is not supported
+          const modelMax = getMaxReferenceImagesForModel(model.id);
+          if (referenceImages.length > modelMax) {
+            setReferenceImages((prev) => prev.slice(0, modelMax));
+          }
           if (!model.ratios.some((r) => r.value === selectedRatio)) {
             setSelectedRatio(model.ratios[0]?.value || '1:1');
           }
         }}
       />
-    </KeyboardAvoidingView>
+
+      {/* Voice overlay */}
+      <VoiceOverlay
+        visible={isVoiceOpen}
+        onClose={() => setIsVoiceOpen(false)}
+      />
+    </KeyboardWrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  scrollWrapper: {
     flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  topFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+    zIndex: 10,
+  },
+  bottomFade: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 48,
+    zIndex: 10,
   },
   centerContainer: {
     flex: 1,
@@ -510,88 +979,138 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: typography.fontSize.sm,
   },
-  emptyContainer: {
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md + 4,
+  },
+  newChatGreeting: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
+    paddingVertical: spacing.xl,
   },
-  emptyIconBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  brandLogo: {
+    width: 140,
+    height: 48,
+    marginBottom: spacing.md,
+  },
+  greetingTitle: {
+    fontSize: 24,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: -0.4,
+    textAlign: 'center',
     marginBottom: spacing.xs,
   },
-  emptyTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptySub: {
+  greetingSubtitle: {
     fontSize: typography.fontSize.sm,
     textAlign: 'center',
-    lineHeight: 20,
     maxWidth: 280,
+    lineHeight: 20,
   },
   listContent: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
   },
   composerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.xs + 2,
     gap: spacing.xs + 2,
   },
-  composerHeader: {
+  composerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
     justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    gap: spacing.xs,
   },
   modelPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: radius.full,
+    backgroundColor: '#1c1c1e',
     borderWidth: 1,
-    gap: 6,
+    borderColor: '#2c2c2e',
+    gap: 4,
+    minHeight: 30,
     maxWidth: 160,
   },
   modelPillText: {
+    color: '#8e8e93',
     fontSize: typography.fontSize.xs,
-    fontWeight: '600',
+    fontWeight: '500',
+    marginRight: 2,
   },
   ratioWrapper: {
     flex: 1,
     alignItems: 'flex-end',
   },
-  referencePreviewRow: {
+  referenceStripContainer: {
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  referenceStripHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+  },
+  referenceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  referenceStripTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: '600',
+  },
+  modelBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  modelBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  clearAllText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: '500',
+  },
+  referenceThumbsList: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
     paddingVertical: 2,
   },
   refThumbWrap: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: radius.md,
     borderWidth: 1,
-    position: 'relative',
     overflow: 'hidden',
+    position: 'relative',
   },
   refThumb: {
     width: '100%',
     height: '100%',
+  },
+  refIndexBadge: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  refIndexText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '700',
   },
   removeRefBtn: {
     position: 'absolute',
@@ -600,25 +1119,31 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  refInfo: {
-    gap: 2,
+  addRefThumbBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
   },
-  refTitle: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: '600',
-  },
-  refSub: {
-    fontSize: 11,
+  addRefThumbText: {
+    fontSize: 9,
+    fontWeight: '500',
   },
   inputBar: {
     minHeight: 52,
     maxHeight: 120,
     borderRadius: 26,
+    backgroundColor: '#1c1c1e',
     borderWidth: 1,
+    borderColor: '#2c2c2e',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.xs + 4,
@@ -637,11 +1162,23 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: typography.fontSize.sm,
-    lineHeight: 20,
+    fontSize: typography.fontSize.base,
     maxHeight: 100,
-    paddingVertical: 4,
+    color: '#ffffff',
+    paddingTop: Platform.OS === 'ios' ? 8 : 4,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 4,
     paddingHorizontal: spacing.xs,
+  },
+  rightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  micBtn: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendBtn: {
     width: 36,

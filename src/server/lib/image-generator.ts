@@ -18,6 +18,7 @@ import {
   DB_ID,
   STORAGE_BUCKET_ID,
   IMAGE_GENERATION_COLLECTION_ID,
+  USERS_COLLECTION_ID,
   InputFile,
   Permission,
   Role,
@@ -27,6 +28,7 @@ import {
 import {
   IMAGE_MODELS,
   DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_CLOUDFLARE_MODEL_ID,
   GENERATION_MODES,
   getModelById,
   getProviderIdByModelId,
@@ -34,6 +36,27 @@ import {
   getDefaultImageToImageModelForProvider,
 } from '../../config/imageModels';
 import { logger } from './logger';
+
+const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
+export const CLOUDFLARE_FLUX_KLEIN_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
+
+export function getCloudflareCredentials(): { accountId: string; apiToken: string } | null {
+  const accountId = (
+    process.env.CLOUDFLARE_ACCOUNT_ID ||
+    process.env.CF_ACCOUNT_ID ||
+    ''
+  ).trim();
+  const apiToken = (
+    process.env.CLOUDFLARE_API_TOKEN ||
+    process.env.CF_API_TOKEN ||
+    ''
+  ).trim();
+
+  if (!accountId || !apiToken) {
+    return null;
+  }
+  return { accountId, apiToken };
+}
 
 const HF_API_BASE = 'https://router.huggingface.co/hf-inference/models';
 const HF_API_INFERENCE_BASE = 'https://api-inference.huggingface.co/models';
@@ -105,39 +128,242 @@ export function enhancePromptForQuality(
   return `${normalized}, ${qualitySuffix}, ${aspectRatioCue}, ${editCue}`;
 }
 
+export async function parseReferenceImages(
+  referenceImages?: (string | null)[] | null,
+  legacySingleUrl?: string | null,
+  legacySingleBase64?: string | null
+): Promise<Buffer[]> {
+  const candidates: string[] = [];
+
+  if (Array.isArray(referenceImages)) {
+    for (const item of referenceImages) {
+      if (item && typeof item === 'string' && item.trim()) {
+        candidates.push(item.trim());
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    if (legacySingleBase64 && typeof legacySingleBase64 === 'string' && legacySingleBase64.trim()) {
+      candidates.push(legacySingleBase64.trim());
+    } else if (legacySingleUrl && typeof legacySingleUrl === 'string' && legacySingleUrl.trim()) {
+      candidates.push(legacySingleUrl.trim());
+    }
+  }
+
+  // Model supports up to 4 reference images
+  const limited = candidates.slice(0, 4);
+  const buffers: Buffer[] = [];
+
+  for (let idx = 0; idx < limited.length; idx++) {
+    const raw = limited[idx];
+    let buf: Buffer | null = null;
+
+    if (raw.startsWith('data:') || (!raw.startsWith('http://') && !raw.startsWith('https://') && raw.length > 200)) {
+      let clean = raw;
+      if (clean.includes(',')) {
+        clean = clean.split(',')[1] || clean;
+      }
+      buf = Buffer.from(clean, 'base64');
+    } else if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      const res = await fetch(raw);
+      if (!res.ok) {
+        throw new Error(`Failed to load reference image #${idx + 1} (${res.status}): ${res.statusText}`);
+      }
+      const arrayBuf = await res.arrayBuffer();
+      buf = Buffer.from(arrayBuf);
+    }
+
+    if (buf) {
+      if (buf.byteLength > MAX_REFERENCE_IMAGE_SIZE_BYTES) {
+        throw new Error(
+          `Reference image #${idx + 1} is too large (${(buf.byteLength / (1024 * 1024)).toFixed(1)}MB). Max size is 20MB.`
+        );
+      }
+
+      // Try to read metadata; if the raw format is unsupported by sharp
+      // (e.g. HEIC, HEIF, AVIF without optional decoders), attempt to reinterpret
+      // it as a JPEG/PNG by forcing a decode — if that also fails, surface a
+      // human-readable error instead of crashing the request.
+      let safeBuffer = buf;
+      try {
+        const meta = await sharp(buf).metadata();
+        if (!meta.format) {
+          throw new Error('Unknown format after metadata probe');
+        }
+        // Force output to JPEG so the rest of the pipeline always gets a known format
+        safeBuffer = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
+      } catch (metaErr: any) {
+        // If sharp cannot read the source at all (e.g. HEIC without libheif),
+        // we cannot recover server-side — surface a clear user-facing error
+        logger.warn(`[parseReferenceImages] sharp could not decode reference image #${idx + 1}: ${metaErr?.message}`);
+        throw new Error(
+          `Reference image #${idx + 1} could not be processed — please convert it to JPEG or PNG before uploading (received format may be HEIC/HEIF which requires a different encoder). Error: ${metaErr?.message}`
+        );
+      }
+
+      buffers.push(safeBuffer);
+    }
+  }
+
+  return buffers;
+}
+
 export async function parseReferenceImage(
   referenceImageUrl?: string | null,
   referenceImageBase64?: string | null
 ): Promise<Buffer | null> {
-  if (!referenceImageUrl && !referenceImageBase64) {
-    return null;
+  const images = await parseReferenceImages(null, referenceImageUrl, referenceImageBase64);
+  return images.length > 0 ? images[0] : null;
+}
+
+/**
+ * Preprocesses a reference image to satisfy Cloudflare Workers AI FLUX.2 Klein 4B requirements:
+ * "All input images provided to these models must be smaller than 512x512 pixels"
+ */
+export async function preprocessReferenceImageForKlein(buffer: Buffer): Promise<Buffer> {
+  return await sharp(buffer)
+    .resize({
+      width: 512,
+      height: 512,
+      fit: 'inside', // preserves aspect ratio, neither width nor height exceeds 512
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+}
+
+/**
+ * Generates an image using Cloudflare Workers AI with @cf/black-forest-labs/flux-2-klein-4b.
+ * Supports Text-to-Image, Image-to-Image, and Multi-Reference editing (up to 4 images).
+ * Uses required multipart/form-data with preprocessed input images (<= 512x512).
+ */
+export async function generateCloudflareFluxKleinImage(
+  prompt: string,
+  width: number,
+  height: number,
+  referenceBuffers: Buffer[] = []
+): Promise<Buffer> {
+  const creds = getCloudflareCredentials();
+  if (!creds) {
+    throw new Error(
+      'Cloudflare Workers AI credentials are not configured on the server. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.'
+    );
   }
 
-  if (referenceImageBase64) {
-    let clean = referenceImageBase64.trim();
-    if (clean.includes(',')) {
-      clean = clean.split(',')[1] || clean;
+  const { accountId, apiToken } = creds;
+  const url = `${CLOUDFLARE_API_BASE}/${accountId}/ai/run/${CLOUDFLARE_FLUX_KLEIN_MODEL}`;
+
+  let finalPrompt = prompt.trim();
+  if (referenceBuffers.length > 0) {
+    if (referenceBuffers.length === 1) {
+      finalPrompt = `Modify input_image_0: ${prompt}. Preserve the key subject identity, structural layout, and scene context while applying requested modifications. High detail, balanced lighting.`;
+    } else {
+      finalPrompt = `Reference images: ${prompt}. Blend and adapt elements from the reference images, preserving key subjects while applying changes, high quality, balanced lighting.`;
     }
-    const buf = Buffer.from(clean, 'base64');
-    if (buf.byteLength > MAX_REFERENCE_IMAGE_SIZE_BYTES) {
-      throw new Error(`Reference image is too large (${(buf.byteLength / (1024 * 1024)).toFixed(1)}MB). Max size is 20MB.`);
-    }
-    return buf;
   }
 
-  if (referenceImageUrl) {
-    const res = await fetch(referenceImageUrl);
-    if (!res.ok) {
-      throw new Error(`Failed to load reference image (${res.status}): ${res.statusText}`);
-    }
-    const arrayBuf = await res.arrayBuffer();
-    if (arrayBuf.byteLength > MAX_REFERENCE_IMAGE_SIZE_BYTES) {
-      throw new Error(`Reference image is too large (${(arrayBuf.byteLength / (1024 * 1024)).toFixed(1)}MB). Max size is 20MB.`);
-    }
-    return Buffer.from(arrayBuf);
+  const form = new FormData();
+  form.append('prompt', finalPrompt);
+  form.append('width', String(width));
+  form.append('height', String(height));
+
+  for (let i = 0; i < Math.min(referenceBuffers.length, 4); i++) {
+    const preprocessed = await preprocessReferenceImageForKlein(referenceBuffers[i]);
+    const blob = new Blob([new Uint8Array(preprocessed.buffer, preprocessed.byteOffset, preprocessed.byteLength) as any], { type: 'image/jpeg' });
+    form.append(`input_image_${i}`, blob, `input_image_${i}.jpg`);
   }
 
-  return null;
+  logger.info(
+    `Executing Cloudflare Workers AI generation: model=${CLOUDFLARE_FLUX_KLEIN_MODEL}, width=${width}, height=${height}, referenceCount=${referenceBuffers.length}`
+  );
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 75000); // 75 seconds
+
+  let res: globalThis.Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+      throw new Error('Cloudflare Workers AI request timed out after 75 seconds. Please try again.');
+    }
+    logger.error('Cloudflare Workers AI network error:', { error: err.message });
+    throw new Error(`Cloudflare network error: ${err.message}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (res.ok) {
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      const arrayBuf = await res.arrayBuffer();
+      if (arrayBuf && arrayBuf.byteLength > 0) {
+        return Buffer.from(arrayBuf);
+      }
+      throw new Error('Cloudflare Workers AI returned an empty response.');
+    }
+
+    const base64Image = data?.result?.image || data?.image;
+    if (typeof base64Image === 'string' && base64Image.trim()) {
+      let clean = base64Image.trim();
+      if (clean.includes(',')) {
+        clean = clean.split(',')[1] || clean;
+      }
+      return Buffer.from(clean, 'base64');
+    }
+
+    logger.error('Unexpected Cloudflare response payload:', data);
+    throw new Error('Cloudflare Workers AI did not return a valid generated image payload.');
+  }
+
+  let errorDetails = '';
+  try {
+    const errBody: any = await res.json();
+    errorDetails =
+      errBody?.errors?.[0]?.message ||
+      errBody?.error ||
+      errBody?.message ||
+      JSON.stringify(errBody);
+  } catch {
+    errorDetails = res.statusText || `HTTP ${res.status}`;
+  }
+
+  logger.error(`Cloudflare Workers AI failed with status ${res.status}:`, { errorDetails });
+
+  if (res.status === 400) {
+    const lower = errorDetails.toLowerCase();
+    if (lower.includes('nsfw') || lower.includes('filter') || lower.includes('moderation') || lower.includes('safety')) {
+      throw new Error(
+        'Your prompt or reference image was flagged by safety moderation filters. Please modify your prompt or use a different image.'
+      );
+    }
+    throw new Error(`Cloudflare Workers AI request failed: ${errorDetails}`);
+  }
+
+  if (res.status === 429) {
+    throw new Error(
+      'Cloudflare Workers AI rate limit or neuron quota exceeded. Please wait a moment and try again.'
+    );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      'Cloudflare Workers AI authentication failed. Please verify the server API token and Account ID.'
+    );
+  }
+
+  throw new Error(`Cloudflare Workers AI error (${res.status}): ${errorDetails}`);
 }
 
 export function getHFAPIKeys(): string[] {
@@ -503,11 +729,12 @@ export interface GenerateImageParams {
   prompt: string;
   userEmail: string;
   model?: string;
-  provider?: 'huggingface' | 'leonardo';
+  provider?: 'cloudflare' | 'huggingface' | 'leonardo';
   width?: number;
   height?: number;
   referenceImage?: string | null;
   referenceImageBase64?: string | null;
+  referenceImages?: string[] | null;
   libId?: string;
 }
 
@@ -520,11 +747,12 @@ export interface GenerateImageResult {
   prompt: string;
   model: string;
   modelName: string;
-  provider: 'huggingface' | 'leonardo';
+  provider: 'cloudflare' | 'huggingface' | 'leonardo';
   width: number;
   height: number;
   generationType: 'text-to-image' | 'image-to-image';
   hasReferenceImage: boolean;
+  referenceImageCount: number;
   modelWasSwitched: boolean;
   createdAt: string;
   message?: string;
@@ -536,7 +764,7 @@ export interface GenerateImageResult {
 export async function executeImageGeneration(
   params: GenerateImageParams
 ): Promise<GenerateImageResult> {
-  const { prompt, userEmail, referenceImage, referenceImageBase64 } = params;
+  const { prompt, userEmail, referenceImage, referenceImageBase64, referenceImages } = params;
 
   if (!prompt || !prompt.trim()) {
     throw new Error('Prompt is required for image generation');
@@ -548,28 +776,65 @@ export async function executeImageGeneration(
   const normalizedEmail = userEmail.trim().toLowerCase();
   const libId = params.libId || crypto.randomUUID();
 
-  // Parse reference image if supplied
-  const referenceBuffer = await parseReferenceImage(referenceImage, referenceImageBase64);
-  const isImageToImage = Boolean(referenceBuffer);
+  // 1. Verify user credits
+  const CREDIT_COST_PER_GENERATION = 50;
+  let userDocId: string | null = null;
+  let currentCredits = 5000;
+  try {
+    const userDocs = await databases.listDocuments(DB_ID, USERS_COLLECTION_ID, [
+      Query.equal('email', normalizedEmail),
+      Query.limit(1),
+    ]);
+    if (userDocs.documents && userDocs.documents.length > 0) {
+      userDocId = userDocs.documents[0].$id;
+      currentCredits =
+        typeof userDocs.documents[0].credits === 'number'
+          ? userDocs.documents[0].credits
+          : 5000;
+    }
+  } catch (err: any) {
+    logger.warn('Could not check user credits in Appwrite users collection:', { error: err.message });
+  }
 
-  let targetModel = params.model || DEFAULT_IMAGE_MODEL_ID;
+  if (currentCredits < CREDIT_COST_PER_GENERATION) {
+    throw new Error(
+      `Insufficient credits. You currently have ${currentCredits} credits, but ${CREDIT_COST_PER_GENERATION} credits are required to generate an image.`
+    );
+  }
+
+  // 2. Parse reference images (supports up to 4 reference images)
+  const referenceBuffers = await parseReferenceImages(referenceImages, referenceImage, referenceImageBase64);
+  const isImageToImage = referenceBuffers.length > 0;
+  const cfCreds = getCloudflareCredentials();
+
+  let targetModel = params.model || (isImageToImage && cfCreds ? CLOUDFLARE_FLUX_KLEIN_MODEL : DEFAULT_IMAGE_MODEL_ID);
   let targetProvider = params.provider || getProviderIdByModelId(targetModel);
-  let modelConfig = getModelById(targetModel, targetProvider);
   let modelWasSwitched = false;
 
-  // If reference image provided, check model compatibility
+  // If reference images provided, ensure model supports image-to-image
   if (isImageToImage) {
-    if (!supportsImageToImage(targetModel)) {
-      const editModel = getDefaultImageToImageModelForProvider('huggingface');
-      if (editModel) {
-        logger.info(`Auto-switching to edit model ${editModel.id} for image-to-image request`);
-        targetModel = editModel.id;
-        targetProvider = 'huggingface';
-        modelConfig = editModel;
+    if (targetModel === CLOUDFLARE_FLUX_KLEIN_MODEL || targetProvider === 'cloudflare') {
+      targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
+      targetProvider = 'cloudflare';
+    } else if (!supportsImageToImage(targetModel)) {
+      if (cfCreds) {
+        logger.info(`Auto-routing image-to-image request to Cloudflare ${CLOUDFLARE_FLUX_KLEIN_MODEL}`);
+        targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
+        targetProvider = 'cloudflare';
         modelWasSwitched = true;
+      } else {
+        const editModel = getDefaultImageToImageModelForProvider('huggingface');
+        if (editModel) {
+          logger.info(`Auto-switching to edit model ${editModel.id} for image-to-image request`);
+          targetModel = editModel.id;
+          targetProvider = 'huggingface';
+          modelWasSwitched = true;
+        }
       }
     }
   }
+
+  let modelConfig = getModelById(targetModel, targetProvider);
 
   // Resolve target dimensions
   let targetWidth = params.width ? Number(params.width) : modelConfig.ratios[0].width;
@@ -592,7 +857,7 @@ export async function executeImageGeneration(
 
   const createdAt = new Date().toISOString();
 
-  // 1. Create document in Appwrite with status 'generating'
+  // 3. Create document in Appwrite with status 'generating'
   const initialPayload = {
     libId,
     userEmail: normalizedEmail,
@@ -624,13 +889,23 @@ export async function executeImageGeneration(
   try {
     let rawBuffer: Buffer;
 
-    if (targetProvider === 'leonardo' && !isImageToImage) {
+    if (targetProvider === 'cloudflare' || targetModel === CLOUDFLARE_FLUX_KLEIN_MODEL || isImageToImage) {
+      rawBuffer = await generateCloudflareFluxKleinImage(
+        enhancedPrompt,
+        targetWidth,
+        targetHeight,
+        referenceBuffers
+      );
+      targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
+      targetProvider = 'cloudflare';
+    } else if (targetProvider === 'leonardo' && !isImageToImage) {
       rawBuffer = await generateLeonardoImage(enhancedPrompt, targetModel, targetWidth, targetHeight);
-    } else if (isImageToImage && referenceBuffer) {
+    } else if (isImageToImage && referenceBuffers.length > 0) {
       const candidateModels = [
         targetModel,
         'stabilityai/stable-diffusion-xl-base-1.0',
-        'runwayml/stable-diffusion-v1-5',
+        // runwayml/stable-diffusion-v1-5 removed — no longer supported by
+        // either HF inference endpoint (returns 400 or 404)
       ].filter((m, i, arr) => m && arr.indexOf(m) === i && !isHFImageToImageModelTemporarilyUnavailable(m));
 
       let lastErr: any = null;
@@ -643,7 +918,7 @@ export async function executeImageGeneration(
             cand,
             targetWidth,
             targetHeight,
-            referenceBuffer,
+            referenceBuffers[0],
             modelConfig.guidanceScale || 2.5,
             modelConfig.numInferenceSteps || 50
           );
@@ -666,7 +941,7 @@ export async function executeImageGeneration(
       rawBuffer = await generateHFImage(enhancedPrompt, targetModel, targetWidth, targetHeight);
     }
 
-    // 2. Process image with Sharp to PNG
+    // 4. Process image with Sharp to PNG
     let pngBuffer: Buffer;
     try {
       pngBuffer = await sharp(rawBuffer).png({ quality: 90, compressionLevel: 8 }).toBuffer();
@@ -674,7 +949,7 @@ export async function executeImageGeneration(
       pngBuffer = rawBuffer;
     }
 
-    // 3. Upload to Appwrite Storage
+    // 5. Upload to Appwrite Storage
     const safeModelName = targetModel.replace(/[^a-zA-Z0-9]/g, '_');
     const fileName = `gen_${safeModelName}_${libId}_${Date.now()}.png`;
     const serverFileId = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
@@ -694,7 +969,7 @@ export async function executeImageGeneration(
 
     const publicUrl = getPublicFileUrl(uploaded.$id);
 
-    // 4. Update document status to 'completed'
+    // 6. Update document status to 'completed'
     await databases.updateDocument(
       DB_ID,
       IMAGE_GENERATION_COLLECTION_ID,
@@ -706,6 +981,19 @@ export async function executeImageGeneration(
         model: targetModel,
       }
     );
+
+    // 7. Deduct credits from user profile in Appwrite
+    if (userDocId) {
+      try {
+        const newBalance = Math.max(0, currentCredits - CREDIT_COST_PER_GENERATION);
+        await databases.updateDocument(DB_ID, USERS_COLLECTION_ID, userDocId, {
+          credits: newBalance,
+        });
+        logger.info(`Deducted ${CREDIT_COST_PER_GENERATION} credits from ${normalizedEmail}. Remaining: ${newBalance}`);
+      } catch (deductErr: any) {
+        logger.warn('Failed to update deducted user credits:', { error: deductErr.message });
+      }
+    }
 
     logger.info(`Image generation completed: docId=${docId}, libId=${libId}, fileId=${uploaded.$id}`);
 
@@ -723,6 +1011,7 @@ export async function executeImageGeneration(
       height: targetHeight,
       generationType: isImageToImage ? 'image-to-image' : 'text-to-image',
       hasReferenceImage: isImageToImage,
+      referenceImageCount: referenceBuffers.length,
       modelWasSwitched,
       createdAt,
       message: `Image generated successfully with ${modelConfig.name}`,

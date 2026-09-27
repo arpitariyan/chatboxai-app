@@ -17,7 +17,6 @@ import {
   ActivityIndicator,
   Modal,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
@@ -31,13 +30,19 @@ import {
   IconX,
   IconAlertCircle,
   IconSparkles,
+  IconWand,
 } from '@tabler/icons-react-native';
 import { GeneratedImageItem, imageService, normalizeImageUrl } from '@/services/imageService';
 import { useThemeColors, typography, radius, spacing } from '@/theme';
+import {
+  DownloadFeedbackModal,
+  DownloadFeedbackType,
+} from './DownloadFeedbackModal';
 
 interface ImageCardProps {
   generation: GeneratedImageItem;
   onRegenerate: (generation: GeneratedImageItem) => void;
+  onUseAsReference?: (imageUrl: string) => void;
   isRegenerating?: boolean;
 }
 
@@ -46,6 +51,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export const ImageCard: React.FC<ImageCardProps> = ({
   generation,
   onRegenerate,
+  onUseAsReference,
   isRegenerating = false,
 }) => {
   const colors = useThemeColors();
@@ -53,9 +59,20 @@ export const ImageCard: React.FC<ImageCardProps> = ({
   const [isDownloading, setIsDownloading] = useState(false);
   const [reaction, setReaction] = useState<'liked' | 'disliked' | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    visible: boolean;
+    type: DownloadFeedbackType;
+    title?: string;
+    message?: string;
+    savedToGallery?: boolean;
+  }>({
+    visible: false,
+    type: 'success',
+    savedToGallery: true,
+  });
 
   const rawUrl = generation.displayUrl || generation.publicUrl;
-  const imageUrl = normalizeImageUrl(rawUrl);
+  const imageUrl = normalizeImageUrl(rawUrl, generation.generatedImagePath);
   const isCompleted = generation.status === 'completed' && Boolean(imageUrl);
   const isGenerating = generation.status === 'generating' || generation.isLocalPending;
   const isFailed = generation.status === 'failed';
@@ -71,15 +88,47 @@ export const ImageCard: React.FC<ImageCardProps> = ({
     if (!imageUrl) return;
     setIsDownloading(true);
     try {
-      const res = await imageService.downloadAndShareImage(
-        imageUrl,
-        `chatboxai_${generation.entryId || generation.libId}.png`
-      );
-      if (!res.success) {
-        Alert.alert('Download Error', 'Could not save the image. Please try again.');
+      const fileName = `chatboxai_${generation.entryId || generation.libId || Date.now()}.png`;
+      const res = await imageService.downloadImageToGallery(imageUrl, fileName);
+
+      if (res.success && res.savedToGallery) {
+        setFeedbackModal({
+          visible: true,
+          type: 'success',
+          savedToGallery: true,
+          title: 'Saved to Gallery',
+          message: 'Image successfully downloaded and saved to your device photos in high resolution.',
+        });
+      } else if (res.permissionDenied) {
+        setFeedbackModal({
+          visible: true,
+          type: 'permission',
+          title: 'Permission Required',
+          message: 'Photo gallery access is required to save generated images to your device.',
+        });
+      } else if (res.success) {
+        setFeedbackModal({
+          visible: true,
+          type: 'success',
+          savedToGallery: false,
+          title: 'Download Ready',
+          message: 'Your high-resolution image has been prepared and saved to your device.',
+        });
+      } else {
+        setFeedbackModal({
+          visible: true,
+          type: 'error',
+          title: 'Download Failed',
+          message: res.errorMessage || 'Could not save the image. Please try again.',
+        });
       }
-    } catch {
-      Alert.alert('Download Error', 'An error occurred while saving the image.');
+    } catch (err: any) {
+      setFeedbackModal({
+        visible: true,
+        type: 'error',
+        title: 'Download Error',
+        message: err?.message || 'An error occurred while saving the image.',
+      });
     } finally {
       setIsDownloading(false);
     }
@@ -262,6 +311,20 @@ export const ImageCard: React.FC<ImageCardProps> = ({
               <IconRefresh size={16} color={colors.ink} />
             )}
           </Pressable>
+
+          {/* Use as Reference for Image-to-Image editing */}
+          {isCompleted && onUseAsReference && (
+            <Pressable
+              onPress={() => onUseAsReference(imageUrl)}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <IconWand size={16} color={colors.accent} strokeWidth={1.8} />
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -274,13 +337,29 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           onRequestClose={() => setIsFullscreen(false)}
         >
           <View style={styles.modalBackdrop}>
-            <Pressable
-              onPress={() => setIsFullscreen(false)}
-              style={styles.modalCloseBtn}
-              hitSlop={8}
-            >
-              <IconX size={22} color="#ffffff" />
-            </Pressable>
+            <View style={styles.modalHeader}>
+              <Pressable
+                onPress={handleDownload}
+                style={styles.modalHeaderBtn}
+                hitSlop={8}
+                disabled={isDownloading}
+                accessibilityLabel="Download image"
+              >
+                {isDownloading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <IconDownload size={20} color="#ffffff" />
+                )}
+              </Pressable>
+              <Pressable
+                onPress={() => setIsFullscreen(false)}
+                style={styles.modalHeaderBtn}
+                hitSlop={8}
+                accessibilityLabel="Close fullscreen preview"
+              >
+                <IconX size={22} color="#ffffff" />
+              </Pressable>
+            </View>
 
             <ExpoImage
               source={{ uri: imageUrl }}
@@ -290,6 +369,17 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           </View>
         </Modal>
       )}
+
+      {/* Custom Download Feedback Modal matching ChatBox AI design */}
+      <DownloadFeedbackModal
+        visible={feedbackModal.visible}
+        onClose={() => setFeedbackModal((prev) => ({ ...prev, visible: false }))}
+        type={feedbackModal.type}
+        title={feedbackModal.title}
+        message={feedbackModal.message}
+        imageUrl={imageUrl}
+        savedToGallery={feedbackModal.savedToGallery}
+      />
     </View>
   );
 };
@@ -399,11 +489,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalCloseBtn: {
+  modalHeader: {
     position: 'absolute',
     top: 50,
     right: 20,
+    left: 20,
     zIndex: 10,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalHeaderBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,

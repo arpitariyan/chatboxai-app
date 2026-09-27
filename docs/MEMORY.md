@@ -1952,3 +1952,104 @@ Specific requirements:
   - The dedicated mobile backend server codebase in `src/server` (`routes/image.ts`, `lib/image-generator.ts`, `index.ts`) is ready for live deployment to `https://api-mobile.chatboxai.co.in`.
 - **Validation**:
   - `npx tsc --noEmit` passed with 0 errors.
+
+### Addendum: Generated Image Download & Save to Device Gallery + Recent Refinements
+- **Problem Statement**:
+  - Tapping "Download" on generated images did not save the file to the device Gallery. On Android, it only invoked `Share.share` with the URL string instead of writing a valid media asset to the user's photos.
+  - `expo-media-library` was missing from dependencies and `app.json`.
+  - Image URLs pointing to `api-mobile.chatboxai.co.in` or local proxies risked failing if the backend domain was unreachable.
+- **Implementation & Architecture (`src/services/imageService.ts`, `src/components/image/ImageCard.tsx`)**:
+  - **Native Packages**: Installed `expo-media-library` (`~57.0.5`) and `expo-sharing` (`~57.0.22`).
+  - **Manifest Permissions (`app.json`)**:
+    - Added `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, and `READ_MEDIA_IMAGES` to `android.permissions`.
+    - Configured `expo-media-library` plugin with `photosPermission` and `savePhotosPermission` user prompts.
+    - Configured `expo-sharing` plugin.
+  - **Robust Image Normalization (`normalizeImageUrl`)**:
+    - Automatically extracts `fileId` from `/api/mobile/image/file?fileId=...` and `/api/generate-image/file/...`.
+    - Constructs direct, public Appwrite Storage URLs (`${APPWRITE_PUBLIC_ENDPOINT}/storage/buckets/${APPWRITE_PUBLIC_BUCKET_ID}/files/${fileId}/view?project=${APPWRITE_PUBLIC_PROJECT_ID}`).
+    - Bypasses intermediate proxy downtime and provides 100% resilient image asset streaming.
+  - **New Method: `imageService.downloadImageToGallery(imageUrl, fileName)`**:
+    - Sanitizes filenames and enforces valid `.png` extensions for high-fidelity generated art.
+    - Supports all source URI schemes:
+      - `data:image/...;base64,...`: Decodes and writes binary directly with `FileSystem.writeAsStringAsync(..., { encoding: Base64 })`.
+      - `file://...`: Local copy with `FileSystem.copyAsync`.
+      - `http://` / `https://`: Streams binary with `FileSystem.downloadAsync` using `Accept: image/*` and `X-Appwrite-Project` headers, with automatic `/download` endpoint fallback if `/view` returns non-200.
+    - Verifies downloaded file existence and non-zero byte size.
+    - Requests Media Library permissions using `MediaLibrary.requestPermissionsAsync(true)` (supporting Android 10+ / 13+ write-only permissions).
+    - Writes media asset to device Gallery using modern `Asset.create` with fallbacks to `createAssetAsync` and `saveToLibraryAsync`.
+    - Optionally groups saved images into a dedicated `"ChatBox AI"` gallery album.
+    - Cleans up temporary cache files upon successful gallery save.
+    - If gallery permissions are denied, falls back to `expo-sharing` (`Sharing.shareAsync`) so the user can still save or export the image to their device.
+  - **UI & Feedback in `ImageCard.tsx`**:
+    - On success: Displays native `Alert.alert('Saved to Gallery', 'Image successfully downloaded and saved to your device gallery.')`.
+    - On permission denial: Displays informative alert with an "Open Settings" button (`Linking.openSettings()`).
+    - On error: Displays descriptive error dialog.
+    - Added a quick-download action button in the top bar of the Fullscreen preview modal (`modalHeader`).
+- **Recent Image Generation UI Polish**:
+  - **Microphone Button in Input Bar**: Integrated `IconMicrophone` into `ImageGenScreen.tsx` within `rightGroup` right next to the send button, matching the home page `Composer.tsx` design and triggering `VoiceOverlay`.
+  - **Sidebar / Drawer Icon Alignment**: Fixed icon color in `src/components/common/Drawer.tsx` for image conversations. Changed from bright white (`colors.ink`) to muted secondary grey (`colors.ink3` in Recents, and `colors.accent || colors.ink2` in Pinned) to maintain 100% color harmony with standard chats.
+  - **Aspect Ratio Proportional Frames**: Upgraded ratio selector to render geometric wireframe ratio boxes reflecting 1:1, 16:9, 9:16, 4:3, and 3:4 proportions.
+  - **Cleaned Top Line**: Removed unsightly border line above the model and ratio selector controls in `ImageGenScreen.tsx`.
+- **Validation**:
+  - Full TypeScript typecheck (`npx tsc --noEmit`) passes with 0 errors.
+
+---
+
+## 30. Session 30: Complete Image-to-Image Editing System with Cloudflare Workers AI (`@cf/black-forest-labs/flux-2-klein-4b`)
+
+### 1. Specification & Cloudflare Model Verification
+- **Verified Official Model Specs**: Checked Cloudflare Workers AI documentation and API schemas for `@cf/black-forest-labs/flux-2-klein-4b`:
+  - Distilled 4-step inference model providing sub-second generation and multi-reference image editing.
+  - Requires `multipart/form-data` with fields: `prompt`, `width`, `height`, and reference images indexed as `input_image_0`, `input_image_1`, `input_image_2`, and `input_image_3` (up to 4 reference images).
+  - Strict input image constraint: all reference images must be `<= 512x512` pixels before dispatching to Cloudflare.
+  - Cloudflare returns JSON `{ result: { image: "<base64>" }, success: true }`.
+
+### 2. Architecture & Security (Zero Client-Side Secret Leakage)
+- **Pipeline**: Mobile APK → ChatBox AI Mobile Backend (`https://api-mobile.chatboxai.co.in`) → Cloudflare Workers AI → Appwrite Storage bucket `69a69b9c0009d1b683dd` → Appwrite DB `image_generation` collection → Mobile APK.
+- **Credential Protection**:
+  - `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are strictly server-side environment variables in [`.env`](file:///d:/All%20Projects/Chatboxai_APK/.env).
+  - Mobile client sends only user authentication tokens, prompt text, model ID, aspect ratio, and reference image URIs/Base64.
+- **Provider Quota & Abuse Prevention**:
+  - Added sliding window rate limiter (`imageGenerationLimiter`: 20 requests per 10 minutes per user IP/ID) in [`src/server/lib/rate-limit.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/server/lib/rate-limit.ts) protecting Cloudflare usage.
+  - Deducts 50 credits per generation from the user's Appwrite `users` document (`credits` attribute) before execution in [`src/server/lib/image-generator.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/server/lib/image-generator.ts).
+
+### 3. Server-Side Image Processing & Storage Persistence
+- **Reference Image Ingestion & Preprocessing** (`src/server/lib/image-generator.ts`):
+  - Added `parseReferenceImages` supporting up to 4 images via Base64 data URIs or external URLs with strict 20MB payload ceiling.
+  - Validates image integrity using `sharp`.
+  - Added `preprocessReferenceImageForKlein`: Automatically resizes all reference images to fit within `512x512` pixels (`fit: 'inside', withoutEnlargement: true`) and re-encodes to high-quality JPEG.
+- **Cloudflare Execution Engine**:
+  - Added `generateCloudflareFluxKleinImage` constructing native `FormData` with `input_image_0`..`input_image_3` blobs and a 75-second `AbortController` timeout.
+  - Automatically enriches editing prompts to guide the model on preserving subject identity while applying requested modifications.
+- **Storage & Database Persistence**:
+  - Cloudflare Base64 output is converted server-side into a binary PNG buffer.
+  - Binary is uploaded to Appwrite Storage bucket `69a69b9c0009d1b683dd` with public read permissions (`Permission.read(Role.any())`).
+  - Document is persisted into Appwrite `image_generation` collection with `libId`, `userEmail`, `prompt`, `model`, `width`, `height`, `fileId`, `generationType`, `hasReferenceImage`, and `referenceImageCount`.
+  - Large Base64 strings are **never** stored in the database.
+
+### 4. Client Mobile UI & Multi-Reference Experience
+- **Model Registry** (`src/config/imageModels.ts`):
+  - Added `'cloudflare'` to `ImageProvider` type.
+  - Added `CLOUDFLARE_IMAGE_MODELS` with `@cf/black-forest-labs/flux-2-klein-4b` (`FLUX.2 Klein 4B`, `supportsImageToImage: true`, `maxReferenceImages: 4`, aspect ratios: 1:1, 16:9, 9:16, 4:3, 3:4).
+  - Exported `DEFAULT_CLOUDFLARE_MODEL_ID` and `getMaxReferenceImagesForModel()`.
+- **Photo Library & Camera Integration** (`src/features/image/ImageGenScreen.tsx`):
+  - Users can select reference images from either the Camera (`launchCameraAsync`) or Photo Library (`launchImageLibraryAsync`) via an intuitive source action dialog.
+  - Automatically requests native permissions (`requestCameraPermissionsAsync`, `requestMediaLibraryPermissionsAsync`).
+  - Auto-switches selected model to `FLUX.2 Klein 4B` whenever a reference image is attached.
+- **Multi-Reference Thumbnail Strip**:
+  - Renders a horizontal preview strip showing thumbnail previews with `#0`, `#1`, `#2`, `#3` index badges matching Cloudflare parameter mapping.
+  - Provides quick `X` removal buttons for individual reference images and a "Clear all" action.
+  - Displays a dashed `+ Add` button whenever additional reference slots remain available (up to 4).
+  - Dynamic input placeholder updates (e.g. *"Describe changes across 2 images..."*).
+- **Iterative Editing Toolbar Action ("Use as reference")**:
+  - Added `IconWand` action button to [`ImageCard.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/image/ImageCard.tsx) toolbar on completed cards.
+  - Tapping wand loads the generated image directly into the composer as a reference image for iterative refinements.
+- **Model Selector Sheet Polish** (`src/components/image/ImageModelSelectorSheet.tsx`):
+  - Displays a subtle `Img2Img (4 refs)` badge next to `@cf/black-forest-labs/flux-2-klein-4b` and `Img2Img` next to SDXL.
+
+### 5. Verification & Quality Assurance
+- Mobile TypeScript check (`npx tsc --noEmit`): **0 errors**.
+- Serverless API TypeScript check (`npx tsc --project api/tsconfig.json --noEmit`): **0 errors**.
+- Production readiness: No client-side provider secrets, full Appwrite Storage persistence, gallery download flow fully preserved, and seamless fallback to SDXL if Cloudflare provider credentials are temporarily unset.
+
+

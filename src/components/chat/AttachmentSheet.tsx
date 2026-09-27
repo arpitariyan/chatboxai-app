@@ -362,7 +362,7 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
           }}
         >
           <View style={[styles.listIconWrap, { backgroundColor: colors.inset }]}>
-            <IconSparkles size={17} color={colors.accent || colors.ink} strokeWidth={1.5} />
+            <IconSparkles size={17} color={colors.ink} strokeWidth={1.5} />
           </View>
           <View style={styles.listContent}>
             <Text style={[styles.listTitle, { color: colors.ink }]}>Create image</Text>

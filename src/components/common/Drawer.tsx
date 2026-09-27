@@ -511,7 +511,7 @@ export const Drawer: React.FC<DrawerProps> = ({
                       {chat.type === 'image-generation' ? (
                         <IconPhoto
                           size={17}
-                          color={colors.accent}
+                          color={colors.ink3}
                           style={{ marginRight: spacing.sm + 2 }}
                         />
                       ) : (

@@ -1,17 +1,15 @@
 /**
  * src/components/image/AspectRatioSelector.tsx
  *
- * Horizontal aspect ratio selector pills for Image Generation.
- * Complies with Anti-Neon Design System:
- * - #1c1c20 surfaces, #2a2a30 borders
- * - Subtle #c084fc violet active state
- * - 48px minimum touch targets
+ * Professional, minimal aspect ratio selector for Image Generation.
+ * Displays proportional frame icons alongside standard ratio notation (1:1, 16:9, etc.)
+ * Strictly follows the Anti-Neon design system.
  */
 
 import React from 'react';
 import { StyleSheet, View, Text, Pressable, ScrollView } from 'react-native';
 import { ImageAspectRatio } from '@/config/imageModels';
-import { useThemeColors, typography, radius } from '@/theme';
+import { useThemeColors, radius } from '@/theme';
 
 interface AspectRatioSelectorProps {
   ratios: ImageAspectRatio[];
@@ -19,6 +17,52 @@ interface AspectRatioSelectorProps {
   onSelectRatio: (ratioValue: string) => void;
   disabled?: boolean;
 }
+
+const AspectRatioFrame: React.FC<{ ratio: string; isSelected: boolean }> = ({
+  ratio,
+  isSelected,
+}) => {
+  const colors = useThemeColors();
+  const strokeColor = isSelected ? colors.ink : colors.ink3;
+
+  let width = 12;
+  let height = 12;
+
+  if (ratio === '16:9') {
+    width = 16;
+    height = 9;
+  } else if (ratio === '9:16') {
+    width = 9;
+    height = 16;
+  } else if (ratio === '4:3') {
+    width = 14;
+    height = 10.5;
+  } else if (ratio === '3:4') {
+    width = 10.5;
+    height = 14;
+  } else if (ratio === '2:3') {
+    width = 10;
+    height = 15;
+  } else if (ratio === '3:2') {
+    width = 15;
+    height = 10;
+  }
+
+  return (
+    <View style={styles.frameContainer}>
+      <View
+        style={[
+          styles.frameBox,
+          {
+            width,
+            height,
+            borderColor: strokeColor,
+          },
+        ]}
+      />
+    </View>
+  );
+};
 
 export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({
   ratios,
@@ -46,34 +90,25 @@ export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({
               styles.pill,
               {
                 backgroundColor: isSelected
-                  ? 'rgba(192, 132, 252, 0.12)'
+                  ? colors.inset
                   : colors.surface,
-                borderColor: isSelected ? colors.accent : colors.line,
+                borderColor: isSelected ? colors.ink3 : colors.line,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}
             hitSlop={4}
           >
+            <AspectRatioFrame ratio={ratio.value} isSelected={isSelected} />
             <Text
               style={[
                 styles.ratioText,
                 {
-                  color: isSelected ? colors.accent : colors.ink2,
+                  color: isSelected ? colors.ink : colors.ink2,
                   fontWeight: isSelected ? '600' : '500',
                 },
               ]}
             >
               {ratio.value}
-            </Text>
-            <Text
-              style={[
-                styles.labelText,
-                {
-                  color: isSelected ? colors.accent : colors.ink3,
-                },
-              ]}
-            >
-              {ratio.label.split(' ')[0]}
             </Text>
           </Pressable>
         );
@@ -84,30 +119,36 @@ export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({
 
 const styles = StyleSheet.create({
   scrollView: {
-    maxHeight: 44,
+    maxHeight: 34,
   },
   contentContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 2,
     alignItems: 'center',
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: radius.full,
     borderWidth: 1,
     gap: 5,
-    minHeight: 34,
+    minHeight: 28,
+  },
+  frameContainer: {
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  frameBox: {
+    borderRadius: 2,
+    borderWidth: 1.2,
   },
   ratioText: {
-    fontSize: typography.fontSize.xs,
-    letterSpacing: 0.2,
-  },
-  labelText: {
-    fontSize: 10,
-    textTransform: 'capitalize',
+    fontSize: 11,
+    letterSpacing: 0.1,
   },
 });

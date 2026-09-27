@@ -91,3 +91,9 @@ export const fileViewLimiter = new SlidingWindowLimiter({
   windowMs: 60 * 60 * 1000,
   maxRequests: 300,
 });
+
+// 20 image generations / 10 minutes per user (protects provider quota & prevents abuse)
+export const imageGenerationLimiter = new SlidingWindowLimiter({
+  windowMs: 10 * 60 * 1000,
+  maxRequests: 20,
+});
