@@ -28,6 +28,8 @@ import {
 import {
   IMAGE_MODELS,
   DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_TEXT_TO_IMAGE_MODEL_ID,
+  DEFAULT_IMAGE_TO_IMAGE_MODEL_ID,
   DEFAULT_CLOUDFLARE_MODEL_ID,
   GENERATION_MODES,
   getModelById,
@@ -807,7 +809,7 @@ export async function executeImageGeneration(
   const isImageToImage = referenceBuffers.length > 0;
   const cfCreds = getCloudflareCredentials();
 
-  let targetModel = params.model || (isImageToImage && cfCreds ? CLOUDFLARE_FLUX_KLEIN_MODEL : DEFAULT_IMAGE_MODEL_ID);
+  let targetModel = params.model || (isImageToImage && cfCreds ? CLOUDFLARE_FLUX_KLEIN_MODEL : DEFAULT_TEXT_TO_IMAGE_MODEL_ID);
   let targetProvider = params.provider || getProviderIdByModelId(targetModel);
   let modelWasSwitched = false;
 
@@ -818,6 +820,14 @@ export async function executeImageGeneration(
     }
     targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
     targetProvider = 'cloudflare';
+  } else {
+    // Normal text-only generation: Route through Leonardo Flux Schnell Pro
+    // (Never route normal text-only generation through Cloudflare)
+    if (targetModel === CLOUDFLARE_FLUX_KLEIN_MODEL || targetProvider === 'cloudflare' || !targetModel) {
+      targetModel = DEFAULT_TEXT_TO_IMAGE_MODEL_ID;
+      targetProvider = 'leonardo';
+      modelWasSwitched = true;
+    }
   }
 
   let modelConfig = getModelById(targetModel, targetProvider);
@@ -875,7 +885,7 @@ export async function executeImageGeneration(
   try {
     let rawBuffer: Buffer;
 
-    if (targetProvider === 'cloudflare' || targetModel === CLOUDFLARE_FLUX_KLEIN_MODEL || isImageToImage) {
+    if (isImageToImage) {
       rawBuffer = await generateCloudflareFluxKleinImage(
         enhancedPrompt,
         targetWidth,
@@ -884,7 +894,7 @@ export async function executeImageGeneration(
       );
       targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
       targetProvider = 'cloudflare';
-    } else if (targetProvider === 'leonardo') {
+    } else if (targetProvider === 'leonardo' || targetModel === DEFAULT_TEXT_TO_IMAGE_MODEL_ID) {
       rawBuffer = await generateLeonardoImage(enhancedPrompt, targetModel, targetWidth, targetHeight);
     } else {
       rawBuffer = await generateHFImage(enhancedPrompt, targetModel, targetWidth, targetHeight);

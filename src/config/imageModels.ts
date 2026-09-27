@@ -39,9 +39,9 @@ export const GENERATION_MODES = {
 export type GenerationMode = typeof GENERATION_MODES[keyof typeof GENERATION_MODES];
 
 export const IMAGE_PROVIDERS: ImageProvider[] = [
+  { id: 'leonardo', name: 'Leonardo AI' },
   { id: 'cloudflare', name: 'Cloudflare' },
   { id: 'huggingface', name: 'Hugging Face' },
-  { id: 'leonardo', name: 'Leonardo AI' },
 ];
 
 export const CLOUDFLARE_IMAGE_MODELS: ImageModelConfig[] = [
@@ -103,7 +103,7 @@ export const LEONARDO_IMAGE_MODELS: ImageModelConfig[] = [
   {
     id: '1dd50843-d653-4516-a8e3-f0238ee453ff',
     provider: 'leonardo',
-    name: 'FLUX Schnell Pro',
+    name: 'Flux Schnell Pro',
     desc: 'Leonardo FLUX Schnell with low-latency photorealistic rendering',
     supportsTextToImage: true,
     supportsImageToImage: false,
@@ -118,14 +118,26 @@ export const LEONARDO_IMAGE_MODELS: ImageModelConfig[] = [
 ];
 
 export const IMAGE_MODELS: ImageModelConfig[] = [
+  ...LEONARDO_IMAGE_MODELS,
   ...CLOUDFLARE_IMAGE_MODELS,
   ...HF_IMAGE_MODELS,
-  ...LEONARDO_IMAGE_MODELS,
 ];
 
-export const DEFAULT_PROVIDER_ID = 'cloudflare';
-export const DEFAULT_IMAGE_MODEL_ID = '@cf/black-forest-labs/flux-2-klein-4b';
-export const DEFAULT_CLOUDFLARE_MODEL_ID = '@cf/black-forest-labs/flux-2-klein-4b';
+export const DEFAULT_LEONARDO_MODEL_ID = '1dd50843-d653-4516-a8e3-f0238ee453ff';
+export const DEFAULT_TEXT_TO_IMAGE_MODEL_ID = DEFAULT_LEONARDO_MODEL_ID;
+export const DEFAULT_IMAGE_TO_IMAGE_MODEL_ID = '@cf/black-forest-labs/flux-2-klein-4b';
+export const DEFAULT_CLOUDFLARE_MODEL_ID = DEFAULT_IMAGE_TO_IMAGE_MODEL_ID;
+
+export const DEFAULT_PROVIDER_ID = 'leonardo';
+export const DEFAULT_IMAGE_MODEL_ID = DEFAULT_TEXT_TO_IMAGE_MODEL_ID;
+
+export function getDefaultTextToImageModel(): ImageModelConfig {
+  return getModelById(DEFAULT_TEXT_TO_IMAGE_MODEL_ID);
+}
+
+export function getDefaultImageToImageModel(): ImageModelConfig {
+  return getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
+}
 
 export function getProviderById(providerId: string): ImageProvider {
   return IMAGE_PROVIDERS.find((p) => p.id === providerId) || IMAGE_PROVIDERS[0];

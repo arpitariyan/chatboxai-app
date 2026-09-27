@@ -57,6 +57,8 @@ import {
 import { generateUUID } from '@/services/chatService';
 import {
   DEFAULT_IMAGE_MODEL_ID,
+  DEFAULT_TEXT_TO_IMAGE_MODEL_ID,
+  DEFAULT_IMAGE_TO_IMAGE_MODEL_ID,
   DEFAULT_CLOUDFLARE_MODEL_ID,
   getModelById,
   getMaxReferenceImagesForModel,
@@ -191,12 +193,12 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
-  // Model & Ratio - default to Cloudflare Klein 4B if starting with a reference image
+  // Model & Ratio - default to Leonardo Flux Schnell Pro for text-only, Cloudflare Klein 4B if starting with a reference image
   const [selectedModel, setSelectedModel] = useState<ImageModelConfig>(() => {
     if (initialReferenceImageUri) {
-      return getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
+      return getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
     }
-    return getModelById(DEFAULT_IMAGE_MODEL_ID);
+    return getModelById(DEFAULT_TEXT_TO_IMAGE_MODEL_ID);
   });
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
   const [isModelSheetOpen, setIsModelSheetOpen] = useState<boolean>(false);
@@ -214,6 +216,24 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
     () => getMaxReferenceImagesForModel(selectedModel.id),
     [selectedModel.id]
   );
+
+  // Automatically switch to Cloudflare FLUX.2 Klein 4B for Image-to-Image editing
+  const switchToImg2ImgModel = useCallback(() => {
+    const cfModel = getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
+    setSelectedModel(cfModel);
+    if (!cfModel.ratios.some((r) => r.value === selectedRatio)) {
+      setSelectedRatio('1:1');
+    }
+  }, [selectedRatio]);
+
+  // Automatically switch to Leonardo Flux Schnell Pro for Text-to-Image generation
+  const switchToTextToImageModel = useCallback(() => {
+    const textModel = getModelById(DEFAULT_TEXT_TO_IMAGE_MODEL_ID);
+    setSelectedModel(textModel);
+    if (!textModel.ratios.some((r) => r.value === selectedRatio)) {
+      setSelectedRatio('1:1');
+    }
+  }, [selectedRatio]);
 
   // Composer text
   const [promptText, setPromptText] = useState<string>('');
@@ -290,13 +310,14 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   // ── Reference image picker (Camera or Photos) ─────────────────────────────
   const handlePickFromSource = useCallback(
     async (source: 'camera' | 'library') => {
-      const currentMax = getMaxReferenceImagesForModel(selectedModel.id);
-      const remainingSlots = Math.max(0, currentMax - referenceImages.length);
+      const cfModel = getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
+      const targetMax = cfModel.maxReferenceImages || 4;
+      const remainingSlots = Math.max(0, targetMax - referenceImages.length);
 
       if (remainingSlots <= 0) {
         Alert.alert(
           'Limit Reached',
-          `The selected model (${selectedModel.name}) supports up to ${currentMax} reference image${currentMax > 1 ? 's' : ''}. Please remove an image before adding another.`
+          `${cfModel.name} supports a maximum of ${targetMax} reference images. Please remove an image before adding another.`
         );
         return;
       }
@@ -330,15 +351,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             };
 
             setReferenceImages((prev) => [...prev, newItem]);
-
-            // Auto-switch to Cloudflare model if currently on a text-only model
-            if (!selectedModel.supportsImageToImage) {
-              const cfModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
-              setSelectedModel(cfModel);
-              if (!cfModel.ratios.some((r) => r.value === selectedRatio)) {
-                setSelectedRatio('1:1');
-              }
-            }
+            // Automatically switch to Cloudflare FLUX.2 Klein 4B for Image-to-Image editing
+            switchToImg2ImgModel();
           }
         } else {
           const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -369,15 +383,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             }));
 
             setReferenceImages((prev) => [...prev, ...picked]);
-
-            // Auto-switch to Cloudflare model if currently on a text-only model
-            if (!selectedModel.supportsImageToImage) {
-              const cfModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
-              setSelectedModel(cfModel);
-              if (!cfModel.ratios.some((r) => r.value === selectedRatio)) {
-                setSelectedRatio('1:1');
-              }
-            }
+            // Automatically switch to Cloudflare FLUX.2 Klein 4B for Image-to-Image editing
+            switchToImg2ImgModel();
           }
         }
       } catch (err) {
@@ -385,22 +392,23 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         Alert.alert('Error', 'Failed to pick image. Please try again.');
       }
     },
-    [referenceImages.length, selectedModel, selectedRatio]
+    [referenceImages.length, switchToImg2ImgModel]
   );
 
   const handleChooseImageSource = useCallback(() => {
-    const currentMax = getMaxReferenceImagesForModel(selectedModel.id);
-    if (referenceImages.length >= currentMax) {
+    const cfModel = getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
+    const maxRefs = cfModel.maxReferenceImages || 4;
+    if (referenceImages.length >= maxRefs) {
       Alert.alert(
         'Limit Reached',
-        `${selectedModel.name} supports a maximum of ${currentMax} reference image${currentMax > 1 ? 's' : ''}.`
+        `${cfModel.name} supports a maximum of ${maxRefs} reference images.`
       );
       return;
     }
 
     Alert.alert(
       'Add Reference Image',
-      `Choose image source (up to ${currentMax} reference images supported for ${selectedModel.name})`,
+      `Choose image source (up to ${maxRefs} reference images supported for ${cfModel.name})`,
       [
         {
           text: 'Take Photo',
@@ -416,25 +424,34 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         },
       ]
     );
-  }, [handlePickFromSource, referenceImages.length, selectedModel.id, selectedModel.name]);
+  }, [handlePickFromSource, referenceImages.length]);
 
-  const handleRemoveReferenceImage = useCallback((id: string) => {
-    setReferenceImages((prev) => prev.filter((item) => item.id !== id));
-  }, []);
+  const handleRemoveReferenceImage = useCallback(
+    (id: string) => {
+      setReferenceImages((prev) => {
+        const next = prev.filter((item) => item.id !== id);
+        if (next.length === 0) {
+          // If the reference image is removed before sending, switch back to default Flux Schnell Pro
+          switchToTextToImageModel();
+        }
+        return next;
+      });
+    },
+    [switchToTextToImageModel]
+  );
+
+  const handleClearAllReferenceImages = useCallback(() => {
+    setReferenceImages([]);
+    // Switch back to default text-to-image model (Flux Schnell Pro)
+    switchToTextToImageModel();
+  }, [switchToTextToImageModel]);
 
   const handleUseAsReference = useCallback(
     (imageUrl: string) => {
-      let targetModel = selectedModel;
-      let targetMax = getMaxReferenceImagesForModel(selectedModel.id);
-
-      if (!selectedModel.supportsImageToImage) {
-        targetModel = getModelById(DEFAULT_CLOUDFLARE_MODEL_ID);
-        setSelectedModel(targetModel);
-        if (!targetModel.ratios.some((r) => r.value === selectedRatio)) {
-          setSelectedRatio('1:1');
-        }
-        targetMax = targetModel.maxReferenceImages || 4;
-      }
+      const cfModel = getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID);
+      const targetMax = cfModel.maxReferenceImages || 4;
+      // Automatically switch to Cloudflare FLUX.2 Klein 4B for Image-to-Image editing
+      switchToImg2ImgModel();
 
       setReferenceImages((prev) => {
         if (prev.length >= targetMax) {
@@ -450,7 +467,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         inputRef.current?.focus();
       }, 100);
     },
-    [selectedModel, selectedRatio]
+    [switchToImg2ImgModel]
   );
 
   // ── Generation ────────────────────────────────────────────────────────────
@@ -464,21 +481,34 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         return;
       }
 
-      const activeRatio =
-        selectedModel.ratios.find((r) => r.value === selectedRatio) ||
-        selectedModel.ratios[0];
-      const currentLibId = libId;
-      const tempEntryId = `temp_${Date.now()}`;
       const refsToUse = overrideRefImages !== undefined ? overrideRefImages : referenceImages;
       const isImg2Img = refsToUse.length > 0;
+
+      // Model resolution:
+      // - Reference image attached -> automatically route through Cloudflare FLUX.2 Klein 4B
+      // - Text prompt only -> keep Leonardo Flux Schnell Pro (or user's selected text model)
+      const activeModel = isImg2Img
+        ? getModelById(DEFAULT_IMAGE_TO_IMAGE_MODEL_ID)
+        : (selectedModel.supportsImageToImage ? getModelById(DEFAULT_TEXT_TO_IMAGE_MODEL_ID) : selectedModel);
+
+      // Keep UI state synchronized
+      if (selectedModel.id !== activeModel.id) {
+        setSelectedModel(activeModel);
+      }
+
+      const activeRatio =
+        activeModel.ratios.find((r) => r.value === selectedRatio) ||
+        activeModel.ratios[0];
+      const currentLibId = libId;
+      const tempEntryId = `temp_${Date.now()}`;
 
       const optimisticItem: GeneratedImageItem = {
         entryId: tempEntryId,
         libId: currentLibId,
         userEmail: currentUser.email,
         prompt: cleanPrompt,
-        model: selectedModel.id,
-        modelName: selectedModel.name,
+        model: activeModel.id,
+        modelName: activeModel.name,
         width: activeRatio.width,
         height: activeRatio.height,
         status: 'generating',
@@ -531,8 +561,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
 
         const result = await imageService.generateImage({
           prompt: cleanPrompt,
-          model: selectedModel.id,
-          provider: selectedModel.provider,
+          model: activeModel.id,
+          provider: activeModel.provider,
           width: activeRatio.width,
           height: activeRatio.height,
           referenceImageBase64: base64List[0] || null,
@@ -572,6 +602,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
           }, 200);
 
           setReferenceImages([]);
+          // Switch back to default text-to-image model (Flux Schnell Pro) for subsequent text prompt
+          switchToTextToImageModel();
           onConversationCreated?.(currentLibId, cleanPrompt);
           onConversationTitleChange?.(cleanPrompt);
         } else {
@@ -606,6 +638,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
       referenceImages,
       selectedModel,
       selectedRatio,
+      switchToTextToImageModel,
     ]
   );
 
@@ -774,7 +807,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                 </View>
               </View>
               <Pressable
-                onPress={() => setReferenceImages([])}
+                onPress={handleClearAllReferenceImages}
                 hitSlop={6}
                 style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
               >
@@ -929,9 +962,14 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         selectedModelId={selectedModel.id}
         onSelectModel={(model) => {
           setSelectedModel(model);
-          const modelMax = getMaxReferenceImagesForModel(model.id);
-          if (referenceImages.length > modelMax) {
-            setReferenceImages((prev) => prev.slice(0, modelMax));
+          if (!model.supportsImageToImage && referenceImages.length > 0) {
+            // If user explicitly chose a text-only model while reference images were attached, clear reference images
+            setReferenceImages([]);
+          } else {
+            const modelMax = getMaxReferenceImagesForModel(model.id);
+            if (referenceImages.length > modelMax) {
+              setReferenceImages((prev) => prev.slice(0, modelMax));
+            }
           }
           if (!model.ratios.some((r) => r.value === selectedRatio)) {
             setSelectedRatio(model.ratios[0]?.value || '1:1');
