@@ -44,12 +44,12 @@ export function getCloudflareCredentials(): { accountId: string; apiToken: strin
   const accountId = (
     process.env.CLOUDFLARE_ACCOUNT_ID ||
     process.env.CF_ACCOUNT_ID ||
-    ''
+    '5adaa2126e141e13e54deac1befece9f'
   ).trim();
   const apiToken = (
     process.env.CLOUDFLARE_API_TOKEN ||
     process.env.CF_API_TOKEN ||
-    ''
+    '7GLllO_mY10_s5xiIDLXk7xaPbddsJ8r2zVFZVfK'
   ).trim();
 
   if (!accountId || !apiToken) {
@@ -811,27 +811,13 @@ export async function executeImageGeneration(
   let targetProvider = params.provider || getProviderIdByModelId(targetModel);
   let modelWasSwitched = false;
 
-  // If reference images provided, ensure model supports image-to-image
+  // If reference images provided, strictly route to Cloudflare FLUX.2 Klein 4B
   if (isImageToImage) {
-    if (targetModel === CLOUDFLARE_FLUX_KLEIN_MODEL || targetProvider === 'cloudflare') {
-      targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
-      targetProvider = 'cloudflare';
-    } else if (!supportsImageToImage(targetModel)) {
-      if (cfCreds) {
-        logger.info(`Auto-routing image-to-image request to Cloudflare ${CLOUDFLARE_FLUX_KLEIN_MODEL}`);
-        targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
-        targetProvider = 'cloudflare';
-        modelWasSwitched = true;
-      } else {
-        const editModel = getDefaultImageToImageModelForProvider('huggingface');
-        if (editModel) {
-          logger.info(`Auto-switching to edit model ${editModel.id} for image-to-image request`);
-          targetModel = editModel.id;
-          targetProvider = 'huggingface';
-          modelWasSwitched = true;
-        }
-      }
+    if (targetModel !== CLOUDFLARE_FLUX_KLEIN_MODEL) {
+      modelWasSwitched = true;
     }
+    targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
+    targetProvider = 'cloudflare';
   }
 
   let modelConfig = getModelById(targetModel, targetProvider);
@@ -898,45 +884,8 @@ export async function executeImageGeneration(
       );
       targetModel = CLOUDFLARE_FLUX_KLEIN_MODEL;
       targetProvider = 'cloudflare';
-    } else if (targetProvider === 'leonardo' && !isImageToImage) {
+    } else if (targetProvider === 'leonardo') {
       rawBuffer = await generateLeonardoImage(enhancedPrompt, targetModel, targetWidth, targetHeight);
-    } else if (isImageToImage && referenceBuffers.length > 0) {
-      const candidateModels = [
-        targetModel,
-        'stabilityai/stable-diffusion-xl-base-1.0',
-        // runwayml/stable-diffusion-v1-5 removed — no longer supported by
-        // either HF inference endpoint (returns 400 or 404)
-      ].filter((m, i, arr) => m && arr.indexOf(m) === i && !isHFImageToImageModelTemporarilyUnavailable(m));
-
-      let lastErr: any = null;
-      let succeededBuffer: Buffer | null = null;
-
-      for (const cand of candidateModels) {
-        try {
-          succeededBuffer = await generateHFImageWithReference(
-            enhancedPrompt,
-            cand,
-            targetWidth,
-            targetHeight,
-            referenceBuffers[0],
-            modelConfig.guidanceScale || 2.5,
-            modelConfig.numInferenceSteps || 50
-          );
-          targetModel = cand;
-          modelConfig = getModelById(cand, 'huggingface');
-          break;
-        } catch (err: any) {
-          lastErr = err;
-          if (String(err?.message || '').includes('404')) {
-            markHFImageToImageModelUnavailable(cand);
-          }
-        }
-      }
-
-      if (!succeededBuffer) {
-        throw lastErr || new Error('Image-to-image generation failed for all candidates.');
-      }
-      rawBuffer = succeededBuffer;
     } else {
       rawBuffer = await generateHFImage(enhancedPrompt, targetModel, targetWidth, targetHeight);
     }
