@@ -70,6 +70,8 @@ import { ImageModelSelectorSheet } from '@/components/image/ImageModelSelectorSh
 import { ImageSourceSheet } from '@/components/image/ImageSourceSheet';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
+import { VoiceWaveformBar } from '@/components/chat/VoiceWaveformBar';
+import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useThemeColors, typography, radius, spacing } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFadeGradientConfig } from '@/utils/gradientFade';
@@ -205,6 +207,34 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   const [isModelSheetOpen, setIsModelSheetOpen] = useState<boolean>(false);
   const [isSourceSheetOpen, setIsSourceSheetOpen] = useState<boolean>(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState<boolean>(false);
+
+  // ── Speech-to-Text hook ───────────────────────────────────────────────────
+  const {
+    isListening,
+    isTranscribing,
+    audioLevel,
+    startListening,
+    stopListening,
+    cancelListening,
+  } = useSpeechToText({
+    onTranscript: (newText) => {
+      setPromptText((prev) => {
+        const trimmedPrev = prev.trim();
+        if (!trimmedPrev) return newText;
+        return `${trimmedPrev} ${newText}`;
+      });
+    },
+    onError: (err, msg) => {
+      if (err !== 'NO_SPEECH') {
+        Alert.alert('Speech to Text', msg);
+      }
+    },
+  });
+
+  const handleMicPress = useCallback(() => {
+    Keyboard.dismiss();
+    startListening();
+  }, [startListening]);
 
   // Reference images (multi-reference support up to model limit)
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>(() => {
@@ -851,85 +881,98 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
 
         {/* Input bar */}
         <View style={styles.inputBar}>
-          <Pressable
-            onPress={handleChooseImageSource}
-            disabled={isGenerating}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.attachBtn,
-              referenceImages.length > 0 && styles.attachBtnActive,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-            accessibilityLabel={
-              referenceImages.length > 0
-                ? 'Manage reference images'
-                : 'Attach reference image'
-            }
-          >
-            {referenceImages.length > 0 ? (
-              <IconWand size={18} color="#000000" strokeWidth={2.2} />
-            ) : (
-              <IconPlus size={22} color="#8e8e93" />
-            )}
-          </Pressable>
+          {isListening || isTranscribing ? (
+            <VoiceWaveformBar
+              isListening={isListening}
+              isTranscribing={isTranscribing}
+              audioLevel={audioLevel}
+              onCancel={cancelListening}
+              onStop={stopListening}
+            />
+          ) : (
+            <>
+              <Pressable
+                onPress={handleChooseImageSource}
+                disabled={isGenerating}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.attachBtn,
+                  referenceImages.length > 0 && styles.attachBtnActive,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+                accessibilityLabel={
+                  referenceImages.length > 0
+                    ? 'Manage reference images'
+                    : 'Attach reference image'
+                }
+              >
+                {referenceImages.length > 0 ? (
+                  <IconWand size={18} color="#000000" strokeWidth={2.2} />
+                ) : (
+                  <IconPlus size={22} color="#8e8e93" />
+                )}
+              </Pressable>
 
-          <TextInput
-            ref={inputRef}
-            style={[styles.input, { color: '#ffffff' }]}
-            placeholder={
-              referenceImages.length > 0
-                ? referenceImages.length === 1
-                  ? 'Describe changes to your image...'
-                  : `Describe changes across ${referenceImages.length} images...`
-                : 'Generate Image'
-            }
-            placeholderTextColor="#8e8e93"
-            value={promptText}
-            onChangeText={setPromptText}
-            multiline
-            maxLength={1000}
-            editable={!isGenerating}
-            blurOnSubmit={false}
-          />
+              <TextInput
+                ref={inputRef}
+                style={[styles.input, { color: '#ffffff' }]}
+                placeholder={
+                  referenceImages.length > 0
+                    ? referenceImages.length === 1
+                      ? 'Describe changes to your image...'
+                      : `Describe changes across ${referenceImages.length} images...`
+                    : 'Generate Image'
+                }
+                placeholderTextColor="#8e8e93"
+                value={promptText}
+                onChangeText={setPromptText}
+                multiline
+                maxLength={1000}
+                editable={!isGenerating}
+                blurOnSubmit={false}
+              />
 
-          <View style={styles.rightGroup}>
-            <Pressable
-              disabled={isGenerating}
-              onPress={() => setIsVoiceOpen(true)}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.micBtn,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <IconMicrophone size={20} color="#8e8e93" />
-            </Pressable>
+              <View style={styles.rightGroup}>
+                <Pressable
+                  disabled={isGenerating}
+                  onPress={handleMicPress}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.micBtn,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityLabel="Dictate prompt with voice"
+                >
+                  <IconMicrophone size={20} color="#8e8e93" />
+                </Pressable>
 
-            <Pressable
-              disabled={!promptText.trim() || isGenerating}
-              onPress={() => handleGenerate(promptText)}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.sendBtn,
-                {
-                  backgroundColor: promptText.trim()
-                    ? colors.accent
-                    : '#2c2c2e',
-                  opacity: pressed
-                    ? 0.8
-                    : promptText.trim()
-                      ? 1
-                      : 0.4,
-                },
-              ]}
-            >
-              {isGenerating ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
-              )}
-            </Pressable>
-          </View>
+                <Pressable
+                  disabled={!promptText.trim() || isGenerating}
+                  onPress={() => handleGenerate(promptText)}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    {
+                      backgroundColor: promptText.trim()
+                        ? colors.accent
+                        : '#2c2c2e',
+                      opacity: pressed
+                        ? 0.8
+                        : promptText.trim()
+                          ? 1
+                          : 0.4,
+                    },
+                  ]}
+                >
+                  {isGenerating ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
+                  )}
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
       </View>
 

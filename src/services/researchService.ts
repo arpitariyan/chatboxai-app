@@ -265,7 +265,9 @@ export const researchService = {
     selectedModel?: string;
     conversationHistory?: Array<{ role: string; content: string }>;
     userEmail?: string;
+    onProgress?: (message: string) => void;
   }): Promise<ResearchExecutionResponse> {
+    const { onProgress } = params;
     const token = await auth.currentUser?.getIdToken();
     const url = toMobileResearchExecuteUrl();
 
@@ -277,13 +279,45 @@ export const researchService = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    try {
-      const res = await axios.post(url, params, {
-        headers,
-        timeout: 120000, // 2 minutes for deep multi-query crawling & reasoning
+    // Set initial stage
+    onProgress?.('Understanding query & research goals…');
+
+    // Advance stage messages smoothly as backend pipeline processes
+    const stageTimeline = [
+      { delay: 1800, text: 'Formulating research strategy…' },
+      { delay: 4200, text: 'Searching verified sources across the web…' },
+      { delay: 8500, text: 'Collecting & evaluating sources…' },
+      { delay: 13000, text: 'Extracting key facts & evidence…' },
+      { delay: 18000, text: 'Analyzing consensus & discrepancies…' },
+      { delay: 24000, text: 'Synthesizing final research report…' },
+    ];
+
+    const timers: any[] = [];
+    if (onProgress) {
+      stageTimeline.forEach(({ delay, text }) => {
+        timers.push(setTimeout(() => onProgress(text), delay));
       });
+    }
+
+    try {
+      const res = await axios.post(
+        url,
+        {
+          searchInput: params.searchInput,
+          selectedModel: params.selectedModel,
+          conversationHistory: params.conversationHistory,
+          userEmail: params.userEmail,
+        },
+        {
+          headers,
+          timeout: 120000, // 2 minutes for deep multi-query crawling & reasoning
+        }
+      );
+
+      timers.forEach(clearTimeout);
       return res.data;
     } catch (err: any) {
+      timers.forEach(clearTimeout);
       if (err.response?.status === 404) {
         throw new Error('Deep Research server endpoint is currently deploying. Please try again in a few moments.');
       }

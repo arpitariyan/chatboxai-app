@@ -1,9 +1,10 @@
 /**
  * src/server/services/research/intent-planner.ts
  *
- * Multi-Angle Query Planner for Deep Research.
- * Decomposes complex user queries into 4-6 specialized sub-search queries
- * covering core facts, latest updates, data/benchmarks, implementation, and counter-perspectives.
+ * Upgraded Multi-Stage Intent & Research Strategy Engine:
+ * - Stage 1: Query Intent Analysis & Entity/Temporal Extraction
+ * - Stage 2: Orthogonal Research Strategy Planning (Core, Empirical, Implementation, Tradeoffs)
+ * - Stage 3: Targeted Search Query Formulation (4-6 non-overlapping queries)
  */
 
 import { GoogleGenAI } from '@google/genai';
@@ -12,7 +13,7 @@ import { keywordOverlapScore } from './search-utils';
 
 export interface PlannedQueryItem {
   query: string;
-  angle: string;
+  angle: 'core' | 'empirical' | 'implementation' | 'tradeoffs' | 'recent';
   priority: number;
   index: number;
 }
@@ -21,6 +22,8 @@ export interface IntentAnalysisResult {
   intent: 'inform' | 'compare' | 'build' | 'decision';
   depth: 'deep' | 'standard' | 'quick';
   domain: string;
+  temporalConstraint?: string;
+  keyEntities: string[];
   intentAnalysis?: string;
 }
 
@@ -31,13 +34,17 @@ export interface QueryPlanResult {
 }
 
 const DOMAIN_HINTS: Record<string, string[]> = {
-  engineering: ['api', 'code', 'software', 'architecture', 'debug', 'performance', 'javascript', 'python', 'react', 'node'],
-  business: ['pricing', 'market', 'revenue', 'startup', 'roi', 'strategy', 'customer', 'sales'],
-  health: ['health', 'medical', 'clinical', 'treatment', 'disease', 'patient'],
-  legal: ['law', 'legal', 'regulation', 'compliance', 'policy', 'contract'],
-  finance: ['finance', 'investment', 'stock', 'valuation', 'budget', 'cost', 'crypto'],
+  engineering: ['api', 'code', 'software', 'architecture', 'debug', 'performance', 'javascript', 'python', 'react', 'node', 'expo', 'database'],
+  business: ['pricing', 'market', 'revenue', 'startup', 'roi', 'strategy', 'customer', 'sales', 'growth'],
+  health: ['health', 'medical', 'clinical', 'treatment', 'disease', 'patient', 'therapy'],
+  legal: ['law', 'legal', 'regulation', 'compliance', 'policy', 'contract', 'terms'],
+  finance: ['finance', 'investment', 'stock', 'valuation', 'budget', 'cost', 'crypto', 'interest', 'inflation'],
+  science: ['quantum', 'physics', 'biology', 'chemistry', 'astronomy', 'materials', 'energy'],
 };
 
+/**
+ * Stage 1: Heuristic Query Intent Analysis
+ */
 export function detectQueryIntent(mainPrompt: string): IntentAnalysisResult {
   const normalized = String(mainPrompt || '').toLowerCase();
   const words = normalized.split(/\s+/).filter(Boolean);
@@ -52,9 +59,9 @@ export function detectQueryIntent(mainPrompt: string): IntentAnalysisResult {
   else if (isDecision) intent = 'decision';
 
   let depth: 'deep' | 'standard' | 'quick' = 'standard';
-  if (words.length >= 12 || /(deep|comprehensive|detailed|expert|benchmark)/i.test(normalized)) {
+  if (words.length >= 10 || /(deep|comprehensive|detailed|expert|benchmark|tradeoffs)/i.test(normalized)) {
     depth = 'deep';
-  } else if (words.length <= 5) {
+  } else if (words.length <= 4) {
     depth = 'quick';
   }
 
@@ -66,25 +73,38 @@ export function detectQueryIntent(mainPrompt: string): IntentAnalysisResult {
     }
   }
 
-  return { intent, depth, domain };
+  // Detect temporal markers (e.g. 2024, 2025, 2026, latest, recent)
+  let temporalConstraint: string | undefined = undefined;
+  const yearMatch = normalized.match(/\b(202[4-7])\b/);
+  if (yearMatch) {
+    temporalConstraint = yearMatch[1];
+  } else if (/(latest|recent|current|today|newest)/i.test(normalized)) {
+    temporalConstraint = 'current';
+  }
+
+  // Extract candidate entities
+  const keyEntities = words.filter(w => w.length > 3 && !/^(what|when|where|which|about|there|their|should|would|could)$/i.test(w)).slice(0, 4);
+
+  return { intent, depth, domain, temporalConstraint, keyEntities };
 }
 
+/**
+ * Stage 2 & 3: Heuristic Multi-Angle Query Formulation Fallback
+ */
 export function buildHeuristicResearchPlan(mainPrompt: string, queryAnalysis: IntentAnalysisResult): PlannedQueryItem[] {
-  const basePlans = [
+  const year = queryAnalysis.temporalConstraint || '2026';
+  const basePlans: Array<{ angle: PlannedQueryItem['angle']; query: string; basePriority: number }> = [
     { angle: 'core', query: mainPrompt, basePriority: 1.0 },
-    { angle: 'overview', query: `comprehensive overview of ${mainPrompt}`, basePriority: 0.92 },
-    { angle: 'latest', query: `latest developments updates on ${mainPrompt}`, basePriority: 0.88 },
-    { angle: 'expert', query: `expert analysis of ${mainPrompt}`, basePriority: 0.86 },
-    { angle: 'data', query: `statistics data benchmarks for ${mainPrompt}`, basePriority: 0.9 },
-    { angle: 'examples', query: `case studies real world examples of ${mainPrompt}`, basePriority: 0.82 },
-    { angle: 'implementation', query: `best practices implementation patterns for ${mainPrompt}`, basePriority: 0.84 },
-    { angle: 'risks', query: `challenges risks tradeoffs for ${mainPrompt}`, basePriority: 0.83 },
+    { angle: 'empirical', query: `${mainPrompt} benchmarks statistics data`, basePriority: 0.92 },
+    { angle: 'recent', query: `${mainPrompt} latest developments ${year}`, basePriority: 0.88 },
+    { angle: 'implementation', query: `${mainPrompt} architectural patterns real world examples`, basePriority: 0.86 },
+    { angle: 'tradeoffs', query: `${mainPrompt} limitations challenges drawbacks risks`, basePriority: 0.85 },
   ];
 
   return basePlans
     .map((plan, idx) => {
       const overlap = keywordOverlapScore(mainPrompt, plan.query);
-      const priority = Number((plan.basePriority + overlap * 0.15).toFixed(3));
+      const priority = Number((plan.basePriority + overlap * 0.1).toFixed(3));
       return {
         ...plan,
         priority,
@@ -94,17 +114,21 @@ export function buildHeuristicResearchPlan(mainPrompt: string, queryAnalysis: In
     .sort((a, b) => b.priority - a.priority);
 }
 
+/**
+ * Orchestrates Stages 1, 2, and 3: Intent Analysis + Research Strategy + Targeted Queries
+ */
 export async function analyzeIntentWithLLM(mainPrompt: string): Promise<QueryPlanResult> {
   const apiKey =
     process.env.GEMINI_API_KEY ||
     process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
     '';
 
+  const heuristicAnalysis = detectQueryIntent(mainPrompt);
+
   if (!apiKey) {
-    const analysis = detectQueryIntent(mainPrompt);
-    const plan = buildHeuristicResearchPlan(mainPrompt, analysis);
+    const plan = buildHeuristicResearchPlan(mainPrompt, heuristicAnalysis);
     return {
-      queryAnalysis: analysis,
+      queryAnalysis: heuristicAnalysis,
       rankedPlan: plan,
       queries: plan.map(p => p.query),
     };
@@ -112,17 +136,25 @@ export async function analyzeIntentWithLLM(mainPrompt: string): Promise<QueryPla
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const prompt = `You are a staff research director. Analyze the user query and generate 4 to 6 diverse search queries across technical, market, recent updates, and tradeoff perspectives.
+    const prompt = `You are a Principal Research Architect. Conduct a deep intent analysis and formulate an orthogonal research strategy for this user query.
 User Query: "${mainPrompt}"
+
+Generate 4 to 6 focused, non-overlapping search queries covering:
+1. Core technical definition / baseline facts
+2. Empirical benchmarks, quantitative data, or official documentation
+3. Real-world case studies or implementation patterns
+4. Tradeoffs, limitations, and counter-perspectives
+5. Latest current updates (2025/2026)
 
 Respond ONLY with valid JSON:
 {
-  "intentAnalysis": "Detailed brief of what the user needs and optimal analytical angles.",
+  "intentAnalysis": "1-2 sentence analytical brief of user intent and research goal.",
+  "keyEntities": ["entity1", "entity2"],
   "queries": [
-    "sub query 1",
-    "sub query 2",
-    "sub query 3",
-    "sub query 4"
+    "search query 1 (baseline)",
+    "search query 2 (empirical benchmarks)",
+    "search query 3 (implementation)",
+    "search query 4 (tradeoffs & risks)"
   ]
 }`;
 
@@ -143,15 +175,18 @@ Respond ONLY with valid JSON:
     }
 
     const queryAnalysis: IntentAnalysisResult = {
-      intent: 'inform',
+      intent: heuristicAnalysis.intent,
       depth: 'deep',
-      domain: 'general',
+      domain: heuristicAnalysis.domain,
+      temporalConstraint: heuristicAnalysis.temporalConstraint,
+      keyEntities: Array.isArray(parsed.keyEntities) ? parsed.keyEntities : heuristicAnalysis.keyEntities,
       intentAnalysis: parsed.intentAnalysis || 'Deep multi-angle research plan',
     };
 
+    const angles: Array<PlannedQueryItem['angle']> = ['core', 'empirical', 'implementation', 'tradeoffs', 'recent'];
     const rankedPlan: PlannedQueryItem[] = queries.map((q, idx) => ({
       query: q,
-      angle: `angle_${idx + 1}`,
+      angle: angles[idx % angles.length],
       priority: Number((1.0 - idx * 0.05).toFixed(2)),
       index: idx + 1,
     }));
@@ -163,10 +198,9 @@ Respond ONLY with valid JSON:
     };
   } catch (err: any) {
     logger.warn('LLM Intent planning failed, falling back to heuristics:', { error: err.message });
-    const analysis = detectQueryIntent(mainPrompt);
-    const plan = buildHeuristicResearchPlan(mainPrompt, analysis);
+    const plan = buildHeuristicResearchPlan(mainPrompt, heuristicAnalysis);
     return {
-      queryAnalysis: analysis,
+      queryAnalysis: heuristicAnalysis,
       rankedPlan: plan,
       queries: plan.map(p => p.query),
     };

@@ -29,6 +29,7 @@ import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { DeepResearchLimitSheet } from '@/components/chat/DeepResearchLimitSheet';
 import { ResearchProgressIndicator } from '@/components/chat/ResearchProgressIndicator';
+import { useResearchStore } from '@/stores/useResearchStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, typography } from '@/theme';
 import { chatService, cleanConversationTitle } from '@/services/chatService';
@@ -836,6 +837,7 @@ const ConversationContent: React.FC<ContentProps> = ({
   onClearAttachment: (uri: string) => void;
 }) => {
   const { thinkingMode } = useModelStore();
+  const isResearchMode = useResearchStore((s) => s.isResearchMode);
   const isEmptyChat = !isLoadingHistory && messages.length === 0;
 
   const topFadeConfig = useMemo(() => {
@@ -907,7 +909,7 @@ const ConversationContent: React.FC<ContentProps> = ({
               ))}
               {(isSearching || isThinking || isFileAnalyzing) && (
                 <View style={styles.thinkingContainer}>
-                  {progressMessage.toLowerCase().includes('research') ? (
+                  {((isSearching && isResearchMode) || progressMessage.toLowerCase().includes('research')) ? (
                     <ResearchProgressIndicator progressMessage={progressMessage} />
                   ) : (thinkingMode) ? (
                     // Show Reasoning style loader if thinking mode is active
@@ -1081,6 +1083,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     gap: spacing.sm,
+    width: '100%',
   },
   fileAnalysisLoader: {
     flexDirection: 'row',

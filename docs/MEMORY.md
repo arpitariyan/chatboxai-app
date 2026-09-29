@@ -2231,3 +2231,49 @@ Adapted the website's proven Deep Research pipeline (`chatboxai_website_copy`) i
 
 
 
+
+---
+
+## 33. Speech-to-Text (STT) & Voice Waveform Integration
+
+Implemented mobile-native Speech-to-Text capability for the microphone button in both **Normal Chat** (`Composer.tsx`) and **Image Generation** (`ImageGenScreen.tsx`), exactly matching the reference design layout (`media_1790676139676.png`).
+
+### 1. Core Architecture & Components:
+* **STT Hook (`src/hooks/useSpeechToText.ts`):**
+  - Records high-quality audio via `expo-audio` with real-time metering updates.
+  - Employs zero-overhead multipart file upload via `FileSystem.uploadAsync` directly to Groq's Whisper API (`whisper-large-v3-turbo`).
+  - Automated API key rotation across 7 configured environment keys (`EXPO_PUBLIC_GROQ_API_KEY_1..7`).
+  - Safe defensive module loading: Uses `requireOptionalNativeModule('ExpoAudio')` from `'expo'` so that if native audio is unlinked in any specific build, the app never crashes at startup or bundle evaluation time.
+  - Lifecycle management: Cleanly manages permissions, audio mode switching (`allowsRecording: true/false`), audio level normalization (0.15 to 1.0), and silent temporary file deletion.
+  - Exposed states & methods: `isListening`, `isTranscribing`, `audioLevel`, `startListening`, `stopListening`, `cancelListening`, `toggleListening`.
+
+* **Voice Waveform Bar (`src/components/chat/VoiceWaveformBar.tsx`):**
+  - 1:1 match with user reference screenshot (`media_1790676139676.png`).
+  - **Cancel Button (`[X]`):** Discards the recording immediately and cleans up temporary audio files without modifying existing text.
+  - **Waveform Animation:** 24 vertical bars with frequency curve heights and 60fps native-driven scale transforms (`useNativeDriver: true`) that dynamically react to live audio metering levels.
+  - **Stop & Transcribe Button (`[■]`):** White rounded square (14x14) that stops recording and initiates Groq Whisper transcription.
+  - **Transcribing State:** Subtle loading indicator and "Transcribing speech..." status text.
+
+* **Normal Chat Composer Integration (`src/components/chat/Composer.tsx`):**
+  - Dedicated microphone button triggers `startListening` with automatic keyboard dismiss.
+  - Preserves and naturally appends transcribed text to existing user text with clean spacing (`trimmedPrev + ' ' + newText`).
+  - Never automatically submits the message; allows the user to review, edit, and send when ready.
+  - Microphone button remains accessible even when text is present, allowing dictation at any time.
+
+* **Image Generation Screen Integration (`src/features/image/ImageGenScreen.tsx`):**
+  - Microphone button inside `inputBar` triggers speech-to-text dictation.
+  - Renders `VoiceWaveformBar` inside the input bar during recording and transcription.
+  - Appends transcription directly to `promptText` for review before generation.
+
+### 2. Bug Fix: Resolved Cannot find native module 'ExponentAV'
+* **Root Cause:** In modern Expo (SDK 52+ / 57), `expo-av` was deprecated and its native module (`ExponentAV`) was removed from Expo Go and modern client runtimes in favor of `expo-audio`. A static top-level import of `expo-av` caused `requireNativeModule('ExponentAV')` to throw an uncaught exception on bundle evaluation.
+* **Resolution Steps:**
+  1. Completely uninstalled `expo-av` and replaced with official `expo-audio` (`~57.0.5`).
+  2. Implemented defensive module detection using `requireOptionalNativeModule('ExpoAudio')` from `'expo'` so the app bundle never crashes on startup, even if native audio is unlinked in older binaries.
+  3. Integrated `expo-audio`'s `AudioRecorder(RecordingPresets.HIGH_QUALITY)` with permission requesting, session configuration (`setAudioModeAsync`), and metering events.
+  4. Updated `app.json` plugins to register `expo-audio`.
+  5. Verified clean build: `npx tsc --noEmit` exited with code 0.
+
+### 3. App Iconography & Design Reference
+* **UI Icons:** Stroke-based SVG icons from **Tabler Icons** (`@tabler/icons-react-native`, website: https://tabler.io/icons). Provides consistent, clean, and minimal aesthetics for buttons, navigation, and toggles.
+* **Launcher & Splash Branding:** Custom brand assets located in `assets/` (`icon.png`, `android-icon-foreground.png`, `android-icon-background.png`, `android-icon-monochrome.png`) derived from the official website (`chatboxai_website_copy`).

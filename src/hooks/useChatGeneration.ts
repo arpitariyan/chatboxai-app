@@ -361,7 +361,7 @@ export const useChatGeneration = ({
           // --- DEEP RESEARCH BRANCH ---
           setIsSearching(true);
           setIsThinking(true);
-          setProgressMessage('Synthesizing deep research & citations...');
+          setProgressMessage('Understanding query & research goals…');
 
           try {
             const researchRes = await researchService.executeResearch({
@@ -369,6 +369,7 @@ export const useChatGeneration = ({
               selectedModel: (model as any)?.modelApi || 'auto',
               conversationHistory: history,
               userEmail: normalizedEmail,
+              onProgress: (stageMsg) => setProgressMessage(stageMsg),
             });
 
             setIsSearching(false);

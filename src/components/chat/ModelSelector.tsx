@@ -61,10 +61,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ isResearch }) => {
         style={({ pressed }) => [styles.triggerBtn, { opacity: pressed ? 0.7 : 1 }]}
         onPress={() => setModalVisible(true)}
       >
-        <Text style={styles.triggerText} numberOfLines={1}>
+        <Text style={styles.triggerText} numberOfLines={1} ellipsizeMode="tail">
           {selectedModel?.name || 'Auto'}
         </Text>
-        <IconChevronDown size={14} color="#8e8e93" />
+        <View style={styles.chevronWrapper}>
+          <IconChevronDown size={13} color="#8e8e93" />
+        </View>
       </Pressable>
 
       <Modal visible={modalVisible} transparent animationType="slide">
@@ -106,20 +108,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1c1c1e',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: radius.full,
-    gap: spacing.xs,
-    alignSelf: 'flex-start',
+    gap: 4,
     borderWidth: 1,
     borderColor: '#2c2c2e',
-    maxWidth: 160,
+    maxWidth: '100%',
+    flexShrink: 1,
   },
   triggerText: {
     color: '#ffffff',
     fontSize: typography.fontSize.xs,
-    marginRight: 4,
     fontWeight: '500',
+    flexShrink: 1,
+  },
+  chevronWrapper: {
+    flexShrink: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   overlay: {
     flex: 1,

@@ -197,12 +197,13 @@ researchRouter.post('/research/execute', async (req: Request, res: Response): Pr
     const enrichmentTargets = finalSources.slice(0, 6);
     await Promise.allSettled(
       enrichmentTargets.map(async src => {
-        const text = await fetchPageContent(src.url, 6000);
+        const text = await fetchPageContent(src.url, 3500);
         if (text) {
-          const { summary, keyPoints } = heuristicSummary(text);
-          src.content = text.slice(0, 500);
+          const { summary, keyPoints, extractedClaims } = heuristicSummary(text);
+          src.content = text.slice(0, 600);
           if (summary) src.description = summary;
           if (keyPoints.length > 0) (src as any).keyPoints = keyPoints;
+          if (extractedClaims && extractedClaims.length > 0) (src as any).extractedClaims = extractedClaims;
         }
       })
     );

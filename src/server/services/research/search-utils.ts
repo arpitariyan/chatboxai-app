@@ -80,8 +80,12 @@ export function canonicalizeUrl(url = ''): string {
   try {
     const parsed = new URL(url);
     parsed.hash = '';
-    parsed.hostname = parsed.hostname.replace(/^www\./, '');
-    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid', 'ref'];
+    parsed.hostname = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const trackingParams = [
+      'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+      'gclid', 'fbclid', 'igshid', 'ref', 'source', 'trk', 'tracking_id',
+      'mc_cid', 'mc_eid', 'spm', 's_kwcid'
+    ];
     trackingParams.forEach(param => parsed.searchParams.delete(param));
     // Remove trailing slash unless root path
     let cleaned = parsed.toString();
@@ -93,6 +97,16 @@ export function canonicalizeUrl(url = ''): string {
   } catch {
     return String(url || '').trim();
   }
+}
+
+export function isThinSource(item: any = {}): boolean {
+  const content = String(item?.content || item?.description || item?.snippet || '').trim();
+  if (content.length < 50) return true;
+  // Common spam/404/paywall markers
+  if (/^(403 forbidden|404 not found|access denied|just a moment\.\.\.|enable javascript|verify you are human)/i.test(content)) {
+    return true;
+  }
+  return false;
 }
 
 export function getDomain(url = ''): string {
@@ -113,31 +127,36 @@ export function calculateSourceQualityScore(item: any = {}, originalQuery = ''):
   const url = item?.link || item?.url || '';
   const domain = getDomain(url);
   const snippet = String(item?.snippet || item?.description || item?.content || '');
-  const overlap = keywordOverlapScore(originalQuery, snippet) * 20;
+  const overlap = keywordOverlapScore(originalQuery, snippet) * 25;
 
   let score = 40 + overlap;
 
+  // Domain authority bonuses
   if (/\.(gov|edu)$/i.test(domain)) score += 20;
-  else if (/(wikipedia|nature|arxiv|forbes|harvard|mit|who\.int|oecd|worldbank|reuters|bloomberg)/i.test(domain)) score += 12;
+  else if (/(wikipedia|nature|arxiv|forbes|harvard|mit|who\.int|oecd|worldbank|reuters|bloomberg|acm\.org|ieee\.org)/i.test(domain)) score += 15;
+  else if (/(github\.com|developer\.mozilla\.org|docs\.|documentation\.|medium\.com\/@[a-z0-9_-]+)/i.test(domain)) score += 10;
 
+  // Recency bonus
   const publishDateRaw = item?.pagemap?.metatags?.[0]?.['article:published_time'] || item?.publishedDate;
   if (publishDateRaw) {
     const publishedAt = new Date(publishDateRaw).getTime();
     if (!Number.isNaN(publishedAt)) {
       const daysOld = (Date.now() - publishedAt) / (1000 * 60 * 60 * 24);
-      if (daysOld <= 30) score += 12;
-      else if (daysOld <= 180) score += 8;
+      if (daysOld <= 30) score += 15;
+      else if (daysOld <= 180) score += 10;
       else if (daysOld <= 365) score += 5;
-      else if (daysOld > 1825) score -= 6;
+      else if (daysOld > 1825) score -= 8;
     }
   }
 
-  if (/(forum|reddit|quora|medium\.com\/u\/)/i.test(domain)) score -= 4;
-  if (!snippet || snippet.length < 40) score -= 5;
+  // Penalties
+  if (/(forum|reddit|quora|yahoo\.answers)/i.test(domain)) score -= 4;
+  if (isThinSource(item)) score -= 20;
+  else if (snippet.length < 80) score -= 8;
 
   const bounded = Math.max(0, Math.min(100, Math.round(score)));
   let band: 'high' | 'medium' | 'low' = 'medium';
-  if (bounded >= 75) band = 'high';
+  if (bounded >= 70) band = 'high';
   else if (bounded < 45) band = 'low';
 
   return { score: bounded, band, domain };

@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
   Image,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -23,6 +24,8 @@ import {
   IconX,
   IconFile,
 } from '@tabler/icons-react-native';
+import { useSpeechToText } from '@/hooks/useSpeechToText';
+import { VoiceWaveformBar } from './VoiceWaveformBar';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '@/stores/useModelStore';
@@ -85,6 +88,34 @@ export const Composer: React.FC<ComposerProps> = ({
     fetchQuota(userEmail).catch(() => {});
   }, [userEmail, fetchQuota]);
 
+  // ── Speech-to-Text hook ───────────────────────────────────────────────────
+  const {
+    isListening,
+    isTranscribing,
+    audioLevel,
+    startListening,
+    stopListening,
+    cancelListening,
+  } = useSpeechToText({
+    onTranscript: (newText) => {
+      setLocalText((prev) => {
+        const trimmedPrev = prev.trim();
+        if (!trimmedPrev) return newText;
+        return `${trimmedPrev} ${newText}`;
+      });
+    },
+    onError: (err, msg) => {
+      if (err !== 'NO_SPEECH') {
+        Alert.alert('Speech to Text', msg);
+      }
+    },
+  });
+
+  const handleMicPress = useCallback(() => {
+    Keyboard.dismiss();
+    startListening();
+  }, [startListening]);
+
   // Sync when parent explicitly clears the field (e.g. externalValue === '')
   useEffect(() => {
     if (externalValue !== undefined && externalValue !== localText) {
@@ -141,8 +172,8 @@ export const Composer: React.FC<ComposerProps> = ({
               syncModelWithMode(false);
             }}
           >
-            <IconWorldSearch size={16} color={searchEnabled && !isResearchMode ? '#3b82f6' : '#8e8e93'} />
-            <Text style={[styles.toggleText, searchEnabled && !isResearchMode && styles.toggleTextActive]}>Search</Text>
+            <IconWorldSearch size={15} color={searchEnabled && !isResearchMode ? '#3b82f6' : '#8e8e93'} />
+            <Text style={[styles.toggleText, searchEnabled && !isResearchMode && styles.toggleTextActive]} numberOfLines={1}>Search</Text>
           </Pressable>
           <Pressable
             style={[
@@ -158,9 +189,9 @@ export const Composer: React.FC<ComposerProps> = ({
             }}
           >
             {quota && !quota.canResearch ? (
-              <IconLock size={15} color="#f59e0b" />
+              <IconLock size={14} color="#f59e0b" />
             ) : (
-              <IconFlask size={16} color={isResearchMode ? '#a78bfa' : '#8e8e93'} />
+              <IconFlask size={15} color={isResearchMode ? '#a78bfa' : '#8e8e93'} />
             )}
             <Text
               style={[
@@ -168,6 +199,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 isResearchMode && styles.toggleTextResearchActive,
                 quota && !quota.canResearch && { color: '#f59e0b' },
               ]}
+              numberOfLines={1}
             >
               {isResearchMode && quota?.remaining !== undefined && quota.remaining >= 0
                 ? `Research (${quota.remaining})`
@@ -225,93 +257,108 @@ export const Composer: React.FC<ComposerProps> = ({
       )}
 
       <View style={styles.composerBar}>
-        {/* Left: Attachment Trigger (+) */}
-        <Pressable
-          disabled={disabled}
-          onPress={onOpenAttachments}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.plusBtn,
-            { opacity: pressed ? 0.7 : 1 },
-          ]}
-        >
-          <IconPlus size={22} color="#8e8e93" />
-        </Pressable>
-
-        {/* Center: Multiline Input — local state only, NO parent setState per keystroke */}
-        <TextInput
-          ref={inputRef}
-          style={[styles.input, { color: '#ffffff' }]}
-          value={localText}
-          onChangeText={setLocalText}
-          onFocus={onFocus}
-          placeholder={pendingAttachments.length > 0 ? 'Add a message...' : 'Ask ChatBox AI...'}
-          placeholderTextColor="#8e8e93"
-          editable={!disabled && !isGenerating}
-          multiline
-          maxLength={4000}
-          blurOnSubmit={false}
-        />
-
-        {/* Right Controls */}
-        {isGenerating ? (
-          <Pressable
-            onPress={onStop}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.stopBtn,
-              { opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <IconSquare size={16} color="#ffffff" fill="#ffffff" />
-          </Pressable>
-        ) : hasContent ? (
-          <Pressable
-            disabled={disabled}
-            onPress={handleSend}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.sendBtn,
-              {
-                backgroundColor: colors.accent,
-                opacity: pressed ? 0.85 : 1,
-                transform: [{ scale: pressed ? 0.96 : 1 }],
-              },
-            ]}
-          >
-            <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
-          </Pressable>
+        {isListening || isTranscribing ? (
+          <VoiceWaveformBar
+            isListening={isListening}
+            isTranscribing={isTranscribing}
+            audioLevel={audioLevel}
+            onCancel={cancelListening}
+            onStop={stopListening}
+          />
         ) : (
-          <View style={styles.rightGroup}>
+          <>
+            {/* Left: Attachment Trigger (+) */}
             <Pressable
               disabled={disabled}
-              onPress={onOpenVoice}
+              onPress={onOpenAttachments}
               hitSlop={8}
               style={({ pressed }) => [
-                styles.micBtn,
+                styles.plusBtn,
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <IconMicrophone size={20} color="#8e8e93" />
+              <IconPlus size={22} color="#8e8e93" />
             </Pressable>
 
-            {/* Circular Blue Call Action Button */}
-            <Pressable
-              disabled={disabled}
-              onPress={onOpenVoice}
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.callBtn,
-                {
-                  backgroundColor: '#2563eb',
-                  opacity: pressed ? 0.85 : 1,
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
-                },
-              ]}
-            >
-              <IconPhone size={16} color="#ffffff" />
-            </Pressable>
-          </View>
+            {/* Center: Multiline Input — local state only, NO parent setState per keystroke */}
+            <TextInput
+              ref={inputRef}
+              style={[styles.input, { color: '#ffffff' }]}
+              value={localText}
+              onChangeText={setLocalText}
+              onFocus={onFocus}
+              placeholder={pendingAttachments.length > 0 ? 'Add a message...' : 'Ask ChatBox AI...'}
+              placeholderTextColor="#8e8e93"
+              editable={!disabled && !isGenerating}
+              multiline
+              maxLength={4000}
+              blurOnSubmit={false}
+            />
+
+            {/* Right Controls */}
+            {isGenerating ? (
+              <Pressable
+                onPress={onStop}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.stopBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <IconSquare size={16} color="#ffffff" fill="#ffffff" />
+              </Pressable>
+            ) : (
+              <View style={styles.rightGroup}>
+                <Pressable
+                  disabled={disabled}
+                  onPress={handleMicPress}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.micBtn,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                  accessibilityLabel="Dictate message with voice"
+                >
+                  <IconMicrophone size={20} color="#8e8e93" />
+                </Pressable>
+
+                {hasContent ? (
+                  <Pressable
+                    disabled={disabled}
+                    onPress={handleSend}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.sendBtn,
+                      {
+                        backgroundColor: colors.accent,
+                        opacity: pressed ? 0.85 : 1,
+                        transform: [{ scale: pressed ? 0.96 : 1 }],
+                      },
+                    ]}
+                  >
+                    <IconArrowUp size={18} color="#ffffff" strokeWidth={2.5} />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    disabled={disabled}
+                    onPress={onOpenVoice}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.callBtn,
+                      {
+                        backgroundColor: '#2563eb',
+                        opacity: pressed ? 0.85 : 1,
+                        transform: [{ scale: pressed ? 0.96 : 1 }],
+                      },
+                    ]}
+                    accessibilityLabel="Open voice call mode"
+                  >
+                    <IconPhone size={16} color="#ffffff" />
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -328,36 +375,37 @@ const styles = StyleSheet.create({
   topControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end', // Toggles on the right
-    paddingHorizontal: 4,
-    minHeight: 38,
-    position: 'relative',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 2,
+    minHeight: 36,
     marginBottom: spacing.xs,
-    zIndex: 10,
+    gap: 8,
   },
   modelSelectorWrapper: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
+    flex: 1,
+    flexShrink: 1,
+    alignItems: 'flex-start',
     justifyContent: 'center',
-    pointerEvents: 'box-none',
+    overflow: 'hidden',
   },
   toggles: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 6,
+    flexShrink: 0,
   },
   toggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: radius.full,
     backgroundColor: '#1c1c1e',
     borderWidth: 1,
     borderColor: '#2c2c2e',
     gap: 4,
+    flexShrink: 0,
   },
   toggleBtnActive: {
     borderColor: 'rgba(59, 130, 246, 0.5)',
@@ -365,7 +413,7 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     color: '#8e8e93',
-    fontSize: typography.fontSize.xs,
+    fontSize: 11.5,
     fontWeight: '500',
   },
   toggleTextActive: {

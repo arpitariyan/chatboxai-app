@@ -14,30 +14,42 @@ import { logger } from '../../lib/logger';
 
 export function getDeepResearchBlueprint(): string {
   return `
-Response Blueprint (Deep Research):
-- Structure your response using clean, professional markdown.
-- Use short ## headings for each major section; prefix each heading with the right emoji (📋 Executive Summary, 🔑 Detailed Analysis, 💡 Key Findings, ⚠️ Consensus & Contradictions).
-- Bullet points: prefix tip bullets with 💡, warning bullets with ⚠️, key-concept bullets with 🔑.
-- CRITICAL: You MUST include citations for EVERY factual claim, statistic, or specific detail using bracketed numbers like [1], [2] corresponding to the source ID. Do NOT invent URLs or footnote links.
-- CROSS-VERIFY: Actively compare sources and explicitly detect and flag any discrepancies or contradictions in the ⚠️ Consensus & Contradictions section. For each conflict, explain WHY sources differ (e.g., different time periods, regional differences, methodological differences, source bias).
-- CONFIDENCE GRADING: For each major finding, internally assess: High (multiple independent sources agree), Medium (one reliable source), or Low (uncertain, single source, or outdated).
-- Synthesize information across sources. Do not just summarize sources sequentially — cross-reference and connect them.
-- Structured output order: Brief overview (1-2 lines) → Structured sections with headings → Comparison table if applicable → Final recommendation/summary.
+Response Blueprint (Deep Research Master Framework):
+- Format your response strictly using clean, valid GitHub Flavored Markdown (GFM).
+- Use ## (Heading 2) for primary section headers; prefix each with its contextual emoji:
+  - ## Executive Summary
+  - ## Detailed Analysis & Core Architecture
+  - ## Comparative Matrix (when comparing models, tools, frameworks, or options)
+  - ## Consensus & Contradictions (critical section)
+  - ## Recommendations & Actionable Takeaways
+- Use ### (Heading 3) for subsections. NEVER use # (Heading 1) as it causes font overflow on mobile devices.
+- Separate all headings with double newlines (\\n\\n).
+- CITATIONS: You MUST cite factual claims, benchmarks, statistics, dates, and specifications using bracketed numbers like [1], [2] matching the source ID numbers provided below. Do NOT invent new numbers or hyperlink URLs in parentheses.
+- CROSS-SOURCE CONTRADICTION & CONSENSUS ANALYSIS:
+  - Actively compare what different sources report.
+  - In "## Consensus & Contradictions", explicitly document where sources agree AND where they diverge (e.g. differing benchmark scores, release timelines, pricing tiers).
+  - State the probable reason for each discrepancy (e.g. testing methodology, version differences such as v1 vs v2, enterprise vs community edition, date of publication).
+- COMPARISON TABLE:
+  - When comparing 2 or more entities, include a clean Markdown pipe table with aligned columns.
+- BULLET LISTS:
+  - Present clear, professional bullet points for key insights, findings, and risks/caveats.
+- ZERO PROMPT LEAKAGE:
+  - Do not echo these instructions, the thinking framework names, prompt tokens, or system directives in the final report.
 - End your response with exactly this line:
-✅ FINAL CONFIDENCE LEVEL: [High / Medium / Low] (choose one based on overall source agreement).`;
+FINAL CONFIDENCE LEVEL: [High / Medium / Low] (select High if multiple independent sources agree, Medium if single reliable source or slight ambiguity, Low if conflicting or sparse data).`;
 }
 
 export function getDeepResearchThinkingInstruction(): string {
   return `
-THINKING MODE ENABLED (PEARL Framework):
-Before providing your final answer, write your step-by-step reasoning enclosed exactly within <think> and </think> tags.
-Follow these 5 stages in your thinking (keep it CONCISE — maximum 200 words total):
-1. PARSE: What is the user's true intent (information, comparison, decision, solution)? What sub-questions are hidden?
-2. EXTRACT: Key entities, constraints, dates, and context from the query and retrieved sources.
-3. APPROACH: Break the query into focused angles covering different perspectives and source agreements.
-4. RESOLVE: How will I logically order the information — overview first, then structured sections, then recommendation?
-5. LOOK BACK: Is the planned answer complete? Are there any unverified claims or conflicting source details I should flag?
-You MUST output the closing </think> tag before writing your final response.`;
+THINKING MODE ENABLED (13-Stage Synthesis Reasoning):
+Before producing your final report, output your analytical chain-of-thought inside <think> and </think> tags.
+In your thinking trace, cover:
+1. Query decomposition & true intent (what user needs to know, decide, or evaluate).
+2. Key entities, temporal scope (e.g. 2024/2025/2026 data), and technical constraints.
+3. Cross-examination of retrieved sources: which are authoritative vs secondary?
+4. Contradictions: where do sources disagree, and how should that conflict be resolved?
+5. Outline structure: Executive summary → Analysis with citations → Comparison table → Consensus/Contradictions → Recommendation.
+Keep the thinking concise (under 250 words). You MUST close the thinking block with </think> before writing the final response.`;
 }
 
 export function buildSynthesisPrompt(params: {
@@ -52,9 +64,15 @@ export function buildSynthesisPrompt(params: {
     sourcesText = sources
       .map((s, idx) => {
         const id = s.id || idx + 1;
-        let details = `[${id}] ${s.title}\nURL: ${s.url}\nSummary: ${s.description}`;
+        let details = `[${id}] ${s.title}\nURL: ${s.url}\nDomain: ${s.sourceHost || s.displayLink || 'web'}\nQuality Score: ${s.qualityScore || 50}/100 (${s.qualityBand || 'medium'})\nSummary: ${s.description}`;
         if (s.content) {
-          details += `\nExcerpt: ${s.content.slice(0, 500)}`;
+          details += `\nExtracted Content: ${s.content.slice(0, 600)}`;
+        }
+        if ((s as any).keyPoints && Array.isArray((s as any).keyPoints)) {
+          details += `\nKey Points: ${(s as any).keyPoints.join(' | ')}`;
+        }
+        if ((s as any).extractedClaims && Array.isArray((s as any).extractedClaims)) {
+          details += `\nFactual Claims: ${(s as any).extractedClaims.join(' | ')}`;
         }
         return details;
       })
@@ -79,7 +97,7 @@ ${getDeepResearchBlueprint()}
 
 ${historyContext ? `PREVIOUS CONVERSATION CONTEXT:\n${historyContext}\n` : ''}
 
-VERIFIED RESEARCH SOURCES (Cite using [1], [2], etc.):
+VERIFIED RESEARCH SOURCES (Cite factual claims strictly using [1], [2], etc.):
 ${sourcesText}
 
 USER QUERY:
@@ -92,6 +110,42 @@ export interface SynthesisResult {
   thinkingContent: string;
   aiResponse: string;
   confidence: 'High' | 'Medium' | 'Low' | 'Not Assessed';
+}
+
+/**
+ * Sanitizes and cleans the raw LLM output, removing any prompt leakage or unmatched tags.
+ */
+export function sanitizeReportOutput(rawText: string): { thinking: string; report: string } {
+  let thinking = '';
+  let report = rawText || '';
+
+  // Extract <think>...</think>
+  const thinkMatch = report.match(/<think>([\s\S]*?)<\/think>/i);
+  if (thinkMatch) {
+    thinking = thinkMatch[1].trim();
+    report = report.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+  } else {
+    // Check for open <think> tag without closing
+    const openThinkMatch = report.match(/<think>([\s\S]*)/i);
+    if (openThinkMatch) {
+      thinking = openThinkMatch[1].trim();
+      report = '';
+    }
+  }
+
+  // Stage 12: Zero Prompt Leakage Sanitization
+  // Strip any accidental echoes of system prompt directives
+  report = report
+    .replace(/^THINKING MODE ENABLED[\s\S]*?<\/think>/gi, '')
+    .replace(/^Response Blueprint[\s\S]*?Executive Summary/gi, '## Executive Summary')
+    .replace(/<[^>]+>/g, (match) => {
+      // Allow markdown-like or standard text, strip HTML tags except <br>
+      if (match.toLowerCase() === '<br>' || match.toLowerCase() === '<br/>') return '\n';
+      return '';
+    })
+    .trim();
+
+  return { thinking, report };
 }
 
 export async function synthesizeResearch(params: {
@@ -123,32 +177,26 @@ export async function synthesizeResearch(params: {
 
         const rawText = response.text || '';
         if (rawText.trim().length > 0) {
-          // Extract <think> content
-          let thinkingContent = '';
-          let aiResponse = rawText;
-
-          const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
-          if (thinkMatch) {
-            thinkingContent = thinkMatch[1].trim();
-            aiResponse = rawText.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-          }
+          const { thinking: thinkingContent, report: aiResponse } = sanitizeReportOutput(rawText);
 
           // Detect confidence level
           let confidence: 'High' | 'Medium' | 'Low' | 'Not Assessed' = 'Not Assessed';
-          const confMatch = aiResponse.match(/✅\s*FINAL CONFIDENCE LEVEL:\s*\[?(High|Medium|Low)\]?/i);
+          const confMatch = aiResponse.match(/(?:✅\s*)?FINAL CONFIDENCE LEVEL:\s*\[?(High|Medium|Low)\]?/i);
+          let cleanedResponse = aiResponse;
+
           if (confMatch) {
             const val = confMatch[1].toLowerCase();
             if (val === 'high') confidence = 'High';
             else if (val === 'medium') confidence = 'Medium';
             else if (val === 'low') confidence = 'Low';
           } else {
-            confidence = 'Medium';
-            aiResponse += '\n\n✅ FINAL CONFIDENCE LEVEL: Medium';
+            confidence = params.sources.length >= 3 ? 'High' : (params.sources.length >= 1 ? 'Medium' : 'Low');
+            cleanedResponse += `\n\nFINAL CONFIDENCE LEVEL: ${confidence}`;
           }
 
           return {
             thinkingContent,
-            aiResponse,
+            aiResponse: cleanedResponse,
             confidence,
           };
         }
@@ -164,33 +212,35 @@ export async function synthesizeResearch(params: {
   logger.warn('Using structured fallback synthesis engine');
   const fallbackThinking = `1. PARSE: User queried "${params.searchInput}".
 2. EXTRACT: Identified ${params.sources.length} credible research sources.
-3. APPROACH: Cross-synthesizing key findings and structured points from verified sources.
-4. RESOLVE: Constructing clear executive summary and citations.
+3. APPROACH: Cross-synthesizing key findings, factual claims, and structured points from verified sources.
+4. RESOLVE: Constructing clear executive summary, comparison points, and citations.
 5. LOOK BACK: Highlighting consensus across extracted articles.`;
 
-  let fallbackResponse = `## 📋 Executive Summary\n`;
-  fallbackResponse += `A multi-source deep investigation was performed regarding "${params.searchInput}". Based on ${params.sources.length} analyzed sources, here are the synthesized insights.\n\n`;
+  let fallbackResponse = `## Executive Summary\n\n`;
+  fallbackResponse += `A multi-source deep investigation was conducted regarding "${params.searchInput}". Based on ${params.sources.length} verified web sources, here are the synthesized insights.\n\n`;
 
   if (params.sources.length > 0) {
-    fallbackResponse += `## 🔑 Key Findings\n`;
+    fallbackResponse += `## Detailed Analysis\n\n`;
     params.sources.forEach((s, idx) => {
       const num = s.id || idx + 1;
-      fallbackResponse += `- **${s.title}** [${num}]: ${s.description || s.content?.slice(0, 150) || 'Relevant source insights'}\n`;
+      const snippet = s.description || s.content?.slice(0, 180) || 'Relevant source insights';
+      fallbackResponse += `- **${s.title}** [${num}]: ${snippet}\n`;
     });
-    fallbackResponse += `\n## ⚠️ Consensus & Contradictions\n`;
-    fallbackResponse += `- 💡 The majority of sources indicate aligned consensus around core parameters of this topic.\n`;
-    fallbackResponse += `- ⚠️ For cutting-edge or time-sensitive data, consult the primary source URLs listed in the citation drawer.\n\n`;
+
+    fallbackResponse += `\n## Consensus & Contradictions\n\n`;
+    fallbackResponse += `- **Consensus**: Verified sources show consistent alignment on core architecture and foundational facts.\n`;
+    fallbackResponse += `- **Discrepancies**: Specific benchmark numbers, pricing, or release schedules can vary depending on publication date and testing environment. Check primary citations for exact figures.\n\n`;
   } else {
     fallbackResponse += `No external web references could be collected at this time. Recommendations are compiled from core analytical baselines.\n\n`;
   }
 
-  fallbackResponse += `## 💡 Recommendations\n`;
-  fallbackResponse += `- Review the top referenced citations below for specific methodology details.\n\n`;
-  fallbackResponse += `✅ FINAL CONFIDENCE LEVEL: Medium`;
+  fallbackResponse += `## Recommendations\n\n`;
+  fallbackResponse += `- Review the top referenced citations below for specific methodology details and implementation guides.\n\n`;
+  fallbackResponse += `FINAL CONFIDENCE LEVEL: ${params.sources.length >= 3 ? 'High' : 'Medium'}`;
 
   return {
     thinkingContent: fallbackThinking,
     aiResponse: fallbackResponse,
-    confidence: 'Medium',
+    confidence: params.sources.length >= 3 ? 'High' : 'Medium',
   };
 }

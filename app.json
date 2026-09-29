@@ -24,7 +24,8 @@
       "permissions": [
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -39,6 +40,12 @@
         {
           "photosPermission": "Allow ChatBox AI to save generated images to your photo gallery.",
           "savePhotosPermission": "Allow ChatBox AI to save generated images to your photo gallery."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow ChatBox AI to record your voice for speech-to-text."
         }
       ]
     ]

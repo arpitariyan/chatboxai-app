@@ -383,7 +383,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ headers, rows, alignments = [] 
 
 // ── Inline Text Formatter (Bold, Italic, Code, Link, Smart URL) ──
 interface InlineToken {
-  type: 'text' | 'bold' | 'italic' | 'code' | 'link' | 'raw_url';
+  type: 'text' | 'bold' | 'italic' | 'code' | 'link' | 'raw_url' | 'citation';
   text: string;
   url?: string;
 }
@@ -392,8 +392,8 @@ function parseInlineMarkdown(text: string): InlineToken[] {
   if (!text) return [];
 
   const tokens: InlineToken[] = [];
-  // Matches: **bold**, *italic*, `code`, [link](url), raw https?:// url
-  const regex = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>()]+)/g;
+  // Matches: **bold**, *italic*, `code`, [link](url), raw https?:// url, [citation] (e.g. [1], [2, 3])
+  const regex = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(https?:\/\/[^\s<>()]+)|(\[([0-9]+(?:\s*,\s*[0-9]+)*)\])(?!\()/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -421,6 +421,9 @@ function parseInlineMarkdown(text: string): InlineToken[] {
     } else if (match[10]) {
       // raw url
       tokens.push({ type: 'raw_url', text: match[10], url: match[10] });
+    } else if (match[11]) {
+      // [citation]
+      tokens.push({ type: 'citation', text: match[12] });
     }
 
     lastIndex = match.index + match[0].length;
@@ -434,7 +437,7 @@ function parseInlineMarkdown(text: string): InlineToken[] {
   }
 
   return tokens;
-};
+}
 
 const getCleanDomain = (rawUrl: string): string => {
   try {
@@ -513,6 +516,19 @@ function renderInline(text: string, colors: any, baseStyle?: any) {
             ]}
           >
             {'↗ '}{linkLabel}
+          </Text>
+        );
+      }
+      case 'citation': {
+        return (
+          <Text
+            key={`cit-${idx}`}
+            style={[
+              baseStyle,
+              styles.inlineCitation,
+            ]}
+          >
+            {`[${token.text}]`}
           </Text>
         );
       }
@@ -939,6 +955,13 @@ const styles = StyleSheet.create({
     paddingVertical: 1.5,
     borderRadius: 5,
     borderWidth: 0.5,
+  },
+  inlineCitation: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    color: '#a78bfa',
   },
   codePanel: {
     backgroundColor: '#17171a',

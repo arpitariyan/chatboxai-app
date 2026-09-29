@@ -12,6 +12,7 @@
     "axios": "^1.20.0",
     "cors": "^2.8.6",
     "expo": "~57.0.23",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "^57.0.12",
     "expo-clipboard": "~57.0.2",
     "expo-document-picker": "~57.0.2",
