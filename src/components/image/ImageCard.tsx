@@ -38,6 +38,7 @@ import {
   DownloadFeedbackModal,
   DownloadFeedbackType,
 } from './DownloadFeedbackModal';
+import { DotMatrixLoader } from './DotMatrixLoader';
 
 interface ImageCardProps {
   generation: GeneratedImageItem;
@@ -74,7 +75,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({
   const rawUrl = generation.displayUrl || generation.publicUrl;
   const imageUrl = normalizeImageUrl(rawUrl, generation.generatedImagePath);
   const isCompleted = generation.status === 'completed' && Boolean(imageUrl);
-  const isGenerating = generation.status === 'generating' || generation.isLocalPending;
+  const isGenerating = generation.status === 'generating' || generation.isLocalPending || isRegenerating;
   const isFailed = generation.status === 'failed';
 
   const handleCopyPrompt = useCallback(async () => {
@@ -181,16 +182,8 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           ]}
         >
           {isGenerating ? (
-            <View style={[styles.stateContainer, { minHeight: 280 }]}>
-              <View style={[styles.pulsingOrb, { backgroundColor: 'rgba(192, 132, 252, 0.15)' }]}>
-                <ActivityIndicator size="large" color={colors.accent} />
-              </View>
-              <Text style={[styles.stateTitle, { color: colors.ink }]}>
-                Generating image...
-              </Text>
-              <Text style={[styles.stateSub, { color: colors.ink3 }]}>
-                {generation.modelName || generation.model}
-              </Text>
+            <View style={[styles.loaderContainer, { aspectRatio, minHeight: undefined, padding: 0 }]}>
+              <DotMatrixLoader size={Math.min(SCREEN_WIDTH - 64, (SCREEN_WIDTH - 64) / aspectRatio) * 0.7} />
             </View>
           ) : isCompleted ? (
             <Pressable
@@ -227,105 +220,107 @@ export const ImageCard: React.FC<ImageCardProps> = ({
         </View>
 
         {/* ── Action Toolbar ── */}
-        <View style={styles.toolbar}>
-          {/* Like */}
-          <Pressable
-            disabled={!isCompleted}
-            onPress={() => handleReaction('liked')}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              reaction === 'liked' && styles.actionBtnActiveLike,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <IconThumbUp
-              size={16}
-              color={reaction === 'liked' ? '#10b981' : colors.ink3}
-            />
-          </Pressable>
-
-          {/* Dislike */}
-          <Pressable
-            disabled={!isCompleted}
-            onPress={() => handleReaction('disliked')}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              reaction === 'disliked' && styles.actionBtnActiveDislike,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <IconThumbDown
-              size={16}
-              color={reaction === 'disliked' ? '#ef4444' : colors.ink3}
-            />
-          </Pressable>
-
-          {/* Copy Prompt */}
-          <Pressable
-            onPress={handleCopyPrompt}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            {isCopied ? (
-              <IconCheck size={16} color={colors.accent} strokeWidth={2.5} />
-            ) : (
-              <IconCopy size={16} color={colors.ink3} />
-            )}
-          </Pressable>
-
-          {/* Download / Share */}
-          <Pressable
-            disabled={!isCompleted || isDownloading}
-            onPress={handleDownload}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            {isDownloading ? (
-              <ActivityIndicator size="small" color={colors.accent} style={{ transform: [{ scale: 0.7 }] }} />
-            ) : (
-              <IconDownload size={16} color={isCompleted ? colors.ink : colors.ink3} />
-            )}
-          </Pressable>
-
-          {/* Regenerate */}
-          <Pressable
-            disabled={isRegenerating || isGenerating}
-            onPress={() => onRegenerate(generation)}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            {isRegenerating ? (
-              <ActivityIndicator size="small" color={colors.accent} style={{ transform: [{ scale: 0.7 }] }} />
-            ) : (
-              <IconRefresh size={16} color={colors.ink} />
-            )}
-          </Pressable>
-
-          {/* Use as Reference for Image-to-Image editing */}
-          {isCompleted && onUseAsReference && (
+        {!isGenerating && isCompleted && (
+          <View style={styles.toolbar}>
+            {/* Like */}
             <Pressable
-              onPress={() => onUseAsReference(imageUrl)}
+              disabled={!isCompleted}
+              onPress={() => handleReaction('liked')}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                reaction === 'liked' && styles.actionBtnActiveLike,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <IconThumbUp
+                size={16}
+                color={reaction === 'liked' ? '#10b981' : colors.ink3}
+              />
+            </Pressable>
+
+            {/* Dislike */}
+            <Pressable
+              disabled={!isCompleted}
+              onPress={() => handleReaction('disliked')}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                reaction === 'disliked' && styles.actionBtnActiveDislike,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <IconThumbDown
+                size={16}
+                color={reaction === 'disliked' ? '#ef4444' : colors.ink3}
+              />
+            </Pressable>
+
+            {/* Copy Prompt */}
+            <Pressable
+              onPress={handleCopyPrompt}
               hitSlop={6}
               style={({ pressed }) => [
                 styles.actionBtn,
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <IconWand size={16} color={colors.accent} strokeWidth={1.8} />
+              {isCopied ? (
+                <IconCheck size={16} color={colors.accent} strokeWidth={2.5} />
+              ) : (
+                <IconCopy size={16} color={colors.ink3} />
+              )}
             </Pressable>
-          )}
-        </View>
+
+            {/* Download / Share */}
+            <Pressable
+              disabled={!isCompleted || isDownloading}
+              onPress={handleDownload}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              {isDownloading ? (
+                <ActivityIndicator size="small" color={colors.accent} style={{ transform: [{ scale: 0.7 }] }} />
+              ) : (
+                <IconDownload size={16} color={isCompleted ? colors.ink : colors.ink3} />
+              )}
+            </Pressable>
+
+            {/* Regenerate */}
+            <Pressable
+              disabled={isRegenerating || isGenerating}
+              onPress={() => onRegenerate(generation)}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              {isRegenerating ? (
+                <ActivityIndicator size="small" color={colors.accent} style={{ transform: [{ scale: 0.7 }] }} />
+              ) : (
+                <IconRefresh size={16} color={colors.ink} />
+              )}
+            </Pressable>
+
+            {/* Use as Reference for Image-to-Image editing */}
+            {isCompleted && onUseAsReference && (
+              <Pressable
+                onPress={() => onUseAsReference(imageUrl)}
+                hitSlop={6}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <IconWand size={16} color={colors.accent} strokeWidth={1.8} />
+              </Pressable>
+            )}
+          </View>
+        )}
       </View>
 
       {/* ── Fullscreen Zoom/Inspection Modal ── */}
@@ -445,6 +440,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: spacing.xl,
     gap: spacing.xs,
+  },
+  loaderContainer: {
+    width: '100%',
+    minHeight: 280,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
   },
   pulsingOrb: {
     width: 60,

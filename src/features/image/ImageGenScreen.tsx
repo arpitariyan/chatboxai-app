@@ -67,6 +67,7 @@ import {
 import { ImageCard } from '@/components/image/ImageCard';
 import { AspectRatioSelector } from '@/components/image/AspectRatioSelector';
 import { ImageModelSelectorSheet } from '@/components/image/ImageModelSelectorSheet';
+import { ImageSourceSheet } from '@/components/image/ImageSourceSheet';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { useThemeColors, typography, radius, spacing } from '@/theme';
@@ -202,6 +203,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   });
   const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
   const [isModelSheetOpen, setIsModelSheetOpen] = useState<boolean>(false);
+  const [isSourceSheetOpen, setIsSourceSheetOpen] = useState<boolean>(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState<boolean>(false);
 
   // Reference images (multi-reference support up to model limit)
@@ -317,10 +319,11 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
       if (remainingSlots <= 0) {
         Alert.alert(
           'Limit Reached',
-          `${cfModel.name} supports a maximum of ${targetMax} reference images. Please remove an image before adding another.`
+          `Maximum of ${targetMax} reference images reached. Please remove an image before adding another.`
         );
         return;
       }
+
 
       try {
         if (source === 'camera') {
@@ -401,30 +404,13 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
     if (referenceImages.length >= maxRefs) {
       Alert.alert(
         'Limit Reached',
-        `${cfModel.name} supports a maximum of ${maxRefs} reference images.`
+        `Maximum of ${maxRefs} reference images reached.`
       );
       return;
     }
 
-    Alert.alert(
-      'Add Reference Image',
-      `Choose image source (up to ${maxRefs} reference images supported for ${cfModel.name})`,
-      [
-        {
-          text: 'Take Photo',
-          onPress: () => handlePickFromSource('camera'),
-        },
-        {
-          text: 'Choose from Photos',
-          onPress: () => handlePickFromSource('library'),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
-  }, [handlePickFromSource, referenceImages.length]);
+    setIsSourceSheetOpen(true);
+  }, [referenceImages.length]);
 
   const handleRemoveReferenceImage = useCallback(
     (id: string) => {
@@ -792,16 +778,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                 <Text style={[styles.referenceStripTitle, { color: colors.ink }]}>
                   Reference Images ({referenceImages.length}/{maxRefImages})
                 </Text>
-                <View
-                  style={[
-                    styles.modelBadge,
-                    {
-                      backgroundColor: 'rgba(192, 132, 252, 0.12)',
-                      borderColor: 'rgba(192, 132, 252, 0.25)',
-                    },
-                  ]}
-                >
-                  <Text style={[styles.modelBadgeText, { color: colors.accent }]}>
+                <View style={styles.modelBadge}>
+                  <Text style={styles.modelBadgeText}>
                     {selectedModel.name}
                   </Text>
                 </View>
@@ -889,7 +867,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             }
           >
             {referenceImages.length > 0 ? (
-              <IconWand size={18} color={colors.accent} strokeWidth={2} />
+              <IconWand size={18} color="#000000" strokeWidth={2.2} />
             ) : (
               <IconPlus size={22} color="#8e8e93" />
             )}
@@ -975,6 +953,14 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             setSelectedRatio(model.ratios[0]?.value || '1:1');
           }
         }}
+      />
+
+      {/* Image source selector sheet */}
+      <ImageSourceSheet
+        visible={isSourceSheetOpen}
+        onClose={() => setIsSourceSheetOpen(false)}
+        onSelectCamera={() => handlePickFromSource('camera')}
+        onSelectLibrary={() => handlePickFromSource('library')}
       />
 
       {/* Voice overlay */}
@@ -1105,14 +1091,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   modelBadge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: radius.full,
-    borderWidth: 1,
+    backgroundColor: '#ffffff',
   },
   modelBadgeText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#000000',
   },
   clearAllText: {
     fontSize: typography.fontSize.xs,
@@ -1196,7 +1183,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   attachBtnActive: {
-    backgroundColor: 'rgba(192, 132, 252, 0.15)',
+    backgroundColor: '#ffffff',
   },
   input: {
     flex: 1,

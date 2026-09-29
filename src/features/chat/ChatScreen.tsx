@@ -27,6 +27,8 @@ import { Composer } from '@/components/chat/Composer';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
 import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
+import { DeepResearchLimitSheet } from '@/components/chat/DeepResearchLimitSheet';
+import { ResearchProgressIndicator } from '@/components/chat/ResearchProgressIndicator';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, typography } from '@/theme';
 import { chatService, cleanConversationTitle } from '@/services/chatService';
@@ -905,7 +907,9 @@ const ConversationContent: React.FC<ContentProps> = ({
               ))}
               {(isSearching || isThinking || isFileAnalyzing) && (
                 <View style={styles.thinkingContainer}>
-                  {(thinkingMode) ? (
+                  {progressMessage.toLowerCase().includes('research') ? (
+                    <ResearchProgressIndicator progressMessage={progressMessage} />
+                  ) : (thinkingMode) ? (
                     // Show Reasoning style loader if thinking mode is active
                     <ThinkingBlock 
                       content="" 
@@ -996,6 +1000,9 @@ const ConversationContent: React.FC<ContentProps> = ({
         pendingAttachments={pendingAttachments}
         onClearAttachment={onClearAttachment}
       />
+
+      {/* ── Deep Research Weekly Quota Limit Sheet ── */}
+      <DeepResearchLimitSheet />
     </View>
   );
 };

@@ -19,13 +19,26 @@ export const WEBSITE_PROJECTS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_WEBSITE_PROJECTS_COLLECTION_ID || 'website_projects';
 export const MFA_OTPS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_MFA_OTPS_COLLECTION_ID || 'mfa_otps';
+export const USAGE_LOGS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_USAGE_LOGS_COLLECTION_ID || 'usage_logs';
+export const SUBSCRIPTIONS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_SUBSCRIPTIONS_COLLECTION_ID || 'subscriptions';
 export const STORAGE_BUCKET_ID =
   process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
+export const APPWRITE_API_KEY =
+  process.env.EXPO_PUBLIC_APPWRITE_API_KEY ||
+  process.env.APPWRITE_API_KEY ||
+  '';
 
 const client = new Client()
   .setEndpoint(APPWRITE_ENDPOINT)
   .setProject(APPWRITE_PROJECT_ID);
 
+if (APPWRITE_API_KEY) {
+  client.headers['x-appwrite-key'] = APPWRITE_API_KEY;
+}
+
 export const databases = new Databases(client);
 
 export { client, Query, ID, Permission, Role };
+

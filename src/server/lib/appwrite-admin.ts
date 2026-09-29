@@ -61,6 +61,26 @@ export const WEBSITE_PROJECTS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_WEBSITE_PROJECTS_COLLECTION_ID ||
   'website_projects';
 
+export const SUBSCRIPTIONS_COLLECTION_ID =
+  process.env.APPWRITE_SUBSCRIPTIONS_COLLECTION_ID ||
+  process.env.EXPO_PUBLIC_APPWRITE_SUBSCRIPTIONS_COLLECTION_ID ||
+  'subscriptions';
+
+export const USAGE_LOGS_COLLECTION_ID =
+  process.env.APPWRITE_USAGE_LOGS_COLLECTION_ID ||
+  process.env.EXPO_PUBLIC_APPWRITE_USAGE_LOGS_COLLECTION_ID ||
+  'usage_logs';
+
+export const SEARCH_CACHE_COLLECTION_ID =
+  process.env.APPWRITE_SEARCH_CACHE_COLLECTION_ID ||
+  process.env.EXPO_PUBLIC_APPWRITE_SEARCH_CACHE_COLLECTION_ID ||
+  'search_cache';
+
+export const SEARCH_USAGE_COLLECTION_ID =
+  process.env.APPWRITE_SEARCH_USAGE_COLLECTION_ID ||
+  process.env.EXPO_PUBLIC_APPWRITE_SEARCH_USAGE_COLLECTION_ID ||
+  'search_usage';
+
 const client = new Client()
   .setEndpoint(endpoint)
   .setProject(projectId)

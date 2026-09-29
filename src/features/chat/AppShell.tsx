@@ -6,6 +6,8 @@ import { ConversationOptionsMenu } from '@/components/common/ConversationOptions
 import { ChatScreen } from './ChatScreen';
 import { SettingsScreen } from '@/components/settings/SettingsScreen';
 import { ImageGenScreen } from '@/features/image/ImageGenScreen';
+import { ImagesScreen } from '@/features/image/ImagesScreen';
+import { LibraryScreen } from '@/features/library/LibraryScreen';
 import { useThemeColors } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { pinService } from '@/services/pinService';
@@ -15,7 +17,7 @@ export const AppShell: React.FC = () => {
   const colors = useThemeColors();
   const { currentUser } = useAuth();
 
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen' | 'images' | 'library'>('chat');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeLibId, setActiveLibId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
@@ -141,7 +143,9 @@ export const AppShell: React.FC = () => {
   const handleOpenDrawer = useCallback(() => setIsDrawerOpen(true), []);
   const handleCloseDrawer = useCallback(() => setIsDrawerOpen(false), []);
   const handleOpenSettings = useCallback(() => setActiveView('settings'), []);
-  const handleBackFromSettings = useCallback(() => setActiveView('chat'), []);
+  const handleOpenImages = useCallback(() => setActiveView('images'), []);
+  const handleOpenLibrary = useCallback(() => setActiveView('library'), []);
+  const handleBackToChat = useCallback(() => setActiveView('chat'), []);
 
   // ── Three-Dot Menu Actions ─────────────────────────────────────────────────
 
@@ -222,7 +226,7 @@ export const AppShell: React.FC = () => {
   return (
     <View style={[styles.shell, { backgroundColor: colors.background }]}>
       {/* Top Header */}
-      {activeView !== 'settings' && (
+      {activeView !== 'settings' && activeView !== 'images' && activeView !== 'library' && (
         <Header
           onOpenDrawer={handleOpenDrawer}
           onNewChat={handleNewChat}
@@ -252,8 +256,16 @@ export const AppShell: React.FC = () => {
           onConversationActiveChange={handleConversationActiveChange}
           onConversationTitleChange={setActiveTitle}
         />
+      ) : activeView === 'images' ? (
+        <ImagesScreen onBack={handleBackToChat} />
+      ) : activeView === 'library' ? (
+        <LibraryScreen 
+          onBack={handleBackToChat} 
+          onSelectConversation={handleSelectChatHistory}
+          refreshTrigger={drawerRefreshTrigger}
+        />
       ) : (
-        <SettingsScreen onBack={handleBackFromSettings} />
+        <SettingsScreen onBack={handleBackToChat} />
       )}
 
       {/* Slide-over Navigation Drawer */}
@@ -265,6 +277,8 @@ export const AppShell: React.FC = () => {
         onSelectChatHistory={handleSelectChatHistory}
         onSelectNewImageGeneration={handleSelectNewImageGeneration}
         onOpenSettings={handleOpenSettings}
+        onOpenImages={handleOpenImages}
+        onOpenLibrary={handleOpenLibrary}
         refreshTrigger={drawerRefreshTrigger}
       />
 

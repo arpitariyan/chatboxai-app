@@ -760,6 +760,82 @@ export interface GenerateImageResult {
   message?: string;
 }
 
+export function getGroqAPIKeys(): string[] {
+  const keys = [
+    process.env.GROQ_API_KEY,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_2,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_3,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_4,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_5,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_6,
+    process.env.EXPO_PUBLIC_GROQ_API_KEY_7,
+  ];
+  return Array.from(new Set(keys.filter((k): k is string => Boolean(k && k.trim()))));
+}
+
+export async function enhancePromptWithGroq(
+  userPrompt: string,
+  options: { isImageToImage: boolean }
+): Promise<string> {
+  const keys = getGroqAPIKeys();
+  if (keys.length === 0) {
+    logger.warn('No Groq API keys found, skipping backend prompt enhancement.');
+    return userPrompt;
+  }
+
+  const systemInstruction = options.isImageToImage
+    ? `You are an expert image generation prompt enhancer. The user is providing a prompt to modify an existing image (Image-to-Image). 
+Your task is to transform their request into a highly detailed, professional image-generation prompt.
+CRITICAL RULES:
+1. Preserve the user's actual intent exactly.
+2. Explicitly describe that parts of the image NOT mentioned by the user must remain completely unchanged and preserved.
+3. Add appropriate visual details (lighting, style, quality) that fit their request, without introducing conflicting elements.
+4. Output ONLY the enhanced prompt text. No explanations, no quotes, no conversational filler.`
+    : `You are an expert image generation prompt enhancer. The user is providing a prompt for a new image (Text-to-Image).
+Your task is to transform their short request into a highly detailed, professional image-generation prompt.
+CRITICAL RULES:
+1. Preserve the user's core intent and subject.
+2. Enhance with professional details: composition, environment, visual style, lighting, perspective, framing, colors, and quality (e.g., ultra-detailed, cinematic lighting).
+3. Do not add details that conflict with the user's original instructions.
+4. Output ONLY the enhanced prompt text. No explanations, no quotes, no conversational filler.`;
+
+  for (const key of keys) {
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'gemma2-9b-it',
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.6,
+          max_tokens: 256,
+        }),
+      });
+
+      if (res.ok) {
+        const data: any = await res.json();
+        const enhancedText = data.choices?.[0]?.message?.content?.trim();
+        if (enhancedText) {
+          logger.info('Prompt successfully enhanced via Groq backend.');
+          return enhancedText;
+        }
+      }
+    } catch (err) {
+      // silently fall through to next key
+    }
+  }
+
+  logger.warn('Groq prompt enhancement failed on all keys, falling back to original prompt.');
+  return userPrompt;
+}
+
 /**
  * Executes complete generation flow with DB record creation and storage persistence.
  */
@@ -846,7 +922,11 @@ export async function executeImageGeneration(
   }
 
   const aspectRatio = ratioMatch?.value || `${targetWidth}:${targetHeight}`;
-  const enhancedPrompt = enhancePromptForQuality(prompt, {
+  const groqEnhancedPrompt = await enhancePromptWithGroq(prompt, {
+    isImageToImage,
+  });
+
+  const enhancedPrompt = enhancePromptForQuality(groqEnhancedPrompt, {
     aspectRatio,
     generationMode: isImageToImage ? GENERATION_MODES.IMAGE_TO_IMAGE : GENERATION_MODES.TEXT_TO_IMAGE,
   });
@@ -997,6 +1077,26 @@ export async function getImageGenerationsForUser(libId: string, userEmail: strin
 
   const res = await databases.listDocuments(DB_ID, IMAGE_GENERATION_COLLECTION_ID, [
     Query.equal('libId', libId),
+    Query.equal('userEmail', normalizedEmail),
+    Query.orderDesc('$createdAt'),
+    Query.limit(100),
+  ]);
+
+  return (res.documents || []).map((doc: any) => ({
+    ...doc,
+    entryId: doc.$id,
+    libId: doc.libId || doc.$id,
+    publicUrl: doc.publicUrl || (doc.generatedImagePath ? getPublicFileUrl(doc.generatedImagePath) : ''),
+  }));
+}
+
+/**
+ * Fetches all generations across all libIds for the authenticated user.
+ */
+export async function getAllImageGenerationsForUser(userEmail: string) {
+  const normalizedEmail = userEmail.trim().toLowerCase();
+
+  const res = await databases.listDocuments(DB_ID, IMAGE_GENERATION_COLLECTION_ID, [
     Query.equal('userEmail', normalizedEmail),
     Query.orderDesc('$createdAt'),
     Query.limit(100),

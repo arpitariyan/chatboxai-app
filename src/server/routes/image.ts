@@ -13,6 +13,7 @@ import { requireFirebaseUser } from '../lib/firebase-admin';
 import {
   executeImageGeneration,
   getImageGenerationsForUser,
+  getAllImageGenerationsForUser,
   getPublicFileUrl,
 } from '../lib/image-generator';
 import {
@@ -109,11 +110,17 @@ imageRouter.get('/image/generations', requireFirebaseUser, async (req: Request, 
   const libId = String(req.query.libId || '').trim();
 
   if (!libId) {
-    throw new BadRequestError('Query parameter "libId" is required');
+    // throw new BadRequestError('Query parameter "libId" is required');
+    // If no libId is provided, we will fetch all image generations for the user.
   }
 
   try {
-    const generations = await getImageGenerationsForUser(libId, user.email);
+    let generations;
+    if (!libId || libId === 'all') {
+      generations = await getAllImageGenerationsForUser(user.email);
+    } else {
+      generations = await getImageGenerationsForUser(libId, user.email);
+    }
     res.status(200).json({
       success: true,
       libId,

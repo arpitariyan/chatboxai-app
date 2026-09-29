@@ -8,6 +8,8 @@ import { chatService, generateUUID } from '../services/chatService';
 import { AIModelsOption, DEEP_RESEARCH_MODELS } from '../config/models';
 import { parseAiResponse } from '../utils/parseAiResponse';
 import { auth } from '../config/firebase';
+import { researchService } from '../services/researchService';
+import { useResearchStore } from '../stores/useResearchStore';
 
 import { toMobileUploadUrl, toMobileAnalyzeUrl, toMobileFileUrl } from '../config/mobileApi';
 
@@ -258,6 +260,7 @@ export const useChatGeneration = ({
         return;
       }
       isGeneratingRef.current = true;
+      const isDeepResearch = searchType === 'research';
 
       // Reset only visible states, not source list (that's set fresh below)
       setAiResponse('');
@@ -277,11 +280,9 @@ export const useChatGeneration = ({
       // ── Step 2: Web Search ─────────────────────────────────────────────────
       let sources: SearchResultItem[] = [];
 
-      if (searchType === 'search' || searchType === 'research') {
+      if (searchType === 'search') {
         setIsSearching(true);
-        setProgressMessage(
-          searchType === 'research' ? 'Deep researching the web...' : 'Searching the web...',
-        );
+        setProgressMessage('Searching the web...');
 
         sources = await fetchDuckDuckGoResults(query);
         setSourceList(sources);
@@ -356,7 +357,40 @@ export const useChatGeneration = ({
       let filePaths: any[] = [];
 
       try {
-        if (attachments.length > 0) {
+        if (searchType === 'research') {
+          // --- DEEP RESEARCH BRANCH ---
+          setIsSearching(true);
+          setIsThinking(true);
+          setProgressMessage('Synthesizing deep research & citations...');
+
+          try {
+            const researchRes = await researchService.executeResearch({
+              searchInput: query,
+              selectedModel: (model as any)?.modelApi || 'auto',
+              conversationHistory: history,
+              userEmail: normalizedEmail,
+            });
+
+            setIsSearching(false);
+            finalAnswerClean = researchRes.aiResponse || '';
+            finalThinking = researchRes.thinkingContent || '';
+            sources = (researchRes.sources || researchRes.searchResult || []) as SearchResultItem[];
+            setSourceList(sources);
+
+            llmResult = {
+              resolvedModel: { provider: 'Deep Research Engine', modelApi: (model as any)?.modelApi || 'auto' },
+            };
+
+            useResearchStore.getState().fetchQuota(normalizedEmail).catch(() => {});
+          } catch (researchErr: any) {
+            setIsSearching(false);
+            if (researchErr.response?.status === 403 && researchErr.response?.data?.error === 'RESEARCH_LIMIT_REACHED') {
+              useResearchStore.getState().openLimitSheet();
+              throw new Error(researchErr.response?.data?.message || 'Weekly Deep Research limit reached. Resets on Sunday.');
+            }
+            throw researchErr;
+          }
+        } else if (attachments.length > 0) {
           // --- REMOTE ANALYSIS BRANCH (Handles files securely) ---
           const token = await auth.currentUser?.getIdToken();
           if (!token) throw new Error("Authentication required for file analysis");
@@ -500,7 +534,7 @@ export const useChatGeneration = ({
         } else {
           // --- LOCAL SERVICE BRANCH (Fast text-only/fallback) ---
           llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
-            max_tokens: searchType === 'research' ? 4096 : 2048,
+            max_tokens: 2048,
             temperature: currentEffortLevel === 'Low' ? 0.7 : currentEffortLevel === 'Medium' ? 0.6 : 0.5,
             effortLevel: currentEffortLevel,
             thinkingMode: currentThinkingMode,
@@ -543,7 +577,9 @@ export const useChatGeneration = ({
           userSearchInput: query,
           aiResp: finalAnswerClean || responseText, // fallback: save raw if parse failed
           searchResult: searchResultPayload,
-          analysisType: hasFiles ? 'file_analysis' : (searchType === 'chat' ? 'text_only' : 'web_search'),
+          analysisType: isDeepResearch
+            ? 'deep_research'
+            : (hasFiles ? 'file_analysis' : (searchType === 'chat' ? 'text_only' : 'web_search')),
           usedModel: resolvedModel?.provider || model?.name || '',
           modelApi: resolvedModel?.modelApi || (model as any)?.modelApi || '',
           analyzedFilesCount: hasFiles ? filePaths.length : 0,

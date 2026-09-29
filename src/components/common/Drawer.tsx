@@ -23,6 +23,7 @@ import {
   IconEdit,
   IconPlus,
   IconMessage2,
+  IconFlask,
   IconSettings,
   IconDotsVertical,
   IconPencil,
@@ -47,6 +48,8 @@ interface DrawerProps {
   onSelectChatHistory: (libId: string, title?: string, type?: string) => void;
   onSelectNewImageGeneration?: () => void;
   onOpenSettings: () => void;
+  onOpenImages?: () => void;
+  onOpenLibrary?: () => void;
   /** Increment to force a history refresh */
   refreshTrigger?: number;
 }
@@ -58,6 +61,8 @@ export const Drawer: React.FC<DrawerProps> = ({
   onSelectChatHistory,
   onSelectNewImageGeneration,
   onOpenSettings,
+  onOpenImages,
+  onOpenLibrary,
   refreshTrigger = 0,
 }) => {
   const colors = useThemeColors();
@@ -389,8 +394,10 @@ export const Drawer: React.FC<DrawerProps> = ({
                   <Pressable
                     key={item.id}
                     onPress={() => {
-                      if (item.id === 'images') {
-                        handleClose(onSelectNewImageGeneration);
+                      if (item.id === 'images' && onOpenImages) {
+                        handleClose(onOpenImages);
+                      } else if (item.id === 'library' && onOpenLibrary) {
+                        handleClose(onOpenLibrary);
                       } else {
                         handleClose();
                       }
@@ -512,6 +519,12 @@ export const Drawer: React.FC<DrawerProps> = ({
                         <IconPhoto
                           size={17}
                           color={colors.ink3}
+                          style={{ marginRight: spacing.sm + 2 }}
+                        />
+                      ) : chat.type === 'research' ? (
+                        <IconFlask
+                          size={17}
+                          color="#a78bfa"
                           style={{ marginRight: spacing.sm + 2 }}
                         />
                       ) : (

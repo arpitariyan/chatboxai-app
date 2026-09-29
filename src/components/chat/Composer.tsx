@@ -19,12 +19,15 @@ import {
   IconPhone,
   IconWorldSearch,
   IconFlask,
+  IconLock,
   IconX,
   IconFile,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '@/stores/useModelStore';
+import { useResearchStore } from '@/stores/useResearchStore';
+import { auth } from '@/config/firebase';
 import { ChatAttachment } from '@/hooks/useChatGeneration';
 import { FileTypeIcon } from './FileTypeIcon';
 
@@ -68,14 +71,19 @@ export const Composer: React.FC<ComposerProps> = ({
   const hasContent = hasText || pendingAttachments.length > 0;
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(true);
-  const [researchEnabled, setResearchEnabled] = useState(false);
+  const { isResearchMode, quota, toggleResearchMode, fetchQuota, setResearchMode } = useResearchStore();
   const { syncModelWithMode } = useModelStore();
 
-  const currentSearchType: 'chat' | 'search' | 'research' = researchEnabled
+  const currentSearchType: 'chat' | 'search' | 'research' = isResearchMode
     ? 'research'
     : searchEnabled
       ? 'search'
       : 'chat';
+
+  const userEmail = auth.currentUser?.email || undefined;
+  useEffect(() => {
+    fetchQuota(userEmail).catch(() => {});
+  }, [userEmail, fetchQuota]);
 
   // Sync when parent explicitly clears the field (e.g. externalValue === '')
   useEffect(() => {
@@ -122,30 +130,51 @@ export const Composer: React.FC<ComposerProps> = ({
     >
       <View style={styles.topControls}>
         <View style={styles.modelSelectorWrapper}>
-          <ModelSelector isResearch={researchEnabled} />
+          <ModelSelector isResearch={isResearchMode} />
         </View>
         <View style={styles.toggles}>
           <Pressable
-            style={[styles.toggleBtn, searchEnabled && !researchEnabled && styles.toggleBtnActive]}
+            style={[styles.toggleBtn, searchEnabled && !isResearchMode && styles.toggleBtnActive]}
             onPress={() => {
               setSearchEnabled(true);
-              setResearchEnabled(false);
+              setResearchMode(false);
               syncModelWithMode(false);
             }}
           >
-            <IconWorldSearch size={16} color={searchEnabled && !researchEnabled ? '#3b82f6' : '#8e8e93'} />
-            <Text style={[styles.toggleText, searchEnabled && !researchEnabled && styles.toggleTextActive]}>Search</Text>
+            <IconWorldSearch size={16} color={searchEnabled && !isResearchMode ? '#3b82f6' : '#8e8e93'} />
+            <Text style={[styles.toggleText, searchEnabled && !isResearchMode && styles.toggleTextActive]}>Search</Text>
           </Pressable>
           <Pressable
-            style={[styles.toggleBtn, researchEnabled && styles.toggleBtnActive]}
+            style={[
+              styles.toggleBtn,
+              isResearchMode && styles.toggleBtnResearchActive,
+              quota && !quota.canResearch && styles.toggleBtnLocked,
+            ]}
             onPress={() => {
-              setResearchEnabled(true);
-              setSearchEnabled(false);
-              syncModelWithMode(true);
+              toggleResearchMode(auth.currentUser?.email || undefined);
+              if (!isResearchMode) {
+                setSearchEnabled(false);
+              }
             }}
           >
-            <IconFlask size={16} color={researchEnabled ? '#3b82f6' : '#8e8e93'} />
-            <Text style={[styles.toggleText, researchEnabled && styles.toggleTextActive]}>Research</Text>
+            {quota && !quota.canResearch ? (
+              <IconLock size={15} color="#f59e0b" />
+            ) : (
+              <IconFlask size={16} color={isResearchMode ? '#a78bfa' : '#8e8e93'} />
+            )}
+            <Text
+              style={[
+                styles.toggleText,
+                isResearchMode && styles.toggleTextResearchActive,
+                quota && !quota.canResearch && { color: '#f59e0b' },
+              ]}
+            >
+              {isResearchMode && quota?.remaining !== undefined && quota.remaining >= 0
+                ? `Research (${quota.remaining})`
+                : quota && !quota.canResearch
+                  ? 'Locked'
+                  : 'Research'}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -341,6 +370,17 @@ const styles = StyleSheet.create({
   },
   toggleTextActive: {
     color: '#3b82f6',
+  },
+  toggleBtnResearchActive: {
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+  },
+  toggleTextResearchActive: {
+    color: '#a78bfa',
+    fontWeight: '600',
+  },
+  toggleBtnLocked: {
+    borderColor: 'rgba(245, 158, 11, 0.4)',
   },
   // ── Attachment strip ──────────────────────────────────────────────────────
   attachmentStrip: {

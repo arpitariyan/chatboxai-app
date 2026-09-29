@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, Pressable, Linking } from 'react-native';
-import { IconWorld, IconChevronDown, IconChevronUp } from '@tabler/icons-react-native';
+import { IconWorld, IconFlask, IconChevronDown, IconChevronUp } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
 
 interface SourceItem {
@@ -11,6 +11,7 @@ interface SourceItem {
   description?: string;
   name?: string;
   displayLink?: string;
+  deepResearch?: boolean;
 }
 
 interface SourceChipsProps {
@@ -32,26 +33,31 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
   const colors = useThemeColors();
   const [showAll, setShowAll] = useState(false);
 
-  const sources = useMemo<SourceItem[]>(() => {
-    if (!searchResult) return [];
+  const { sources, isDeepResearch, confidence } = useMemo(() => {
+    if (!searchResult) return { sources: [], isDeepResearch: false, confidence: null };
 
     let parsed: any = searchResult;
     if (typeof searchResult === 'string') {
       try {
         parsed = JSON.parse(searchResult);
       } catch {
-        return [];
+        return { sources: [], isDeepResearch: false, confidence: null };
       }
     }
 
     const list: any[] = Array.isArray(parsed)
       ? parsed
-      : parsed?.web || parsed?.searchResult || parsed?.mixedResults || [];
+      : (parsed?.sources || parsed?.web || parsed?.searchResult || parsed?.mixedResults || []);
 
-    return list.filter((item) => {
+    const validSources = list.filter((item) => {
       const url = item?.url || item?.link;
       return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
     });
+
+    const isResearch = Boolean(parsed?.deepResearch || list.some((i) => i?.deepResearch));
+    const conf = parsed?.confidence || null;
+
+    return { sources: validSources, isDeepResearch: isResearch, confidence: conf };
   }, [searchResult]);
 
   if (sources.length === 0) return null;
@@ -69,10 +75,45 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
     <View style={styles.container}>
       {/* Section Header matching website SourceList */}
       <View style={styles.headerRow}>
-        <IconWorld size={14} color={colors.ink3} />
-        <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
-          SOURCES
+        {isDeepResearch ? (
+          <IconFlask size={13} color="#a78bfa" />
+        ) : (
+          <IconWorld size={14} color={colors.ink3} />
+        )}
+        <Text style={[styles.sectionHeading, { color: isDeepResearch ? '#a78bfa' : colors.ink3 }]}>
+          {isDeepResearch ? 'RESEARCH SOURCES' : 'SOURCES'}
         </Text>
+        {confidence && confidence !== 'Not Assessed' && (
+          <View
+            style={[
+              styles.confidenceBadge,
+              {
+                backgroundColor:
+                  confidence === 'High'
+                    ? 'rgba(34, 197, 94, 0.12)'
+                    : confidence === 'Medium'
+                      ? 'rgba(59, 130, 246, 0.12)'
+                      : 'rgba(245, 158, 11, 0.12)',
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.confidenceText,
+                {
+                  color:
+                    confidence === 'High'
+                      ? '#22c55e'
+                      : confidence === 'Medium'
+                        ? '#60a5fa'
+                        : '#f59e0b',
+                },
+              ]}
+            >
+              {confidence} Confidence
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Wrapping Pill Chips */}
@@ -180,5 +221,16 @@ const styles = StyleSheet.create({
   toggleText: {
     fontSize: 11.5,
     fontWeight: '500',
+  },
+  confidenceBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });

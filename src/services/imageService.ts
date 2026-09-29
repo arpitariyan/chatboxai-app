@@ -13,6 +13,7 @@ import {
   Query,
 } from '@/config/appwrite';
 import { auth } from '@/config/firebase';
+import { chatService } from './chatService';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Platform, LogBox } from 'react-native';
@@ -35,49 +36,88 @@ const APPWRITE_PUBLIC_BUCKET_ID =
   process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
 
 /**
- * Safely loads MediaLibrary dynamically at runtime inside try/catch blocks.
- * In Expo Go on Android, native media library access is restricted by Google Play policy,
- * which logs a warning banner if expo-media-library is loaded.
- * In Expo Go, we return null immediately so downloadImageToGallery uses native Sharing.shareAsync.
- * In standalone production APKs, isExpoGo is false, so full native MediaLibrary is used.
+ * Safely probes whether an Expo native module is registered in the current runtime
+ * WITHOUT triggering Metro's fatal guardedLoadModule exception.
  */
-function getSafeMediaLibrary(): any {
-  // Detect if running inside Expo Go client
-  const isExpoGo =
-    typeof (globalThis as any).expo !== 'undefined' &&
-    Boolean((globalThis as any).expo?.modules?.ExpoGo);
-
-  if (isExpoGo) {
-    return null;
+function isNativeModuleAvailable(moduleName: string): boolean {
+  try {
+    const { requireOptionalNativeModule } = require('expo');
+    if (typeof requireOptionalNativeModule === 'function') {
+      const mod = requireOptionalNativeModule(moduleName);
+      if (mod) return true;
+    }
+  } catch {
+    // ignore
   }
 
   try {
-    const legacy = require('expo-media-library/legacy');
-    if (
-      legacy &&
-      (typeof legacy.saveToLibraryAsync === 'function' ||
-        typeof legacy.createAssetAsync === 'function' ||
-        typeof legacy.requestPermissionsAsync === 'function')
-    ) {
-      return legacy;
+    if (typeof globalThis !== 'undefined' && (globalThis as any).expo?.modules?.[moduleName]) {
+      return true;
     }
   } catch {
-    // Legacy module unavailable
+    // ignore
   }
 
   try {
-    const next = require('expo-media-library');
-    if (
-      next &&
-      (next.Asset ||
-        typeof next.saveToLibraryAsync === 'function' ||
-        typeof next.createAssetAsync === 'function' ||
-        typeof next.requestPermissionsAsync === 'function')
-    ) {
-      return next;
+    const { NativeModules } = require('react-native');
+    if (NativeModules && (NativeModules[moduleName] || NativeModules.NativeModulesProxy?.[moduleName])) {
+      return true;
     }
   } catch {
-    // MediaLibrary module unavailable in this environment
+    // ignore
+  }
+
+  return false;
+}
+
+/**
+ * Safely loads MediaLibrary dynamically at runtime inside try/catch blocks.
+ *
+ * In Expo SDK 57, `expo-media-library` unconditionally calls `requireNativeModule('ExpoMediaLibraryNext')`
+ * at module evaluation time. If the native module is not present in the runtime binary
+ * (such as in Expo Go or clients without the native module linked), Metro's require loader
+ * reports this as a fatal uncaught error.
+ *
+ * To avoid this crash:
+ * 1. We probe whether 'ExpoMediaLibraryNext' or 'ExpoMediaLibrary' is actually registered.
+ * 2. If neither is available, we return null immediately without requiring the package.
+ * 3. The caller (`downloadImageToGallery`) then seamlessly falls back to `expo-sharing`.
+ */
+function getSafeMediaLibrary(): { mode: 'sdk57' | 'legacy'; module: any } | null {
+  // 1. SDK 57 new class-based API
+  // Only require 'expo-media-library' if 'ExpoMediaLibraryNext' native module is verified to exist.
+  if (isNativeModuleAvailable('ExpoMediaLibraryNext')) {
+    try {
+      const next = require('expo-media-library');
+      if (
+        next &&
+        next.Asset &&
+        typeof next.Asset.create === 'function' &&
+        typeof next.requestPermissionsAsync === 'function'
+      ) {
+        return { mode: 'sdk57', module: next };
+      }
+    } catch (err) {
+      console.warn('[imageService] Failed to load expo-media-library:', err);
+    }
+  }
+
+  // 2. Legacy module fallback (SDK < 57 or custom builds with legacy module)
+  // Only require 'expo-media-library/legacy' if 'ExpoMediaLibrary' native module is verified to exist.
+  if (isNativeModuleAvailable('ExpoMediaLibrary')) {
+    try {
+      const legacy = require('expo-media-library/legacy');
+      if (
+        legacy &&
+        (typeof legacy.saveToLibraryAsync === 'function' ||
+          typeof legacy.createAssetAsync === 'function' ||
+          typeof legacy.requestPermissionsAsync === 'function')
+      ) {
+        return { mode: 'legacy', module: legacy };
+      }
+    } catch (err) {
+      console.warn('[imageService] Failed to load expo-media-library/legacy:', err);
+    }
   }
 
   return null;
@@ -100,6 +140,14 @@ export function normalizeImageUrl(rawUrl?: string, fileId?: string): string {
 
   // If already absolute http/https
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    // If it has /storage/buckets/.../files/.../view or download
+    if (trimmed.includes('/storage/buckets/') && trimmed.includes('/files/')) {
+      const match = trimmed.match(/\/files\/([a-zA-Z0-9_-]+)/);
+      if (match?.[1]) {
+        return `${APPWRITE_PUBLIC_ENDPOINT}/storage/buckets/${APPWRITE_PUBLIC_BUCKET_ID}/files/${match[1]}/view?project=${APPWRITE_PUBLIC_PROJECT_ID}`;
+      }
+    }
+
     // If it's hitting api-mobile or any domain for /api/mobile/image/file?fileId=...
     if (trimmed.includes('fileId=')) {
       const match = trimmed.match(/[?&]fileId=([a-zA-Z0-9_-]+)/);
@@ -333,6 +381,149 @@ export const imageService = {
   },
 
   /**
+   * Fetch ALL generated images across all conversations for the logged-in user.
+   * Multi-tier strategy: Direct Appwrite DB -> Mobile API -> Web History API -> Conversation crawl
+   */
+  async fetchAllUserImages(email: string): Promise<GeneratedImageItem[]> {
+    if (!email) return [];
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // ── Tier 1: Direct Appwrite Query (Instant, complete across all user's image generations) ──
+    if (DB_ID && IMAGE_GENERATION_COLLECTION_ID) {
+      try {
+        const res = await databases.listDocuments(DB_ID, IMAGE_GENERATION_COLLECTION_ID, [
+          Query.equal('userEmail', normalizedEmail),
+          Query.orderDesc('$createdAt'),
+          Query.limit(100),
+        ]);
+
+        if (res.documents && res.documents.length > 0) {
+          const directImages: GeneratedImageItem[] = res.documents
+            .map((doc: any) => ({
+              ...doc,
+              entryId: doc.$id,
+              libId: doc.libId || doc.$id,
+              userEmail: doc.userEmail || normalizedEmail,
+              prompt: doc.prompt || '',
+              model: doc.model || '',
+              status: doc.status || 'completed',
+              width: doc.width || 1024,
+              height: doc.height || 1024,
+              created_at: doc.created_at || doc.$createdAt,
+              publicUrl: normalizeImageUrl(doc.publicUrl, doc.generatedImagePath),
+              displayUrl: normalizeImageUrl(doc.displayUrl || doc.publicUrl, doc.generatedImagePath),
+            }))
+            .filter((item: GeneratedImageItem) => Boolean(item.displayUrl || item.publicUrl));
+
+          if (directImages.length > 0) {
+            return directImages;
+          }
+        }
+      } catch (appwriteErr: any) {
+        if (__DEV__) {
+          console.debug('[imageService] Direct Appwrite query fallback:', appwriteErr?.message || appwriteErr);
+        }
+      }
+    }
+
+    // ── Tier 2: Authenticated Mobile API Proxy (/api/mobile/image/generations?libId=all) ──
+    try {
+      const res = await apiClient.get('/api/mobile/image/generations', {
+        params: { libId: 'all' },
+        timeout: 15000,
+      });
+
+      if (res.data?.success && Array.isArray(res.data?.generations) && res.data.generations.length > 0) {
+        return res.data.generations.map((doc: any) => ({
+          ...doc,
+          entryId: doc.entryId || doc.$id,
+          libId: doc.libId || doc.$id,
+          userEmail: doc.userEmail || normalizedEmail,
+          prompt: doc.prompt || '',
+          model: doc.model || '',
+          status: doc.status || 'completed',
+          width: doc.width || 1024,
+          height: doc.height || 1024,
+          created_at: doc.created_at || doc.$createdAt,
+          publicUrl: normalizeImageUrl(doc.publicUrl || doc.imageUrl || '', doc.generatedImagePath),
+          displayUrl: normalizeImageUrl(doc.displayUrl || doc.publicUrl || doc.imageUrl || '', doc.generatedImagePath),
+        }));
+      }
+    } catch (apiErr: any) {
+      if (__DEV__) {
+        console.debug('[imageService] Mobile API all generations fallback:', apiErr?.message || apiErr);
+      }
+    }
+
+    // ── Tier 3: Official Web API (/api/library/history) ──
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const webUrl = `${WEB_API_BASE_URL}/api/library/history?email=${encodeURIComponent(normalizedEmail)}`;
+      const res = await fetch(webUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.imageGenDocs) && data.imageGenDocs.length > 0) {
+          return data.imageGenDocs.map((doc: any) => ({
+            ...doc,
+            entryId: doc.$id || doc.entryId,
+            libId: doc.libId || doc.$id,
+            userEmail: doc.userEmail || normalizedEmail,
+            prompt: doc.prompt || '',
+            model: doc.model || '',
+            status: doc.status || 'completed',
+            width: doc.width || 1024,
+            height: doc.height || 1024,
+            created_at: doc.created_at || doc.$createdAt,
+            publicUrl: normalizeImageUrl(doc.publicUrl || doc.imageUrl || '', doc.generatedImagePath),
+            displayUrl: normalizeImageUrl(doc.displayUrl || doc.publicUrl || doc.imageUrl || '', doc.generatedImagePath),
+          }));
+        }
+      }
+    } catch (webErr: any) {
+      if (__DEV__) {
+        console.debug('[imageService] Web history images fallback:', webErr?.message || webErr);
+      }
+    }
+
+    // ── Tier 4: Fetch by each image conversation libId ──
+    try {
+      const allConversations = await chatService.fetchUserConversations(normalizedEmail);
+      const imageConversations = allConversations.filter(c => c.type === 'image-generation');
+
+      const fetchPromises = imageConversations.map(async (conv) => {
+        try {
+          return await this.fetchGenerations(conv.libId);
+        } catch {
+          return [];
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+      const combined: GeneratedImageItem[] = [];
+      for (const list of results) {
+        combined.push(...list);
+      }
+
+      combined.sort((a, b) => new Date(b.created_at || (b as any).$createdAt).getTime() - new Date(a.created_at || (a as any).$createdAt).getTime());
+      return combined;
+    } catch (fallbackErr: any) {
+      if (__DEV__) {
+        console.debug('[imageService] Conversation-level fallback failed:', fallbackErr?.message || fallbackErr);
+      }
+      return [];
+    }
+  },
+
+  /**
+   * Alias for fetchGenerations for backwards compatibility
+   */
+  fetchGenerationsByLibId(libId: string) {
+    return this.fetchGenerations(libId);
+  },
+
+  /**
    * Delete an entire image conversation thread by libId from https://api-mobile.chatboxai.co.in
    */
   async deleteConversation(libId: string): Promise<boolean> {
@@ -445,24 +636,35 @@ export const imageService = {
       }
 
       // 3. Request permissions & save to device media library (Gallery)
-      const mediaLib = getSafeMediaLibrary();
+      const mediaResult = getSafeMediaLibrary();
 
       // If native MediaLibrary is not available in the current environment (e.g. Expo Go)
-      if (!mediaLib) {
+      if (!mediaResult) {
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(tempFileUri, {
-            mimeType: 'image/png',
-            dialogTitle: 'Save Image',
-          });
+          try {
+            await Sharing.shareAsync(tempFileUri, {
+              mimeType: 'image/png',
+              dialogTitle: 'Save Image',
+            });
+          } catch (shareErr) {
+            console.warn('[imageService] Sharing sheet dismissed or failed:', shareErr);
+          }
           return {
             success: true,
             savedToGallery: false,
             uri: tempFileUri,
           };
         }
-        throw new Error('Media saving is not available in this client.');
+        return {
+          success: true,
+          savedToGallery: false,
+          uri: tempFileUri,
+        };
       }
 
+      const { mode: mediaMode, module: mediaLib } = mediaResult;
+
+      // Request write permissions
       let hasPermission = false;
       try {
         if (typeof mediaLib.getPermissionsAsync === 'function') {
@@ -510,34 +712,36 @@ export const imageService = {
       let savedAsset: any = null;
       let saveError: any = null;
 
-      // Method 1: saveToLibraryAsync
-      if (typeof mediaLib.saveToLibraryAsync === 'function') {
-        try {
-          await mediaLib.saveToLibraryAsync(tempFileUri);
-          savedAsset = { uri: tempFileUri };
-        } catch (err1) {
-          saveError = err1;
-          console.warn('[imageService] saveToLibraryAsync attempt error:', err1);
-        }
-      }
-
-      // Method 2: createAssetAsync
-      if (!savedAsset && typeof mediaLib.createAssetAsync === 'function') {
-        try {
-          savedAsset = await mediaLib.createAssetAsync(tempFileUri);
-        } catch (err2) {
-          saveError = err2;
-          console.warn('[imageService] createAssetAsync attempt error:', err2);
-        }
-      }
-
-      // Method 3: Asset.create (SDK 57)
-      if (!savedAsset && typeof mediaLib.Asset?.create === 'function') {
+      if (mediaMode === 'sdk57') {
+        // ── SDK 57 class-based API (primary path for production APKs) ──
+        // Asset.create is the correct method; saveToLibraryAsync/createAssetAsync are deprecated stubs that throw.
         try {
           savedAsset = await mediaLib.Asset.create(tempFileUri);
-        } catch (err3) {
-          saveError = err3;
-          console.warn('[imageService] Asset.create attempt error:', err3);
+        } catch (err: any) {
+          saveError = err;
+          console.warn('[imageService] SDK57 Asset.create error:', err?.message || err);
+        }
+      } else {
+        // ── Legacy API fallback ──
+        // Method 1: saveToLibraryAsync
+        if (typeof mediaLib.saveToLibraryAsync === 'function') {
+          try {
+            await mediaLib.saveToLibraryAsync(tempFileUri);
+            savedAsset = { uri: tempFileUri };
+          } catch (err1: any) {
+            saveError = err1;
+            console.warn('[imageService] legacy saveToLibraryAsync error:', err1?.message || err1);
+          }
+        }
+
+        // Method 2: createAssetAsync
+        if (!savedAsset && typeof mediaLib.createAssetAsync === 'function') {
+          try {
+            savedAsset = await mediaLib.createAssetAsync(tempFileUri);
+          } catch (err2: any) {
+            saveError = err2;
+            console.warn('[imageService] legacy createAssetAsync error:', err2?.message || err2);
+          }
         }
       }
 
@@ -559,12 +763,25 @@ export const imageService = {
 
       // Optional: Add to 'ChatBox AI' album in Gallery
       try {
-        if (savedAsset && typeof mediaLib.getAlbumAsync === 'function') {
-          const album = await mediaLib.getAlbumAsync('ChatBox AI');
-          if (!album && typeof mediaLib.createAlbumAsync === 'function') {
-            await mediaLib.createAlbumAsync('ChatBox AI', savedAsset, false);
-          } else if (album && typeof mediaLib.addAssetsToAlbumAsync === 'function') {
-            await mediaLib.addAssetsToAlbumAsync([savedAsset], album, false);
+        if (mediaMode === 'sdk57') {
+          // SDK 57: Album.get / Album.create
+          if (mediaLib.Album && typeof mediaLib.Album.get === 'function') {
+            const album = await mediaLib.Album.get('ChatBox AI');
+            if (!album && typeof mediaLib.Album.create === 'function') {
+              await mediaLib.Album.create('ChatBox AI', savedAsset, false);
+            } else if (album && typeof album.add === 'function') {
+              await album.add([savedAsset], false);
+            }
+          }
+        } else {
+          // Legacy: getAlbumAsync / createAlbumAsync / addAssetsToAlbumAsync
+          if (typeof mediaLib.getAlbumAsync === 'function') {
+            const album = await mediaLib.getAlbumAsync('ChatBox AI');
+            if (!album && typeof mediaLib.createAlbumAsync === 'function') {
+              await mediaLib.createAlbumAsync('ChatBox AI', savedAsset, false);
+            } else if (album && typeof mediaLib.addAssetsToAlbumAsync === 'function') {
+              await mediaLib.addAssetsToAlbumAsync([savedAsset], album, false);
+            }
           }
         }
       } catch (albumErr) {
@@ -581,7 +798,7 @@ export const imageService = {
       return {
         success: true,
         savedToGallery: true,
-        uri: savedAsset.uri || tempFileUri,
+        uri: savedAsset.uri || savedAsset.localUri || tempFileUri,
       };
     } catch (error: any) {
       console.error('[imageService] downloadImageToGallery error:', error);
