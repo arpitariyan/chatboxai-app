@@ -49,11 +49,17 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { effortLevel, setEffortLevel, thinkingMode, setThinkingMode } = useModelStore();
+  const {
+    effortLevel,
+    setEffortLevel,
+    thinkingMode,
+    setThinkingMode,
+    webSearchEnabled,
+    setWebSearchEnabled,
+  } = useModelStore();
   const [isLoading, setIsLoading] = useState(false);
 
   // UI-only toggles
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [memoryEnabled, setMemoryEnabled] = useState(true);
 
   // Effort picker expanded state

@@ -10,6 +10,8 @@ import { parseAiResponse } from '../utils/parseAiResponse';
 import { auth } from '../config/firebase';
 import { researchService } from '../services/researchService';
 import { useResearchStore } from '../stores/useResearchStore';
+import { webSearchService, SearchResultItem } from '../services/search/webSearchService';
+import { analyzeUserQuery } from '../services/search/queryPlanner';
 
 import { toMobileUploadUrl, toMobileAnalyzeUrl, toMobileFileUrl } from '../config/mobileApi';
 
@@ -24,17 +26,7 @@ export interface ChatAttachment {
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export interface SearchResultItem {
-  title: string;
-  description: string;
-  url: string;
-  name?: string;
-  image?: string;
-  thumbnail?: string;
-  publishedAt?: string;
-  source?: string;
-}
+export type { SearchResultItem };
 
 interface UseChatGenerationOptions {
   /** The current conversation libId. Null = new conversation (first message). */
@@ -60,70 +52,8 @@ interface UseChatGenerationReturn {
     searchType?: 'chat' | 'search' | 'research',
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
     attachments?: any[],
-  ) => Promise<{ dbId: string; processedFiles?: any[] } | void>;
+  ) => Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[] } | void>;
   reset: () => void;
-}
-
-// ── DuckDuckGo Instant Answer search (on-device, no server required) ──────────
-async function fetchDuckDuckGoResults(query: string): Promise<SearchResultItem[]> {
-  try {
-    const encoded = encodeURIComponent(query);
-    const url =
-      `https://api.duckduckgo.com/?q=${encoded}&format=json&no_redirect=1&no_html=1&skip_disambig=1`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`DDG HTTP ${res.status}`);
-    const data = await res.json();
-
-    const results: SearchResultItem[] = [];
-
-    // Abstract (single canonical answer)
-    if (data.AbstractURL && data.Abstract) {
-      results.push({
-        title: data.Heading || query,
-        description: data.Abstract,
-        url: data.AbstractURL,
-        name:
-          data.AbstractSource ||
-          data.AbstractURL.replace(/https?:\/\//, '').split('/')[0],
-        image: data.Image || '',
-        thumbnail: data.Image || '',
-      });
-    }
-
-    // Related Topics
-    const topics: any[] = data.RelatedTopics || [];
-    for (const t of topics) {
-      if (t.FirstURL && t.Text) {
-        results.push({
-          title: t.Text.split(' - ')[0] || t.Text.slice(0, 80),
-          description: t.Text,
-          url: t.FirstURL,
-          name: t.FirstURL.replace(/https?:\/\//, '').split('/')[0],
-          image: t.Icon?.URL || '',
-          thumbnail: t.Icon?.URL || '',
-        });
-      }
-      if (Array.isArray(t.Topics)) {
-        for (const st of t.Topics) {
-          if (st.FirstURL && st.Text) {
-            results.push({
-              title: st.Text.split(' - ')[0] || st.Text.slice(0, 80),
-              description: st.Text,
-              url: st.FirstURL,
-              name: st.FirstURL.replace(/https?:\/\//, '').split('/')[0],
-              image: st.Icon?.URL || '',
-              thumbnail: st.Icon?.URL || '',
-            });
-          }
-        }
-      }
-    }
-
-    return results.slice(0, 12);
-  } catch (err: any) {
-    console.warn('[Search] DuckDuckGo search failed, continuing without sources:', err.message);
-    return [];
-  }
 }
 
 // ── Build LLM messages from query + search context + history ──────────────────
@@ -142,11 +72,11 @@ function buildMessages(
   if (sources.length > 0) {
     const ctx = sources
       .slice(0, 8)
-      .map((s, i) => `[${i + 1}] ${s.title}\n${s.description}\nURL: ${s.url}`)
+      .map((s, i) => `[${i + 1}] ${s.title}\n${s.description || s.content || ''}\nURL: ${s.url}`)
       .join('\n\n');
     systemContent +=
-      '\n\nYou have access to the following web search results. ' +
-      'Use them where relevant and cite sources naturally:\n\n' +
+      '\n\nYou have access to the following live web search results. ' +
+      'Ground your answer accurately in these sources and naturally cite facts using [1], [2], etc., corresponding to the numbered sources above. Do not invent ungrounded URLs:\n\n' +
       ctx;
   }
 
@@ -215,16 +145,18 @@ export const useChatGeneration = ({
     onConversationCreatedRef.current = onConversationCreated;
   });
 
-  const { selectedModel, effortLevel, thinkingMode } = useModelStore();
-  // Store selectedModel and effortLevel in refs for stable closures
+  const { selectedModel, effortLevel, thinkingMode, webSearchEnabled } = useModelStore();
+  // Store selectedModel, effortLevel, thinkingMode, webSearchEnabled in refs for stable closures
   const selectedModelRef = useRef(selectedModel);
   const effortLevelRef = useRef(effortLevel);
   const thinkingModeRef = useRef(thinkingMode);
+  const webSearchEnabledRef = useRef(webSearchEnabled);
   useEffect(() => {
     selectedModelRef.current = selectedModel;
     effortLevelRef.current = effortLevel;
     thinkingModeRef.current = thinkingMode;
-  }, [selectedModel, effortLevel, thinkingMode]);
+    webSearchEnabledRef.current = webSearchEnabled;
+  }, [selectedModel, effortLevel, thinkingMode, webSearchEnabled]);
 
   // Sync activeLibIdRef when parent changes activeLibId (e.g. history navigation)
   useEffect(() => {
@@ -253,7 +185,7 @@ export const useChatGeneration = ({
       searchType: 'chat' | 'search' | 'research' = 'chat',
       history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
       attachments: any[] = []
-    ): Promise<{ dbId: string; processedFiles?: any[] } | void> => {
+    ): Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[] } | void> => {
       if (!userEmail || !query.trim()) return;
       if (isGeneratingRef.current) {
         console.warn('[useChatGeneration] Already generating, ignoring call');
@@ -261,6 +193,14 @@ export const useChatGeneration = ({
       }
       isGeneratingRef.current = true;
       const isDeepResearch = searchType === 'research';
+      const queryAnalysis = analyzeUserQuery(query);
+      const isPureGreeting = queryAnalysis.isConversational && queryAnalysis.cleanSearchQuery.length < 6;
+
+      // Web Search activates when in Normal Search mode or when Web Search is enabled in + menu,
+      // skipping only trivial single-word greetings ('hi', 'hello') to avoid unnecessary latency.
+      const shouldWebSearch = !isDeepResearch && (searchType === 'search' || webSearchEnabledRef.current) && !isPureGreeting;
+      const currentThinkingMode = thinkingModeRef.current;
+      const currentEffortLevel = effortLevelRef.current;
 
       // Reset only visible states, not source list (that's set fresh below)
       setAiResponse('');
@@ -280,13 +220,21 @@ export const useChatGeneration = ({
       // ── Step 2: Web Search ─────────────────────────────────────────────────
       let sources: SearchResultItem[] = [];
 
-      if (searchType === 'search') {
+      if (shouldWebSearch) {
         setIsSearching(true);
         setProgressMessage('Searching the web...');
 
-        sources = await fetchDuckDuckGoResults(query);
-        setSourceList(sources);
-        setIsSearching(false);
+        try {
+          sources = await webSearchService.search(queryAnalysis.cleanSearchQuery, 8);
+          setSourceList(sources);
+          if (sources.length > 0) {
+            setProgressMessage(`Found ${sources.length} sources, evaluating...`);
+          }
+        } catch (searchErr: any) {
+          console.log('[useChatGeneration] Web search non-fatal error:', searchErr.message);
+        } finally {
+          setIsSearching(false);
+        }
       }
 
       // ── Step 3: Create library record (first message only) ─────────────────
@@ -311,7 +259,11 @@ export const useChatGeneration = ({
 
       // ── Step 4: LLM Generation ────────────────────────────────────────────
       setIsThinking(true);
-      setProgressMessage('Preparing answer...');
+      if (currentThinkingMode) {
+        setProgressMessage('Preparing reasoning...');
+      } else {
+        setProgressMessage('Thinking...');
+      }
 
       const model = selectedModelRef.current;
       let modelId =
@@ -347,8 +299,6 @@ export const useChatGeneration = ({
       }
 
       const messages = buildMessages(query, sources, history, attachments);
-      const currentEffortLevel = effortLevelRef.current;
-      const currentThinkingMode = thinkingModeRef.current;
 
       let responseText = '';
       let llmResult: any = null;
@@ -526,7 +476,7 @@ export const useChatGeneration = ({
           setProgressMessage('Preparing answer...');
 
           finalAnswerClean = aggregatedAiResponse || '';
-          finalThinking = aggregatedThinking || '';
+          finalThinking = currentThinkingMode ? (aggregatedThinking || '') : '';
           responseText = finalAnswerClean; // For fallback
 
           llmResult = {
@@ -535,16 +485,15 @@ export const useChatGeneration = ({
         } else {
           // --- LOCAL SERVICE BRANCH (Fast text-only/fallback) ---
           llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
-            max_tokens: 2048,
-            temperature: currentEffortLevel === 'Low' ? 0.7 : currentEffortLevel === 'Medium' ? 0.6 : 0.5,
             effortLevel: currentEffortLevel,
             thinkingMode: currentThinkingMode,
+            queryComplexity: queryAnalysis.complexity,
           });
           responseText = llmResult?.choices?.[0]?.message?.content || '';
 
           const parsed = parseAiResponse(responseText);
-          finalThinking = parsed.thinking;
           finalAnswerClean = parsed.finalAnswer;
+          finalThinking = currentThinkingMode ? parsed.thinking : '';
         }
       } catch (err: any) {
         console.error('[useChatGeneration] generation failed:', err.message);
@@ -580,12 +529,12 @@ export const useChatGeneration = ({
           searchResult: searchResultPayload,
           analysisType: isDeepResearch
             ? 'deep_research'
-            : (hasFiles ? 'file_analysis' : (searchType === 'chat' ? 'text_only' : 'web_search')),
+            : (hasFiles ? 'file_analysis' : (sources.length > 0 ? 'web_search' : 'text_only')),
           usedModel: resolvedModel?.provider || model?.name || '',
           modelApi: resolvedModel?.modelApi || (model as any)?.modelApi || '',
           analyzedFilesCount: hasFiles ? filePaths.length : 0,
           processedFiles: dbProcessed,
-          isThinkingMode: hasFiles ? true : !!finalThinking,
+          isThinkingMode: currentThinkingMode && !!finalThinking,
         });
 
         const dbId = chatRecord ? chatRecord.id : '';
@@ -598,7 +547,7 @@ export const useChatGeneration = ({
         setProgressMessage('');
         isGeneratingRef.current = false;
 
-        return { dbId, processedFiles: filePaths };
+        return { dbId, processedFiles: filePaths, sources };
       } catch (dbErr: any) {
         // Non-fatal — user still sees the response even if DB write fails
         console.warn('[useChatGeneration] addChatMessage failed:', dbErr?.message || dbErr);
@@ -610,7 +559,7 @@ export const useChatGeneration = ({
         setProgressMessage('');
         isGeneratingRef.current = false;
 
-        return;
+        return { dbId: '', processedFiles: filePaths, sources };
       }
     },
     // Only userEmail is a true dep; everything else comes from stable refs

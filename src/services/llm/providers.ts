@@ -1,4 +1,5 @@
 import { EffortLevel } from '../../stores/useModelStore';
+import { QueryComplexity } from '../search/queryPlanner';
 
 // Content can be a string or a multimodal array (for vision models)
 export type LLMContentPart =
@@ -19,6 +20,7 @@ export interface LLMOptions {
   system?: string;
   effortLevel?: EffortLevel;
   thinkingMode?: boolean;
+  queryComplexity?: QueryComplexity;
 }
 
 export interface LLMResponse {
@@ -35,27 +37,123 @@ export interface LLMResponse {
   };
 }
 
-// ── Effort → system prompt suffix ─────────────────────────────────────────────
+// ── Effort → system prompt guidance ──────────────────────────────────────────
 export function getEffortSystemSuffix(effortLevel?: EffortLevel): string {
   switch (effortLevel) {
     case 'Medium':
-      return '\n\nThink carefully before responding. Consider different angles and be thorough.';
+      return (
+        '\n\nEFFORT LEVEL: MEDIUM\n' +
+        'Deliver a well-structured, clear, and balanced response. Cover the core aspects with helpful nuance.'
+      );
     case 'High':
-      return '\n\nThink step-by-step and reason deeply. Consider multiple perspectives, potential edge cases, and verify your logic before responding. Be comprehensive and detailed.';
+      return (
+        '\n\nEFFORT LEVEL: HIGH\n' +
+        'Apply deep processing effort. Deliver a comprehensive, highly thorough response with structured explanations, relevant examples, edge case awareness, and clear verification.'
+      );
     case 'Extra High':
-      return '\n\nApply maximum reasoning effort. Break down the problem methodically, explore all relevant angles, consider potential pitfalls, verify assumptions, and provide an exhaustive, well-structured response. Do not rush — prioritize accuracy and completeness over brevity.';
+      return (
+        '\n\nEFFORT LEVEL: EXTRA HIGH\n' +
+        'Apply maximum analytical rigor and exhaustive depth. Break down all components methodically, verify assumptions and edge cases, cover nuances, and provide an authoritative, impeccably structured solution.'
+      );
     case 'Low':
     default:
-      return ''; // No suffix for Low
+      return (
+        '\n\nEFFORT LEVEL: LOW\n' +
+        'Be fast, concise, and direct. Focus on clarity and brevity without unnecessary filler.'
+      );
   }
 }
 
-// ── Thinking Mode → system prompt suffix ──────────────────────────────────────
-export function getThinkingModeSuffix(thinkingMode?: boolean): string {
-  if (thinkingMode) {
-    return '\n\nTHINKING MODE ENABLED:\nYou are an advanced AI assistant. Before providing your final answer, you MUST write out your step-by-step reasoning process enclosed exactly within <think> and </think> tags. Keep your reasoning CONCISE to conserve tokens. CRITICAL: You MUST output the closing </think> tag before writing your final response. Do not skip this step. After the closing </think> tag, provide your final response following the Response Blueprint.';
+// ── Thinking Mode → system prompt directive ──────────────────────────────────
+export function getThinkingModeSuffix(
+  thinkingMode?: boolean,
+  complexity: QueryComplexity = 'MODERATE',
+  effortLevel: EffortLevel = 'Low'
+): string {
+  if (thinkingMode === false) {
+    return (
+      '\n\nTHINKING MODE: DISABLED\n' +
+      'Do NOT output any thinking process, internal monologue, reasoning steps, or <think> tags. ' +
+      'Provide ONLY the direct, high-quality final answer immediately.'
+    );
   }
-  return '\n\nReturn only the final answer.';
+
+  // Thinking Mode is ON — intelligently scale reasoning depth based on complexity & effortLevel
+  if (complexity === 'SIMPLE') {
+    return (
+      '\n\nTHINKING MODE: ENABLED (CONCISE MODE)\n' +
+      'This is a simple or conversational query. Enclose a brief 1-2 sentence verification within <think> and </think> tags, ' +
+      'then immediately output the closing </think> tag and provide your direct final response. Do not over-elaborate the reasoning trace.'
+    );
+  }
+
+  if (complexity === 'COMPLEX' || effortLevel === 'High' || effortLevel === 'Extra High') {
+    return (
+      '\n\nTHINKING MODE: ENABLED (DEEP REASONING)\n' +
+      'Before providing your final answer, conduct a thorough step-by-step reasoning analysis enclosed strictly within <think> and </think> tags.\n' +
+      '- Analyze constraints, requirements, and edge cases\n' +
+      '- Formulate and evaluate solutions methodically\n' +
+      '- Verify logic, code, or factual claims before concluding\n' +
+      'CRITICAL: You MUST output the closing </think> tag before writing your final response. Keep the final response completely separate from the thinking trace.'
+    );
+  }
+
+  // MODERATE complexity
+  return (
+    '\n\nTHINKING MODE: ENABLED\n' +
+    'Before providing your final answer, write out a focused reasoning process enclosed strictly within <think> and </think> tags. ' +
+    'Plan the structure and verify key details. CRITICAL: You MUST output the closing </think> tag before writing your final response.'
+  );
+}
+
+// ── Resolve supported model parameters safely across providers ────────────────
+export function resolveModelParameters(
+  modelApi: string,
+  options: LLMOptions
+): { temperature?: number; max_tokens: number; top_p: number } {
+  const effort = options.effortLevel || 'Low';
+
+  let max_tokens = 2048;
+  let temperature = 0.7;
+  let top_p = 1.0;
+
+  switch (effort) {
+    case 'Low':
+      max_tokens = 1536;
+      temperature = 0.7;
+      top_p = 1.0;
+      break;
+    case 'Medium':
+      max_tokens = 2560;
+      temperature = 0.6;
+      top_p = 0.95;
+      break;
+    case 'High':
+      max_tokens = 4096;
+      temperature = 0.4;
+      top_p = 0.9;
+      break;
+    case 'Extra High':
+      max_tokens = 6144;
+      temperature = 0.2;
+      top_p = 0.85;
+      break;
+  }
+
+  // Allow explicit caller overrides
+  if (options.max_tokens !== undefined) max_tokens = options.max_tokens;
+  if (options.temperature !== undefined) temperature = options.temperature;
+  if (options.top_p !== undefined) top_p = options.top_p;
+
+  // Strict reasoning models (e.g. OpenAI o1/o3) reject custom temperature with HTTP 400
+  const lowerApi = modelApi.toLowerCase();
+  const isStrictReasoning = lowerApi.startsWith('o1') || lowerApi.startsWith('o3');
+
+  if (isStrictReasoning) {
+    return { max_tokens, top_p };
+  }
+
+  return { temperature, max_tokens, top_p };
 }
 
 export async function callOpenAICompat(
@@ -72,7 +170,11 @@ export async function callOpenAICompat(
 
   // Build system content, injecting effort and thinking suffix
   const effortSuffix = getEffortSystemSuffix(options.effortLevel);
-  const thinkingSuffix = getThinkingModeSuffix(options.thinkingMode);
+  const thinkingSuffix = getThinkingModeSuffix(
+    options.thinkingMode,
+    options.queryComplexity || 'MODERATE',
+    options.effortLevel || 'Low'
+  );
   const existingSystem = formattedMessages.find(m => m.role === 'system');
   const systemBase = options.system || (existingSystem ? String(existingSystem.content) : '');
 
@@ -85,7 +187,6 @@ export async function callOpenAICompat(
   }
 
   // ── Prevent 413 Payload Too Large on text-only providers ──
-  // Groq and NVIDIA APIs often reject massive base64 image payloads with 413 HTTP errors.
   const isStrictProvider = providerLabel === 'groq' || providerLabel === 'nvidia';
   const isVisionModel = modelApi.toLowerCase().includes('vision');
 
@@ -102,7 +203,6 @@ export async function callOpenAICompat(
           });
         }
         
-        // If only text is left, some strict APIs prefer string content over array
         if (filteredParts.every(p => p.type === 'text')) {
           formattedMessages[i].content = filteredParts.map(p => (p as {text: string}).text).join('');
         } else {
@@ -112,16 +212,21 @@ export async function callOpenAICompat(
     }
   }
 
-  const payload = {
+  const modelParams = resolveModelParameters(modelApi, options);
+
+  const payload: any = {
     model: modelApi,
     messages: formattedMessages,
-    temperature: options.temperature ?? 0.7,
-    max_tokens: options.max_tokens ?? 2048,
-    top_p: options.top_p ?? 1.0,
+    max_tokens: modelParams.max_tokens,
+    top_p: modelParams.top_p,
     frequency_penalty: options.frequency_penalty ?? 0,
     presence_penalty: options.presence_penalty ?? 0,
     stream: false,
   };
+
+  if (modelParams.temperature !== undefined) {
+    payload.temperature = modelParams.temperature;
+  }
 
   const response = await fetch(url, {
     method: 'POST',
@@ -191,16 +296,22 @@ export async function callGoogleProvider(
 
   // Build system instruction with effort and thinking suffix
   const effortSuffix = getEffortSystemSuffix(options.effortLevel);
-  const thinkingSuffix = getThinkingModeSuffix(options.thinkingMode);
+  const thinkingSuffix = getThinkingModeSuffix(
+    options.thinkingMode,
+    options.queryComplexity || 'MODERATE',
+    options.effortLevel || 'Low'
+  );
   const systemMessage = messages.find(m => m.role === 'system')?.content || options.system || '';
   const systemFull = String(systemMessage) + effortSuffix + thinkingSuffix;
+
+  const modelParams = resolveModelParameters(modelApi, options);
 
   const payload: any = {
     contents,
     generationConfig: {
-      temperature: options.temperature ?? 0.7,
-      maxOutputTokens: options.max_tokens ?? 2048,
-      topP: options.top_p ?? 1.0,
+      temperature: modelParams.temperature ?? 0.7,
+      maxOutputTokens: modelParams.max_tokens,
+      topP: modelParams.top_p,
     },
   };
 

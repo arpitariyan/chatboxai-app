@@ -19,9 +19,11 @@ interface ModelStoreState {
   selectedModel: UIModel;
   effortLevel: EffortLevel;
   thinkingMode: boolean;
+  webSearchEnabled: boolean;
   setSelectedModel: (model: UIModel) => void;
   setEffortLevel: (level: EffortLevel) => void;
   setThinkingMode: (enabled: boolean) => void;
+  setWebSearchEnabled: (enabled: boolean) => void;
   syncModelWithMode: (isResearch: boolean) => void;
 }
 
@@ -29,9 +31,11 @@ export const useModelStore = create<ModelStoreState>((set, get) => ({
   selectedModel: AIModelsOption[0] as UIModel, // Default to Auto
   effortLevel: 'Low', // Default effort level
   thinkingMode: true, // Thinking Mode enabled by default
+  webSearchEnabled: false, // Web Search opt-in toggle
   setSelectedModel: (model: UIModel) => set({ selectedModel: model }),
   setEffortLevel: (level: EffortLevel) => set({ effortLevel: level }),
   setThinkingMode: (enabled: boolean) => set({ thinkingMode: enabled }),
+  setWebSearchEnabled: (enabled: boolean) => set({ webSearchEnabled: enabled }),
   syncModelWithMode: (isResearch: boolean) => {
     const { selectedModel, setSelectedModel } = get();
     if (isResearch) {

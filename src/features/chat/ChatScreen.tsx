@@ -911,7 +911,15 @@ const ConversationContent: React.FC<ContentProps> = ({
                 <View style={styles.thinkingContainer}>
                   {((isSearching && isResearchMode) || progressMessage.toLowerCase().includes('research')) ? (
                     <ResearchProgressIndicator progressMessage={progressMessage} />
-                  ) : (thinkingMode) ? (
+                  ) : isSearching ? (
+                    // Show dedicated web search indicator during web retrieval phase
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                      <ActivityIndicator size="small" color={colors.accent || '#3b82f6'} />
+                      <Text style={[styles.thinkingText, { color: colors.ink }]}>
+                        {progressMessage || 'Searching the web...'}
+                      </Text>
+                    </View>
+                  ) : thinkingMode ? (
                     // Show Reasoning style loader if thinking mode is active
                     <ThinkingBlock 
                       content="" 
@@ -924,7 +932,7 @@ const ConversationContent: React.FC<ContentProps> = ({
                       }
                     />
                   ) : (
-                    // Standard loader for web search, normal generation, or file analysis
+                    // Standard loader for normal generation or file analysis
                     <>
                       <ActivityIndicator size="small" color={colors.accent} />
                       <Text style={[styles.thinkingText, { color: colors.ink2 }]}>

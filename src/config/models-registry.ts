@@ -593,7 +593,11 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "groq",
-        modelApi: "groq/compound",
+        modelApi: "compound-beta",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "meta-llama/llama-3.3-70b-instruct:free",
       },
     ],
   },
@@ -693,7 +697,11 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "groq",
-        modelApi: "groq/compound-mini",
+        modelApi: "compound-beta-mini",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "meta-llama/llama-3.1-8b-instruct:free",
       },
     ],
   },

@@ -11,6 +11,7 @@ import {
   IconRefresh,
   IconChevronLeft,
   IconChevronRight,
+  IconWorld,
 } from '@tabler/icons-react-native';
 import * as Speech from 'expo-speech';
 import { preprocessTextForTTS } from '@/utils/preprocessTTS';
@@ -20,6 +21,7 @@ import { MarkdownAnswer } from './MarkdownAnswer';
 import { TextSelectionSheet } from './TextSelectionSheet';
 import { SourceChips } from './SourceChips';
 import { ImagePreviewList } from './ImagePreviewList';
+import { SourcesBottomSheet } from './SourcesBottomSheet';
 
 export interface MessageItem {
   id: string;
@@ -68,6 +70,27 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showTextSelection, setShowTextSelection] = useState(false);
+  const [showSourcesSheet, setShowSourcesSheet] = useState(false);
+
+  // Extract structured sources list for display and bottom sheet
+  const sourcesList = useMemo(() => {
+    if (!message.searchResult) return [];
+    let parsed: any = message.searchResult;
+    if (typeof message.searchResult === 'string') {
+      try {
+        parsed = JSON.parse(message.searchResult);
+      } catch {
+        return [];
+      }
+    }
+    const list: any[] = Array.isArray(parsed)
+      ? parsed
+      : (parsed?.sources || parsed?.web || parsed?.searchResult || parsed?.mixedResults || []);
+    return list.filter((item: any) => {
+      const u = item?.url || item?.link;
+      return typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'));
+    });
+  }, [message.searchResult]);
 
   // ── Typewriter animation ─────────────────────────────────────────────────
   // `animating` is true ONLY while the RAF loop is running.
@@ -318,7 +341,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
           {/* 4. Web Sources / Citations (matching sourceList.jsx) */}
           {message.searchResult && (
-            <SourceChips searchResult={message.searchResult} />
+            <SourceChips
+              searchResult={message.searchResult}
+              onOpenSheet={() => setShowSourcesSheet(true)}
+            />
           )}
 
           {/* 5. Images / Media Previews (matching ImageList.jsx) */}
@@ -330,6 +356,28 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         {/* Action Toolbar — visible once animation is fully done */}
         {!animating && (
           <View style={styles.actionRow}>
+            {/* Sources Action Pill Button */}
+            {sourcesList.length > 0 && (
+              <Pressable
+                onPress={() => setShowSourcesSheet(true)}
+                hitSlop={8}
+                accessibilityLabel="View sources"
+                style={({ pressed }) => [
+                  styles.sourcesPillBtn,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.line,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <IconWorld size={13} color={colors.accent || '#3b82f6'} />
+                <Text style={[styles.sourcesPillText, { color: colors.ink }]}>
+                  {sourcesList.length} {sourcesList.length === 1 ? 'Source' : 'Sources'}
+                </Text>
+              </Pressable>
+            )}
+
             {/* Copy Button */}
             <Pressable
               onPress={handleCopy}
@@ -447,6 +495,15 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
             )}
           </View>
         )}
+
+        {/* Sources Full Bottom Sheet */}
+        {sourcesList.length > 0 && (
+          <SourcesBottomSheet
+            visible={showSourcesSheet}
+            sources={sourcesList}
+            onClose={() => setShowSourcesSheet(false)}
+          />
+        )}
       </View>
 
       <TextSelectionSheet
@@ -536,5 +593,18 @@ const styles = StyleSheet.create({
   actionBtn: {
     paddingVertical: 4,
     paddingHorizontal: 4,
+  },
+  sourcesPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  sourcesPillText: {
+    fontSize: 11.5,
+    fontWeight: '500',
   },
 });

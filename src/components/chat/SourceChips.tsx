@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, Pressable, Linking } from 'react-native';
-import { IconWorld, IconFlask, IconChevronDown, IconChevronUp } from '@tabler/icons-react-native';
+import { IconWorld, IconFlask, IconChevronDown, IconChevronUp, IconExternalLink } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
+import { SvglIcon, getDomainFromUrl } from './SvglIcon';
 
-interface SourceItem {
+export interface SourceItem {
   title?: string;
   url?: string;
   link?: string;
@@ -16,20 +17,18 @@ interface SourceItem {
 
 interface SourceChipsProps {
   searchResult?: any;
+  onOpenSheet?: () => void;
 }
 
 const getDomainLabel = (item: SourceItem): string => {
   const rawUrl = item.url || item.link || '';
   if (!rawUrl) return item.title || item.name || 'Source';
-  try {
-    const urlObj = new URL(rawUrl);
-    return urlObj.hostname.replace(/^www\./, '');
-  } catch {
-    return item.title || item.name || 'Source';
-  }
+  const domain = getDomainFromUrl(rawUrl);
+  if (domain && domain !== 'unknown') return domain;
+  return item.title || item.name || 'Source';
 };
 
-export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
+export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult, onOpenSheet }) => {
   const colors = useThemeColors();
   const [showAll, setShowAll] = useState(false);
 
@@ -75,14 +74,20 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
     <View style={styles.container}>
       {/* Section Header matching website SourceList */}
       <View style={styles.headerRow}>
-        {isDeepResearch ? (
-          <IconFlask size={13} color="#a78bfa" />
-        ) : (
-          <IconWorld size={14} color={colors.ink3} />
-        )}
-        <Text style={[styles.sectionHeading, { color: isDeepResearch ? '#a78bfa' : colors.ink3 }]}>
-          {isDeepResearch ? 'RESEARCH SOURCES' : 'SOURCES'}
-        </Text>
+        <View style={styles.headerLeft}>
+          {isDeepResearch ? (
+            <IconFlask size={13} color="#a78bfa" />
+          ) : (
+            <IconWorld size={14} color={colors.accent || '#3b82f6'} />
+          )}
+          <Text style={[styles.sectionHeading, { color: isDeepResearch ? '#a78bfa' : colors.ink2 }]}>
+            {isDeepResearch ? 'RESEARCH SOURCES' : 'SOURCES'}
+          </Text>
+          <Text style={[styles.sourceCount, { color: colors.ink3 }]}>
+            ({sources.length})
+          </Text>
+        </View>
+
         {confidence && confidence !== 'Not Assessed' && (
           <View
             style={[
@@ -114,9 +119,25 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
             </Text>
           </View>
         )}
+
+        {onOpenSheet && sources.length > 2 && (
+          <Pressable
+            onPress={onOpenSheet}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.viewAllBtn,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Text style={[styles.viewAllText, { color: colors.accent || '#3b82f6' }]}>
+              View all
+            </Text>
+            <IconExternalLink size={11} color={colors.accent || '#3b82f6'} />
+          </Pressable>
+        )}
       </View>
 
-      {/* Wrapping Pill Chips */}
+      {/* Wrapping Pill Chips with domain brand logos */}
       <View style={styles.chipsWrap}>
         {visibleSources.map((item, index) => {
           const domain = getDomainLabel(item);
@@ -126,6 +147,8 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
             <Pressable
               key={`source-chip-${index}-${targetUrl}`}
               onPress={() => handleOpenUrl(targetUrl)}
+              accessibilityRole="link"
+              accessibilityLabel={`Open source: ${item.title || domain}`}
               style={({ pressed }) => [
                 styles.chip,
                 {
@@ -135,7 +158,9 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
                 },
               ]}
             >
-              <IconWorld size={12} color={colors.ink3} />
+              <View style={styles.iconBox}>
+                <SvglIcon domain={domain} size={14} color={colors.ink3} />
+              </View>
               <Text
                 style={[styles.chipText, { color: colors.ink }]}
                 numberOfLines={1}
@@ -146,19 +171,26 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult }) => {
           );
         })}
 
-        {/* Toggle +X More / Show Less */}
+        {/* Toggle +X More / Open Full Sheet */}
         {hiddenCount > 0 && (
           <Pressable
-            onPress={() => setShowAll(!showAll)}
+            onPress={() => {
+              if (onOpenSheet) {
+                onOpenSheet();
+              } else {
+                setShowAll(!showAll);
+              }
+            }}
             style={({ pressed }) => [
               styles.toggleChip,
               {
+                backgroundColor: colors.surface,
                 borderColor: colors.line,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}
           >
-            <Text style={[styles.toggleText, { color: colors.ink3 }]}>
+            <Text style={[styles.toggleText, { color: colors.ink2 }]}>
               {showAll ? 'Show less' : `+${hiddenCount} more`}
             </Text>
             {showAll ? (
@@ -182,13 +214,34 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
     marginBottom: spacing.xs,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sectionHeading: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.8,
+  },
+  sourceCount: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 'auto',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  viewAllText: {
+    fontSize: 11,
+    fontWeight: '500',
   },
   chipsWrap: {
     flexDirection: 'row',
@@ -203,7 +256,13 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: radius.full,
     borderWidth: 1,
-    maxWidth: 160,
+    maxWidth: 170,
+  },
+  iconBox: {
+    width: 15,
+    height: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chipText: {
     fontSize: 11.5,
@@ -213,7 +272,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: radius.full,
     borderWidth: 1,
@@ -234,3 +293,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 });
+

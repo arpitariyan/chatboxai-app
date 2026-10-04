@@ -73,15 +73,17 @@ export const Composer: React.FC<ComposerProps> = ({
   const hasText = localText.trim().length > 0;
   const hasContent = hasText || pendingAttachments.length > 0;
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [searchEnabled, setSearchEnabled] = useState(true);
   const { isResearchMode, quota, toggleResearchMode, fetchQuota, setResearchMode } = useResearchStore();
-  const { syncModelWithMode } = useModelStore();
+  const { syncModelWithMode, webSearchEnabled, setWebSearchEnabled } = useModelStore();
 
+  // The search type sent with each message:
+  // - 'research' when Research mode is active
+  // - 'search' when neither mode is active (Normal Search)
+  // webSearchEnabled (from + menu) enhances Normal Search with web data
+  // but does NOT change the mode pill state or the searchType sent.
   const currentSearchType: 'chat' | 'search' | 'research' = isResearchMode
     ? 'research'
-    : searchEnabled
-      ? 'search'
-      : 'chat';
+    : 'search';
 
   const userEmail = auth.currentUser?.email || undefined;
   useEffect(() => {
@@ -165,15 +167,18 @@ export const Composer: React.FC<ComposerProps> = ({
         </View>
         <View style={styles.toggles}>
           <Pressable
-            style={[styles.toggleBtn, searchEnabled && !isResearchMode && styles.toggleBtnActive]}
+            style={[styles.toggleBtn, !isResearchMode && styles.toggleBtnActive]}
             onPress={() => {
-              setSearchEnabled(true);
-              setResearchMode(false);
-              syncModelWithMode(false);
+              if (isResearchMode) {
+                // Deactivate Research mode — return to Normal Search
+                setResearchMode(false);
+                syncModelWithMode(false);
+              }
+              // If already in Normal Search (not Research), pressing Search does nothing
             }}
           >
-            <IconWorldSearch size={15} color={searchEnabled && !isResearchMode ? '#3b82f6' : '#8e8e93'} />
-            <Text style={[styles.toggleText, searchEnabled && !isResearchMode && styles.toggleTextActive]} numberOfLines={1}>Search</Text>
+            <IconWorldSearch size={15} color={!isResearchMode ? '#3b82f6' : '#8e8e93'} />
+            <Text style={[styles.toggleText, !isResearchMode && styles.toggleTextActive]} numberOfLines={1}>Search</Text>
           </Pressable>
           <Pressable
             style={[
@@ -184,7 +189,7 @@ export const Composer: React.FC<ComposerProps> = ({
             onPress={() => {
               toggleResearchMode(auth.currentUser?.email || undefined);
               if (!isResearchMode) {
-                setSearchEnabled(false);
+                setWebSearchEnabled(false);
               }
             }}
           >

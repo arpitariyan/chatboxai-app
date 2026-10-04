@@ -38,6 +38,7 @@ import { analyzeRouter } from './routes/analyze';
 import { proxyRouter } from './routes/proxy';
 import { imageRouter } from './routes/image';
 import { researchRouter } from './routes/research';
+import { searchRouter } from './routes/search';
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.MOBILE_API_PORT || 3001);
@@ -93,6 +94,7 @@ app.use('/api/mobile', analyzeRouter);
 app.use('/api/mobile', proxyRouter);
 app.use('/api/mobile', imageRouter);
 app.use('/api/mobile', researchRouter);
+app.use('/api/mobile', searchRouter);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

@@ -2277,3 +2277,160 @@ Implemented mobile-native Speech-to-Text capability for the microphone button in
 ### 3. App Iconography & Design Reference
 * **UI Icons:** Stroke-based SVG icons from **Tabler Icons** (`@tabler/icons-react-native`, website: https://tabler.io/icons). Provides consistent, clean, and minimal aesthetics for buttons, navigation, and toggles.
 * **Launcher & Splash Branding:** Custom brand assets located in `assets/` (`icon.png`, `android-icon-foreground.png`, `android-icon-background.png`, `android-icon-monochrome.png`) derived from the official website (`chatboxai_website_copy`).
+
+---
+
+## 34. Mobile APK Branding Update & Fullscreen Startup Video Experience (Oct 4, 2026)
+
+### 1. Application Display Name Update
+- Updated [`app.json`](file:///d:/All%20Projects/Chatboxai_APK/app.json): Changed application display name from `"Chatboxai_APK"` to **`"Chatbox Ai"`**.
+- Properly propagates to device launcher, app drawer, and system settings across installed production APK builds.
+
+### 2. Main App Icon & Android Adaptive Launcher Configuration
+- Configured [`assets/Main-logo.png`](file:///d:/All%20Projects/Chatboxai_APK/assets/Main-logo.png) (1080x1080) as the primary application icon.
+- Updated `app.json`:
+  - Set `"icon": "./assets/Main-logo.png"`.
+  - Configured `"android.adaptiveIcon"` with `"backgroundColor": "#ffffff"`.
+- Generated optimized production launcher assets:
+  - **`assets/icon.png`**: High-resolution 1024x1024 master icon derived from `Main-logo.png` for legacy Android devices and build tools.
+  - **`assets/android-icon-foreground.png`**: 512x512 adaptive foreground containing the extracted emblem from `Main-logo.png`, carefully scaled to ~60.5% (within the 66% Android safe zone) on a transparent canvas to prevent clipping on circular, squircle, and rounded rectangle Android launcher masks.
+  - **`assets/android-icon-background.png`**: 512x512 `#ffffff` solid white background layer matching the brand artwork.
+  - **`assets/android-icon-monochrome.png`**: 432x432 monochrome silhouette of the emblem for Android 13+ Material You dynamic themed icons.
+  - **`assets/favicon.png`**: 48x48 icon for web client preview.
+
+### 3. Fullscreen Startup Video Experience (`Final_loading_video.mp4`)
+- Replaced the legacy `ActivityIndicator` startup loading screen with a dedicated video playback experience.
+- Installed `expo-video` (`~57.0.5`) and registered the `"expo-video"` config plugin in [`app.json`](file:///d:/All%20Projects/Chatboxai_APK/app.json).
+- Created [`src/types/assets.d.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/types/assets.d.ts) to provide TypeScript module declarations for `.mp4`, `.png`, and `.jpg` asset imports.
+- Built [`src/components/common/StartupVideoScreen.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/common/StartupVideoScreen.tsx):
+  - Renders **ONLY** [`assets/Final_loading_video.mp4`](file:///d:/All%20Projects/Chatboxai_APK/assets/Final_loading_video.mp4) full-screen (`1080x1920`, 4.0s duration).
+  - Absolutely zero text, buttons, icons, progress indicators, or loading messages.
+  - Native controls completely disabled (`nativeControls={false}`).
+  - Full-screen immersion with `<StatusBar hidden />` and pitch-black `#000000` container background matching the video frames.
+  - Dual completion coordination: ensures the video finishes its full 4.0-second playback (`playToEnd`) while synchronizing with `useAuth` initialization (`isAppReady`).
+  - Integrated 4.2-second safety timer and error fallback to guarantee the app never hangs if video playback is interrupted.
+  - Clean 350ms hardware-accelerated fade-out transition (`Animated.timing` with `useNativeDriver: true`) revealing the underlying application (`AuthContainer` or `AppShell`) with zero white flash.
+- Updated [`App.tsx`](file:///d:/All%20Projects/Chatboxai_APK/App.tsx) to mount `StartupVideoScreen` during app launch and cleanly dispose of it once startup is complete.
+
+### 4. Build & Type Verification
+- Ran strict TypeScript verification via `npx tsc --noEmit` — 0 errors, 0 warnings.
+
+---
+
+## 35. Startup Video Performance Optimization & Audio Disabling (Oct 4, 2026)
+
+### 1. Audio Track Complete Stripping & File Optimization
+- **Audio Stripped at Container Level**: Removed the AAC stereo audio stream completely from [`assets/Final_loading_video.mp4`](file:///d:/All%20Projects/Chatboxai_APK/assets/Final_loading_video.mp4) using `ffmpeg -an`.
+- **Zero Audio Subsystem Overhead**: Eliminates Android `AudioTrack` buffer allocations, audio sink initialization latency, and audio focus requests during app cold start.
+- **Faststart MOOV Atom**: Repositioned the MP4 `moov` metadata atom to the very beginning of the container (`-movflags +faststart`). Hardware decoders begin streaming and decoding on the very first byte with zero seeking overhead.
+- **High-Efficiency H.264 Re-encoding**: Re-encoded with libx264 (`-crf 19`, `-preset veryslow`, `-profile:v high`, `-level 4.1`, `-pix_fmt yuv420p`), preserving visual fidelity (SSIM: 0.9988) while reducing asset size by **55.7%** (from 289.5 KB down to **128.1 KB**).
+
+### 2. Player Muting & Hardware Acceleration (`StartupVideoScreen.tsx`)
+- **Complete Mute Enforcement**: Configured `p.muted = true`, `p.volume = 0`, and `p.audioMixingMode = 'doNotMix'` inside `useVideoPlayer` to guarantee zero sound and prevent interrupting any background audio playing on the user's device.
+- **Hardware SurfaceView**: Configured `surfaceType="surfaceView"` on `VideoView` to leverage Android's native `SurfaceView` compositor, offloading frame rendering directly to the GPU without UI thread overhead.
+- **Immediate Decoder Cleanup**: Added cleanup logic to trigger `player.pause()` immediately upon transition completion and component unmount to free hardware video decoders.
+- **Full-Screen Behavior Preserved**: Maintained 100% full-screen display, zero UI clutter (no text, buttons, icons, or progress spinners), pitch-black background (`#000000`), and smooth 350ms native-driver fade-out into the app.
+
+### 3. Build & Type Verification
+- Ran strict TypeScript check via `npx tsc --noEmit` — **0 errors, 0 warnings**.
+
+---
+
+## 36. Thinking Mode, Effort, and Web Search System Implementation (Oct 4, 2026)
+
+### 1. Thinking Mode System
+- **Default State**: Maintained `thinkingMode: true` by default in [`src/stores/useModelStore.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/stores/useModelStore.ts).
+- **Intelligent Query Complexity Scaling** ([`src/services/search/queryPlanner.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/search/queryPlanner.ts)):
+  - Built an intent and complexity classifier categorizing user queries into `SIMPLE`, `MODERATE`, and `COMPLEX`.
+  - **Simple Queries** (greetings, chitchat, short factual lookups like capital of France): Thinking Mode operates in **Concise Mode**—restricting reasoning to a brief 1-2 sentence verification to prevent over-processing.
+  - **Complex Queries** (programming, debugging, math derivations, logic puzzles, multi-step constraints): Thinking Mode operates in **Deep Reasoning Mode**—enforcing thorough constraint checks, step-by-step logic analysis, edge-case evaluation, and verification.
+  - **Moderate Queries**: Focuses on structured planning and accuracy.
+- **Strict Disabling Behavior**:
+  - When toggled OFF, system instructions explicitly forbid reasoning traces and `<think>` tags (`THINKING MODE: DISABLED. Return ONLY the direct answer`).
+  - In [`src/hooks/useChatGeneration.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/hooks/useChatGeneration.ts): strictly forces `finalThinking = ''`, strips any stray tokens, and ensures `ThinkingBlock` is never rendered in the UI or stored in the database.
+- **Clean Reasoning & Answer Separation**:
+  - User-facing `aiResp` stored in Appwrite is 100% clean final text without `<think>` or `</think>` tags.
+  - Reasoning traces are extracted via [`src/utils/parseAiResponse.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/utils/parseAiResponse.ts) and persisted alongside sources in the Appwrite `searchResult` JSON wrapper `{ sources: [...], reasoning: '...' }` so they reload smoothly into `ThinkingBlock` above the answer without polluting `aiResp`.
+
+### 2. Effort Levels System (`Low`, `Medium`, `High`, `Extra High`)
+- **System Directives** ([`src/services/llm/providers.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/llm/providers.ts)):
+  - `Low`: Concise, fast, direct answers without unnecessary filler.
+  - `Medium`: Balanced, structured response covering core nuances.
+  - `High`: Deep processing effort, comprehensive explanations, relevant examples, and edge case awareness.
+  - `Extra High`: Exhaustive analytical rigor, full breakdown of sub-components, and expert-level structure.
+- **Dynamic Parameter Resolution** (`resolveModelParameters` in `providers.ts`):
+  - `max_tokens` scaled: Low = `1536`, Medium = `2560`, High = `4096`, Extra High = `6144`.
+  - `temperature` scaled: Low = `0.7`, Medium = `0.6`, High = `0.4`, Extra High = `0.2`.
+  - `top_p` scaled: Low = `1.0`, Medium = `0.95`, High = `0.9`, Extra High = `0.85`.
+- **Model Capability & Parameter Safety**:
+  - Automatically adapts parameters per provider: omits `temperature` for strict reasoning models (e.g., OpenAI `o1`, `o3`) to prevent HTTP 400 errors.
+  - Sends only recognized, universally valid fields to OpenAI/Groq/OpenRouter/Replicate/NVIDIA and Google Gemini APIs.
+
+### 3. Web Search System for Normal Search
+- **Centralized Store State & UI Synchronization**:
+  - Added `webSearchEnabled: boolean` (default `false`) and `setWebSearchEnabled` to [`src/stores/useModelStore.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/stores/useModelStore.ts).
+  - Connected the Switch in [`src/components/chat/AttachmentSheet.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/AttachmentSheet.tsx) directly to `useModelStore.webSearchEnabled`.
+  - Connected the "Search" pill button in [`src/components/chat/Composer.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/Composer.tsx) to toggle `webSearchEnabled`, synchronizing seamlessly with the `+` menu.
+- **Lightweight Multi-Search Engine** ([`src/services/search/webSearchService.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/search/webSearchService.ts)):
+  - Created a dedicated, fast search service for normal chat:
+    1. Primary: Mobile Backend endpoint `POST /api/mobile/search/execute` leveraging Tavily 12-key rotation pool + DuckDuckGo fallback + 6-hour Appwrite cache.
+    2. Resilient Client Fallback: Direct Tavily search via client keys (`EXPO_PUBLIC_TAVILY_API_KEY` pool) + DuckDuckGo HTML scraper + Instant Answer API.
+  - Faster and lighter than Deep Research: retrieves 4-8 high-quality sources in 1-2 seconds without running multi-turn page crawling or consuming weekly Deep Research quota.
+  - Query cleaner in [`queryPlanner.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/services/search/queryPlanner.ts) extracts clean, high-intent search queries from conversational prompts.
+- **Citation & Source Connection**:
+  - Injects numbered citations `[1]`, `[2]`, etc. into the LLM system prompt.
+  - Sources are attached to the message and rendered seamlessly in [`src/components/chat/SourceChips.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/components/chat/SourceChips.tsx) with favicon, domain labels, and clickable external URLs.
+
+### 4. Visual Style & Loading State Continuity
+- Reused the exact minimal visual style in [`src/features/chat/ChatScreen.tsx`](file:///d:/All%20Projects/Chatboxai_APK/src/features/chat/ChatScreen.tsx):
+  - When Thinking Mode is ON: shows pulsing `ThinkingBlock` loader with titles:
+    - `"Searching the web..."` -> `"Evaluating sources..."` -> `"Preparing reasoning..."`
+  - When Thinking Mode is OFF: shows minimal `<ActivityIndicator>` with text:
+    - `"Searching the web..."` -> `"Evaluating sources..."` -> `"Thinking..."`
+  - Zero visual dissonance or mismatched loading animations.
+
+### 5. Verification & Test Suite
+- Created comprehensive integration test suite [`src/tests/test-thinking-effort-search.ts`](file:///d:/All%20Projects/Chatboxai_APK/src/tests/test-thinking-effort-search.ts):
+  - Verified query complexity classification and conversational prefix stripping.
+  - Verified Thinking Mode prompt directives (disabled, concise, deep reasoning).
+  - Verified Effort level parameter resolution and o1/o3 temperature safety.
+  - Verified `parseAiResponse` reasoning separation.
+  - Verified `useModelStore` defaults and synchronization.
+  - 100% test pass rate (`npx tsx src/tests/test-thinking-effort-search.ts`).
+### Session 69 — Web Search Engine Fix & Live Sources Design Restoration (Oct 4, 2026)
+
+#### 1. Problem Statement
+The user reported that Web Search was not collecting sources under the hood, and collected sources were not displaying in the UI design ("Jo web search ka hai bho andar hin andar web search kar ke source collect kiyun nehi kar raha hai aur design main kiyun show nehi kar raha hai design sources ka web search ka meaning bho hai na").
+
+#### 2. Root Cause Analysis
+1. **Trigger Condition Disconnection**: In `useChatGeneration.ts`, `shouldWebSearch` had been modified to exclusively depend on `webSearchEnabledRef.current`, while `Composer.tsx`'s "Search" pill button was disconnected from enabling web search. As a result, sending queries in Normal Search mode never triggered the web search pipeline.
+2. **DuckDuckGo HTML Parser Regex Bug**: In `src/services/search/webSearchService.ts`, the regex `/<a class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i` expected `class="result__a"` immediately after `<a `. In actual DuckDuckGo HTML, the output was `<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=..."`. This caused `titleMatch` to return `null` on 100% of blocks, discarding every valid web result.
+3. **Missing Scheme & Entity Encoding**: DuckDuckGo redirect URLs used protocol-relative URLs (`//duckduckgo.com/l/?uddg=...`) and contained `&amp;` entities, causing URL validation to fail when checking for `http://` or `https://`.
+4. **Sources UI Integration**: `SourcesBottomSheet.tsx` was implemented in an earlier session but was never connected or imported into `ChatBubble.tsx`. Furthermore, `SourceChips.tsx` lacked SVG brand icons (`SvglIcon`) and had no action button to view all sources in full detail.
+
+#### 3. Fixes Applied
+1. **Under-The-Hood Search Execution (`useChatGeneration.ts`)**:
+   - Updated `shouldWebSearch = !isDeepResearch && (searchType === 'search' || webSearchEnabledRef.current) && !isPureGreeting;`.
+   - Web search reliably triggers when Normal Search mode is active or when toggled in the `+` menu, skipping only single-word greetings (`hi`, `hello`) to avoid unnecessary latency.
+   - Set in-flight progress message: `"Searching the web..."` -> `"Found N sources, evaluating..."`.
+   - Returns `{ dbId, processedFiles, sources }` directly from `generateResponse`, eliminating React state timing race conditions.
+2. **Client-Side Search Scraper & Fallback Engine (`webSearchService.ts`)**:
+   - Fixed DuckDuckGo scraper regex to `/<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i`.
+   - Added `unescapeHtml()` to decode `&amp;`, `&quot;`, `&#39;`, `&lt;`, `&gt;`, and strip tags.
+   - Added automatic `https:` scheme prefixing for `//` protocol-relative URLs and decodeURIComponent for `uddg=` redirect URLs.
+   - Added `clientWikipediaSearch()` fallback using Wikipedia Opensearch API (`https://en.wikipedia.org/w/api.php?action=opensearch`) as an instant, zero-latency, high-authority fallback that guarantees verified sources even if scrapers encounter CAPTCHAs.
+3. **Rich Sources Presentation in the Design (`SourceChips.tsx` & `ChatBubble.tsx`)**:
+   - Integrated `SvglIcon` in `SourceChips.tsx` to display real SVG brand icons for domains (Google, Wikipedia, GitHub, BBC, TechCrunch, etc.).
+   - Added `SOURCES ({count})` header with domain pill chips and `+N more` action.
+   - Added a dedicated "Sources (N)" action pill button in `ChatBubble.tsx`'s action row (beside Copy, Like, Dislike, Speaker, Regenerate).
+   - Connected `SourcesBottomSheet` in `ChatBubble.tsx`, allowing users to tap "+N more", "View all", or the action row button to inspect all sources with full titles, descriptions/snippets, brand icons, and direct external links.
+4. **Dedicated In-Flight Search State (`ChatScreen.tsx`)**:
+   - Added a dedicated web search progress view (`ActivityIndicator` + `"Searching the web..."` / `"Found N sources, evaluating..."`) so users have clear visual feedback while sources are being retrieved under the hood.
+
+#### 4. Verification
+- Direct Node parser test: DuckDuckGo HTML returned **8 rich web results** with clean URLs, titles, and snippets.
+- Direct Node Wikipedia test: returned **5 verified articles** with clean URLs.
+- Type check: `npx tsc --noEmit` passed with **0 errors, 0 warnings**.
+
+
+

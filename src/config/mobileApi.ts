@@ -89,3 +89,11 @@ export function toMobileResearchExecuteUrl(): string {
   return `${resolveBackendBaseUrl()}/api/mobile/research/execute`;
 }
 
+/**
+ * Endpoint for lightweight Web Search execution (Normal Search with Web Search ON).
+ */
+export function toMobileSearchExecuteUrl(): string {
+  return `${resolveBackendBaseUrl()}/api/mobile/search/execute`;
+}
+
+
