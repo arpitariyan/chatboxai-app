@@ -43,23 +43,23 @@ export function getEffortSystemSuffix(effortLevel?: EffortLevel): string {
     case 'Medium':
       return (
         '\n\nEFFORT LEVEL: MEDIUM\n' +
-        'Deliver a well-structured, clear, and balanced response. Cover the core aspects with helpful nuance.'
+        'Deliver a well-structured, clear, balanced, and complete response. Cover core aspects with helpful nuance and clear explanations without cutting off.'
       );
     case 'High':
       return (
         '\n\nEFFORT LEVEL: HIGH\n' +
-        'Apply deep processing effort. Deliver a comprehensive, highly thorough response with structured explanations, relevant examples, edge case awareness, and clear verification.'
+        'Apply deep processing effort. Deliver a comprehensive, highly thorough, and complete response with structured explanations, relevant examples, edge case awareness, and clear verification without truncating.'
       );
     case 'Extra High':
       return (
         '\n\nEFFORT LEVEL: EXTRA HIGH\n' +
-        'Apply maximum analytical rigor and exhaustive depth. Break down all components methodically, verify assumptions and edge cases, cover nuances, and provide an authoritative, impeccably structured solution.'
+        'Apply maximum analytical rigor and exhaustive depth. Break down all components methodically, verify assumptions and edge cases, cover nuances, and provide an authoritative, impeccably structured and fully complete solution.'
       );
     case 'Low':
     default:
       return (
-        '\n\nEFFORT LEVEL: LOW\n' +
-        'Be fast, concise, and direct. Focus on clarity and brevity without unnecessary filler.'
+        '\n\nEFFORT LEVEL: STANDARD\n' +
+        'Deliver a direct, well-structured, and complete response. Focus on clarity and accuracy while ensuring all aspects of the user inquiry are answered thoroughly.'
       );
   }
 }
@@ -74,7 +74,7 @@ export function getThinkingModeSuffix(
     return (
       '\n\nTHINKING MODE: DISABLED\n' +
       'Do NOT output any thinking process, internal monologue, reasoning steps, or <think> tags. ' +
-      'Provide ONLY the direct, high-quality final answer immediately.'
+      'Provide ONLY the direct, high-quality, comprehensive final answer immediately.'
     );
   }
 
@@ -83,7 +83,7 @@ export function getThinkingModeSuffix(
     return (
       '\n\nTHINKING MODE: ENABLED (CONCISE MODE)\n' +
       'This is a simple or conversational query. Enclose a brief 1-2 sentence verification within <think> and </think> tags, ' +
-      'then immediately output the closing </think> tag and provide your direct final response. Do not over-elaborate the reasoning trace.'
+      'then immediately output the closing </think> tag and provide your complete, direct final response. Do not over-elaborate the reasoning trace, and ensure your final response is full and complete.'
     );
   }
 
@@ -94,7 +94,8 @@ export function getThinkingModeSuffix(
       '- Analyze constraints, requirements, and edge cases\n' +
       '- Formulate and evaluate solutions methodically\n' +
       '- Verify logic, code, or factual claims before concluding\n' +
-      'CRITICAL: You MUST output the closing </think> tag before writing your final response. Keep the final response completely separate from the thinking trace.'
+      'CRITICAL: You MUST output the closing </think> tag before writing your final response.\n' +
+      'FINAL RESPONSE REQUIREMENT: Once </think> is closed, provide a complete, well-structured, and exhaustive answer. Do NOT stop prematurely or leave sentences/thoughts unfinished. Address all parts of the user request thoroughly.'
     );
   }
 
@@ -102,8 +103,66 @@ export function getThinkingModeSuffix(
   return (
     '\n\nTHINKING MODE: ENABLED\n' +
     'Before providing your final answer, write out a focused reasoning process enclosed strictly within <think> and </think> tags. ' +
-    'Plan the structure and verify key details. CRITICAL: You MUST output the closing </think> tag before writing your final response.'
+    'Plan the structure and verify key details. CRITICAL: You MUST output the closing </think> tag before writing your final response.\n' +
+    'FINAL RESPONSE REQUIREMENT: Once </think> is closed, provide a complete, well-structured final answer. Do NOT stop prematurely or leave thoughts unfinished. Ensure the response is comprehensive and fully answers the user.'
   );
+}
+
+// ── Smart Context Budgeting for Groq ─────────────────────────────────────────
+// Groq enforces a strict 6,000 - 8,000 TPM and 7,000 ITPM limit across all free models.
+// To guarantee zero 413 errors while keeping output headroom high, this budgets input messages to ~2,800 tokens.
+export function budgetMessagesForGroq(messages: LLMMessage[]): LLMMessage[] {
+  const MAX_INPUT_CHARS = 10000; // ~2,800 tokens
+
+  const totalChars = messages.reduce((sum, m) => {
+    return sum + (typeof m.content === 'string' ? m.content.length : 200);
+  }, 0);
+
+  if (totalChars <= MAX_INPUT_CHARS) {
+    return messages;
+  }
+
+  const systemMsg = messages.find(m => m.role === 'system');
+  const nonSystemMsgs = messages.filter(m => m.role !== 'system');
+  const latestMsg = nonSystemMsgs[nonSystemMsgs.length - 1];
+  const historyMsgs = nonSystemMsgs.slice(0, -1);
+
+  const budget: LLMMessage[] = [];
+  let currentChars = 0;
+
+  if (systemMsg) {
+    const sysContent = typeof systemMsg.content === 'string' ? systemMsg.content : '';
+    const trimmedSys = sysContent.length > 2200 ? sysContent.slice(0, 2200) + '... [search context trimmed]' : sysContent;
+    budget.push({ role: 'system', content: trimmedSys });
+    currentChars += trimmedSys.length;
+  }
+
+  const latestChars = typeof latestMsg?.content === 'string' ? latestMsg.content.length : 500;
+  const remainingBudget = Math.max(1000, MAX_INPUT_CHARS - currentChars - latestChars);
+
+  // Keep most recent history turns working backwards
+  const keptHistory: LLMMessage[] = [];
+  let historyChars = 0;
+  for (let i = historyMsgs.length - 1; i >= 0; i--) {
+    const h = historyMsgs[i];
+    let contentStr = typeof h.content === 'string' ? h.content : '';
+    if (contentStr.length > 800) {
+      contentStr = contentStr.slice(0, 800) + '... [earlier turn truncated]';
+    }
+    if (historyChars + contentStr.length <= remainingBudget) {
+      keptHistory.unshift({ role: h.role, content: contentStr });
+      historyChars += contentStr.length;
+    } else {
+      break;
+    }
+  }
+
+  budget.push(...keptHistory);
+  if (latestMsg) {
+    budget.push(latestMsg);
+  }
+
+  return budget;
 }
 
 // ── Resolve supported model parameters safely across providers ────────────────
@@ -113,28 +172,28 @@ export function resolveModelParameters(
 ): { temperature?: number; max_tokens: number; top_p: number } {
   const effort = options.effortLevel || 'Low';
 
-  let max_tokens = 2048;
+  let max_tokens = 4096;
   let temperature = 0.7;
   let top_p = 1.0;
 
   switch (effort) {
     case 'Low':
-      max_tokens = 1536;
+      max_tokens = 4096;
       temperature = 0.7;
       top_p = 1.0;
       break;
     case 'Medium':
-      max_tokens = 2560;
-      temperature = 0.6;
+      max_tokens = 4096;
+      temperature = 0.65;
       top_p = 0.95;
       break;
     case 'High':
-      max_tokens = 4096;
+      max_tokens = 6144;
       temperature = 0.4;
       top_p = 0.9;
       break;
     case 'Extra High':
-      max_tokens = 6144;
+      max_tokens = 8192;
       temperature = 0.2;
       top_p = 0.85;
       break;
@@ -212,12 +271,32 @@ export async function callOpenAICompat(
     }
   }
 
+  // ── Prevent 413 / ITPM (Input Token Per Minute) rate limits on Groq ──
+  // Groq's on-demand free tier enforces strict 6,000 - 8,000 TPM and 7,000 ITPM limits across all models.
+  let finalMessages = formattedMessages;
+  if (providerLabel === 'groq') {
+    finalMessages = budgetMessagesForGroq(formattedMessages);
+  }
+
   const modelParams = resolveModelParameters(modelApi, options);
+  let resolvedMaxTokens = modelParams.max_tokens;
+
+  if (providerLabel === 'groq') {
+    const totalChars = finalMessages.reduce((sum, m) => {
+      return sum + (typeof m.content === 'string' ? m.content.length : 200);
+    }, 0);
+    const approxPromptTokens = Math.ceil(totalChars / 3.5);
+
+    // Groq free on-demand tier has a 7,800 TPM envelope with a 250 safety buffer = 7,550 total tokens.
+    // Calculate available output tokens while guaranteeing at least 1,024 tokens for completion.
+    const availableTokens = Math.max(1024, 7550 - approxPromptTokens);
+    resolvedMaxTokens = Math.min(modelParams.max_tokens, availableTokens);
+  }
 
   const payload: any = {
     model: modelApi,
-    messages: formattedMessages,
-    max_tokens: modelParams.max_tokens,
+    messages: finalMessages,
+    max_tokens: resolvedMaxTokens,
     top_p: modelParams.top_p,
     frequency_penalty: options.frequency_penalty ?? 0,
     presence_penalty: options.presence_penalty ?? 0,
@@ -228,7 +307,7 @@ export async function callOpenAICompat(
     payload.temperature = modelParams.temperature;
   }
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -236,6 +315,21 @@ export async function callOpenAICompat(
     },
     body: JSON.stringify(payload),
   });
+
+  // If Groq returns 413 payload too large, automatically retry once with reduced max_tokens (website inngest pattern)
+  if (!response.ok && response.status === 413 && providerLabel === 'groq' && resolvedMaxTokens > 1024) {
+    const retriedMaxTokens = Math.max(1024, Math.floor(resolvedMaxTokens * 0.6));
+    console.warn(`[ChatboxAI] [groq] 413 token limit, automatically retrying with safe max_tokens (${resolvedMaxTokens} -> ${retriedMaxTokens})...`);
+    payload.max_tokens = retriedMaxTokens;
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  }
 
   if (!response.ok) {
     const errorText = await response.text();

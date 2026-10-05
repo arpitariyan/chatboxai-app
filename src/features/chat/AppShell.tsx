@@ -12,6 +12,8 @@ import { useThemeColors } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { pinService } from '@/services/pinService';
 import { chatService } from '@/services/chatService';
+import { useIncognitoStore } from '@/stores/useIncognitoStore';
+import { useModelStore } from '@/stores/useModelStore';
 
 export const AppShell: React.FC = () => {
   const colors = useThemeColors();
@@ -32,6 +34,9 @@ export const AppShell: React.FC = () => {
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchorPosition | null>(null);
   const [isPinned, setIsPinned] = useState(false);
+
+  // ── Incognito Mode ────────────────────────────────────────────────────────
+  const { isIncognito, toggleIncognito, exitIncognito } = useIncognitoStore();
 
   // =====================================================================
   // PIN STATE SYNCHRONIZATION
@@ -79,21 +84,26 @@ export const AppShell: React.FC = () => {
     setChatSessionId(Date.now().toString());
     // 3. Reset refresh counter for new user session
     setDrawerRefreshTrigger(0);
-  }, [currentUser?.email]);
+    // 4. Always exit incognito when account changes — never carry private sessions across accounts
+    exitIncognito();
+  }, [currentUser?.email, exitIncognito]);
 
   // ── All callbacks are stable ───────────────────────────────────────────────
 
   const handleNewChat = useCallback(() => {
+    useModelStore.getState().setWebSearchEnabled(false);
     setActiveLibId(null);
     setActiveTitle('');
     setIsConversation(false);
     setImagePrompt(undefined);
     setImageReferenceUri(undefined);
-    setChatSessionId(Date.now().toString());
+    setChatSessionId(isIncognito ? `incognito-${Date.now()}` : Date.now().toString());
     setActiveView('chat');
-  }, []);
+  }, [isIncognito]);
 
   const handleSelectCreateImage = useCallback((prompt?: string, referenceImageUri?: string) => {
+    exitIncognito();
+    useModelStore.getState().setWebSearchEnabled(false);
     setActiveLibId(null);
     setActiveTitle('');
     setIsConversation(false);
@@ -101,13 +111,15 @@ export const AppShell: React.FC = () => {
     setImageReferenceUri(referenceImageUri);
     setChatSessionId(`img-${Date.now()}`);
     setActiveView('image-gen');
-  }, []);
+  }, [exitIncognito]);
 
   const handleSelectNewImageGeneration = useCallback(() => {
     handleSelectCreateImage();
   }, [handleSelectCreateImage]);
 
   const handleSelectChatHistory = useCallback((libId: string, title?: string, type?: string) => {
+    exitIncognito();
+    useModelStore.getState().setWebSearchEnabled(false);
     setActiveLibId(libId);
     setActiveTitle(title || '');
     setIsConversation(true);
@@ -119,9 +131,11 @@ export const AppShell: React.FC = () => {
     } else {
       setActiveView('chat');
     }
-  }, []);
+  }, [exitIncognito]);
 
   const handleConversationCreated = useCallback((libId: string, title?: string) => {
+    // Never register an incognito session in the drawer
+    if (isIncognito) return;
     setActiveLibId(libId);
     if (title) {
       setActiveTitle(title);
@@ -129,16 +143,25 @@ export const AppShell: React.FC = () => {
     setIsConversation(true);
     // Notify Drawer to refresh its history list (new conversation just saved to Appwrite)
     setDrawerRefreshTrigger((prev) => prev + 1);
-  }, []);
+  }, [isIncognito]);
 
   const handleConversationActiveChange = useCallback((isActive: boolean) => {
     setIsConversation(isActive);
   }, []);
 
   const handleIncognitoChat = useCallback(() => {
-    // UI-only placeholder as requested by user; logic will be provided later
-    console.log('[AppShell] Incognito Chat icon pressed (UI only)');
-  }, []);
+    // Toggle incognito mode and always start a fresh chat session
+    toggleIncognito();
+    useModelStore.getState().setWebSearchEnabled(false);
+    setActiveLibId(null);
+    setActiveTitle('');
+    setIsConversation(false);
+    setImagePrompt(undefined);
+    setImageReferenceUri(undefined);
+    setChatSessionId(`incognito-${Date.now()}`);
+    setActiveView('chat');
+    console.log('[AppShell] Incognito toggled');
+  }, [toggleIncognito]);
 
   const handleOpenDrawer = useCallback(() => setIsDrawerOpen(true), []);
   const handleCloseDrawer = useCallback(() => setIsDrawerOpen(false), []);
@@ -233,6 +256,7 @@ export const AppShell: React.FC = () => {
           onOpenOptionsMenu={handleOpenOptionsMenu}
           onIncognitoChat={handleIncognitoChat}
           isConversation={isConversation}
+          isIncognito={isIncognito}
         />
       )}
 
@@ -245,6 +269,7 @@ export const AppShell: React.FC = () => {
           onConversationActiveChange={handleConversationActiveChange}
           onConversationTitleChange={setActiveTitle}
           onSelectCreateImage={handleSelectCreateImage}
+          isIncognito={isIncognito}
         />
       ) : activeView === 'image-gen' ? (
         <ImageGenScreen

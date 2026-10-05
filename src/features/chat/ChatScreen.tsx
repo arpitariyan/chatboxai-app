@@ -37,6 +37,7 @@ import { useChatGeneration, ChatAttachment } from '@/hooks/useChatGeneration';
 import { useModelStore } from '@/stores/useModelStore';
 import { parseStoredAttachments } from '@/utils/attachments';
 import { getFadeGradientConfig } from '@/utils/gradientFade';
+import { parseAiResponse } from '@/utils/parseAiResponse';
 
 // ── Hoist this out of the component so it is created exactly ONCE ──────────
 // Calling Animated.createAnimatedComponent() inside render creates a new type
@@ -56,6 +57,8 @@ interface ChatScreenProps {
   onConversationActiveChange?: (isActive: boolean) => void;
   onConversationTitleChange?: (title: string) => void;
   onSelectCreateImage?: (initialPrompt?: string, initialReferenceUri?: string) => void;
+  /** When true: ephemeral session — no DB reads or writes, no drawer update */
+  isIncognito?: boolean;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
@@ -64,6 +67,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   onConversationActiveChange,
   onConversationTitleChange,
   onSelectCreateImage,
+  isIncognito = false,
 }) => {
   const colors = useThemeColors();
   const { currentUser, userProfile } = useAuth();
@@ -129,6 +133,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     userId,
     userPlan: userProfile?.plan || 'free',
     onConversationCreated: handleConversationCreatedStable,
+    isIncognito,
   });
 
   // ── Track latest aiResponse and aiThinking in refs (stable closure) ────────
@@ -153,8 +158,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setCurrentLibIdState(activeLibId || null);
   }, [activeLibId]);
 
+
   // ── Load history when activeLibId is set ─────────────────────────────────
   useEffect(() => {
+    // Never load history in incognito — session is ephemeral
+    if (isIncognito) return;
     if (!activeLibId || !currentUser?.email) {
       setMessages([]);
       return;
@@ -183,9 +191,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         for (const rec of records) {
           const formattedTime = rec.createdAt
             ? new Date(rec.createdAt).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
+              hour: '2-digit',
+              minute: '2-digit',
+            })
             : '';
 
           if (rec.userSearchInput) {
@@ -209,8 +217,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
             if (rec.aiResp) {
               // Unpack the searchResult field — it may be a plain array of sources
-              // or an Option-A wrapper object { sources: [...], reasoning: '...' }
-              let parsedSources: any[] | undefined;
+              // or an Option-A wrapper object { sources: [...], deepResearch: true, confidence: '...', reasoning: '...' }
+              let parsedSources: any | undefined;
               let persistedReasoning: string | undefined;
               if (rec.searchResult) {
                 try {
@@ -219,7 +227,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                     parsedSources = raw;
                   } else if (raw && typeof raw === 'object') {
                     // Option A wrapper
-                    parsedSources = Array.isArray(raw.sources) ? raw.sources : undefined;
+                    const sourcesArr = Array.isArray(raw.sources) ? raw.sources : [];
+                    const isResearch = raw.deepResearch || rec.analysisType === 'deep_research';
+                    if (isResearch) {
+                      parsedSources = {
+                        sources: sourcesArr.map((s: any) => ({ ...s, deepResearch: true })),
+                        deepResearch: true,
+                        confidence: raw.confidence,
+                      };
+                    } else {
+                      parsedSources = sourcesArr;
+                    }
                     persistedReasoning = typeof raw.reasoning === 'string' && raw.reasoning
                       ? raw.reasoning
                       : undefined;
@@ -227,6 +245,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 } catch {
                   parsedSources = undefined;
                 }
+              }
+
+              // Sanitize rec.aiResp to strip any trailing duplicate sources section
+              // and extract any sources if not already present
+              const parsedAi = parseAiResponse(rec.aiResp);
+              const cleanAiResp = parsedAi.finalAnswer || rec.aiResp;
+              if ((!parsedSources || (Array.isArray(parsedSources) && parsedSources.length === 0)) && parsedAi.extractedSources.length > 0) {
+                parsedSources = parsedAi.extractedSources;
+              }
+              if (!persistedReasoning && parsedAi.thinking) {
+                persistedReasoning = parsedAi.thinking;
               }
 
               if (isRegeneration) {
@@ -247,16 +276,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   }
                   aiMsg.versions.push({
                     id: `${rec.id}-ai`,
-                    content: rec.aiResp,
+                    content: cleanAiResp,
                     thinking: persistedReasoning,
                     searchResult: parsedSources,
                     modelName: selectedModel?.name || 'ChatBox AI',
                     liked: rec.liked,
                     disliked: rec.disliked,
                   });
-                  
+
                   aiMsg.currentVersionIndex = aiMsg.versions.length - 1;
-                  aiMsg.content = rec.aiResp;
+                  aiMsg.content = cleanAiResp;
                   aiMsg.thinking = persistedReasoning;
                   aiMsg.searchResult = parsedSources;
                   aiMsg.modelName = selectedModel?.name || 'ChatBox AI';
@@ -268,7 +297,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 loadedMessages.push({
                   id: `${rec.id}-ai`,
                   role: 'assistant',
-                  content: rec.aiResp,
+                  content: cleanAiResp,
                   thinking: persistedReasoning,
                   timestamp: formattedTime,
                   searchResult: parsedSources,
@@ -369,7 +398,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             target.modelName = assistantMessage.modelName;
             target.liked = assistantMessage.liked;
             target.disliked = assistantMessage.disliked;
-            
+
             newMessages[idx] = target;
             return newMessages;
           }
@@ -444,7 +473,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   // ── Send message ──────────────────────────────────────────────────────────
   const handleSendMessage = useCallback(
     async (
-      text: string, 
+      text: string,
       searchType: 'chat' | 'search' | 'research' = 'chat',
       attachments?: ChatAttachment[],
       historyOverride?: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -452,7 +481,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       const messageContent = text.trim();
       if ((!messageContent && (!attachments || attachments.length === 0)) || isThinking || isSearching) return;
 
-      if (!currentUser?.email) {
+      if (!currentUser?.email && !isIncognito) {
         console.warn('[ChatScreen] Cannot send: not logged in');
         return;
       }
@@ -546,7 +575,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           }));
-        
+
         // DO NOT push a new user message to the UI. Just trigger response directly.
         regeneratingMessageIdRef.current = id;
         generateResponse(messages[idx - 1].content, 'chat', history);
@@ -558,7 +587,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleFeedback = useCallback((id: string, field: 'liked' | 'disliked', value: boolean) => {
     // Extract the raw DB id by removing the '-ai' suffix if present
     const dbId = id.replace(/-ai$/, '');
-    
+
     // Update local state instantly
     setMessages((prev) => prev.map((msg) => {
       if (msg.id === id) {
@@ -572,18 +601,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       return msg;
     }));
 
-    // Update DB
-    chatService.updateMessageFeedback(dbId, field, value);
-  }, []);
+    // Skip DB update in incognito — nothing was persisted anyway
+    if (!isIncognito) {
+      chatService.updateMessageFeedback(dbId, field, value);
+    }
+  }, [isIncognito]);
 
   const handleVersionChange = useCallback((id: string, direction: 'prev' | 'next') => {
     setMessages((prev) => prev.map((msg) => {
       if (msg.id === id && msg.versions && msg.versions.length > 1) {
         const currentIndex = msg.currentVersionIndex || 0;
-        const newIndex = direction === 'prev' 
+        const newIndex = direction === 'prev'
           ? Math.max(0, currentIndex - 1)
           : Math.min(msg.versions.length - 1, currentIndex + 1);
-        
+
         if (newIndex === currentIndex) return msg;
 
         const newActive = msg.versions[newIndex];
@@ -663,6 +694,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           colors={colors}
           pendingAttachments={pendingAttachments}
           onClearAttachment={handleClearAttachment}
+          isIncognito={isIncognito}
         />
       </KeyboardWrapper>
 
@@ -698,7 +730,7 @@ const KeyboardWrapper: React.FC<{ children: React.ReactNode; colors: any }> = ({
       const kh = e?.endCoordinates?.height || 0;
       // If the window successfully resized by itself, the height diff will be roughly the keyboard height.
       const heightDiff = initialLayoutHeight.current - currentLayoutHeight.current;
-      
+
       if (heightDiff >= kh * 0.7) {
         // OS handled it, no extra padding needed
         Animated.timing(androidKeyboardOffset, {
@@ -781,6 +813,7 @@ interface ContentProps {
   colors: any;
   pendingAttachments: ChatAttachment[];
   onClearAttachment: (uri: string) => void;
+  isIncognito?: boolean;
 }
 
 const ConversationContent: React.FC<ContentProps> = ({
@@ -809,6 +842,7 @@ const ConversationContent: React.FC<ContentProps> = ({
   colors,
   pendingAttachments,
   onClearAttachment,
+  isIncognito = false,
 }: {
   messages: MessageItem[];
   isLoadingHistory: boolean;
@@ -835,6 +869,7 @@ const ConversationContent: React.FC<ContentProps> = ({
   colors: any;
   pendingAttachments: ChatAttachment[];
   onClearAttachment: (uri: string) => void;
+  isIncognito?: boolean;
 }) => {
   const { thinkingMode } = useModelStore();
   const isResearchMode = useResearchStore((s) => s.isResearchMode);
@@ -880,28 +915,79 @@ const ConversationContent: React.FC<ContentProps> = ({
               </Text>
             </View>
           ) : isEmptyChat ? (
-            /* New Chat greeting */
-            <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
-              <Image source={logoImg} style={styles.brandLogo} resizeMode="contain" />
-              <Text style={[styles.greetingTitle, { color: colors.ink }]}>
-                Hello, {currentUser?.displayName || userProfile?.name || 'there'}!
-              </Text>
-              <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
-                What can I help you build or explore today?
-              </Text>
-              <View style={{ width: '100%', marginTop: spacing.md }}>
-                <SuggestionCards
-                  onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
-                />
-              </View>
-            </Pressable>
+            isIncognito ? (
+              /* Incognito Home Banner */
+              <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
+                <View style={[
+                  styles.incognitoBadge,
+                  { backgroundColor: colors.surface, borderColor: colors.line },
+                ]}>
+                  <Text style={[styles.incognitoIcon]}>🕵️</Text>
+                  <Text style={[styles.incognitoLabel, { color: colors.ink }]}>Incognito Mode</Text>
+                </View>
+                <Text style={[styles.greetingTitle, { color: colors.ink }]}>
+                  You're browsing privately
+                </Text>
+                <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
+                  This conversation won't be saved to your account. No history, no trace.
+                </Text>
+                <View style={[styles.incognitoInfoBox, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  Chat responses are not stored</Text>
+                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  No history entry will be created</Text>
+                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  Session ends when you leave this chat</Text>
+                </View>
+                <View style={{ width: '100%', marginTop: spacing.md }}>
+                  <SuggestionCards
+                    onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
+                  />
+                </View>
+              </Pressable>
+            ) : (
+              /* Normal New Chat greeting */
+              <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
+                <Image source={logoImg} style={styles.brandLogo} resizeMode="contain" />
+                <Text style={[styles.greetingTitle, { color: colors.ink }]}>
+                  Hello, {currentUser?.displayName || userProfile?.name || 'there'}!
+                </Text>
+                <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
+                  What can I help you build or explore today?
+                </Text>
+                <View style={{ width: '100%', marginTop: spacing.md }}>
+                  <SuggestionCards
+                    onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
+                  />
+                </View>
+              </Pressable>
+            )
           ) : (
             /* Thread */
             <View style={styles.threadContainer}>
+              {isIncognito && (
+                <View
+                  style={{
+                    alignSelf: 'center',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 12,
+                    paddingVertical: 5,
+                    borderRadius: 20,
+                    backgroundColor: '#3b285122',
+                    borderColor: '#7c4fa044',
+                    borderWidth: 1,
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text style={{ fontSize: 13 }}>🕵️</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: colors.ink2 }}>
+                    Incognito Chat • Nothing saved
+                  </Text>
+                </View>
+              )}
               {messages.map((msg) => (
-                <ChatBubble 
-                  key={msg.id} 
-                  message={msg} 
+                <ChatBubble
+                  key={msg.id}
+                  message={msg}
                   onRegenerate={handleRegenerate}
                   onFeedback={handleFeedback}
                   onVersionChange={handleVersionChange}
@@ -921,12 +1007,12 @@ const ConversationContent: React.FC<ContentProps> = ({
                     </View>
                   ) : thinkingMode ? (
                     // Show Reasoning style loader if thinking mode is active
-                    <ThinkingBlock 
-                      content="" 
-                      isFinished={false} 
-                      isLoading={true} 
+                    <ThinkingBlock
+                      content=""
+                      isFinished={false}
+                      isLoading={true}
                       loadingTitle={
-                        isFileAnalyzing 
+                        isFileAnalyzing
                           ? (progressMessage || 'Analyzing files...')
                           : (progressMessage || 'Preparing reasoning...')
                       }
@@ -1127,4 +1213,37 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  // ── Incognito Banner Styles ────────────────────────────────────────────────
+  incognitoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  incognitoIcon: {
+    fontSize: 20,
+  },
+  incognitoLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    letterSpacing: 0.2,
+  },
+  incognitoInfoBox: {
+    width: '100%',
+    marginTop: spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    gap: 6,
+  },
+  incognitoInfoLine: {
+    fontSize: typography.fontSize.sm,
+    lineHeight: 20,
+  },
 });
+

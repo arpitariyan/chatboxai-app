@@ -35,6 +35,11 @@ interface UseChatGenerationOptions {
   userId: string;
   userPlan?: string;
   onConversationCreated?: (libId: string, title?: string) => void;
+  /**
+   * When true the hook generates AI responses but never writes to Appwrite.
+   * No library record, no chat record — session is fully ephemeral.
+   */
+  isIncognito?: boolean;
 }
 
 interface UseChatGenerationReturn {
@@ -71,8 +76,11 @@ function buildMessages(
 
   if (sources.length > 0) {
     const ctx = sources
-      .slice(0, 8)
-      .map((s, i) => `[${i + 1}] ${s.title}\n${s.description || s.content || ''}\nURL: ${s.url}`)
+      .slice(0, 6)
+      .map((s, i) => {
+        const desc = (s.description || s.content || '').trim().slice(0, 350);
+        return `[${i + 1}] ${s.title}\n${desc}\nURL: ${s.url}`;
+      })
       .join('\n\n');
     systemContent +=
       '\n\nYou have access to the following live web search results. ' +
@@ -125,7 +133,13 @@ export const useChatGeneration = ({
   userId,
   userPlan = 'free',
   onConversationCreated,
+  isIncognito = false,
 }: UseChatGenerationOptions): UseChatGenerationReturn => {
+  // Keep isIncognito in a ref so the stable generateResponse closure can read it
+  const isIncognitoRef = useRef(isIncognito);
+  useEffect(() => {
+    isIncognitoRef.current = isIncognito;
+  }, [isIncognito]);
   const [isSearching, setIsSearching] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isFileAnalyzing, setIsFileAnalyzing] = useState(false);
@@ -186,7 +200,8 @@ export const useChatGeneration = ({
       history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
       attachments: any[] = []
     ): Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[] } | void> => {
-      if (!userEmail || !query.trim()) return;
+      const effectiveEmail = (userEmail || (isIncognitoRef.current ? 'incognito_session' : '')).trim().toLowerCase();
+      if (!effectiveEmail || !query.trim()) return;
       if (isGeneratingRef.current) {
         console.warn('[useChatGeneration] Already generating, ignoring call');
         return;
@@ -194,19 +209,21 @@ export const useChatGeneration = ({
       isGeneratingRef.current = true;
       const isDeepResearch = searchType === 'research';
       const queryAnalysis = analyzeUserQuery(query);
-      const isPureGreeting = queryAnalysis.isConversational && queryAnalysis.cleanSearchQuery.length < 6;
 
-      // Web Search activates when in Normal Search mode or when Web Search is enabled in + menu,
-      // skipping only trivial single-word greetings ('hi', 'hello') to avoid unnecessary latency.
-      const shouldWebSearch = !isDeepResearch && (searchType === 'search' || webSearchEnabledRef.current) && !isPureGreeting;
+      // Web Search activates ONLY when the user explicitly enables the "Web search" toggle in the + menu.
+      // Normal Search (default) processes prompt purely via the AI model pipeline without web retrieval.
+      const isWebSearchToggleOn = Boolean(useModelStore.getState().webSearchEnabled);
+      const shouldWebSearch = !isDeepResearch && isWebSearchToggleOn;
       const currentThinkingMode = thinkingModeRef.current;
       const currentEffortLevel = effortLevelRef.current;
 
-      // Reset only visible states, not source list (that's set fresh below)
+      // Always reset states cleanly at the start of each generation to avoid state leakage
       setAiResponse('');
       setProgressMessage('');
+      setAiThinking('');
+      setSourceList([]);
 
-      const normalizedEmail = userEmail.trim().toLowerCase();
+      const normalizedEmail = effectiveEmail;
 
       // ── Step 1: Resolve libId ──────────────────────────────────────────────
       let libId = activeLibIdRef.current;
@@ -238,7 +255,8 @@ export const useChatGeneration = ({
       }
 
       // ── Step 3: Create library record (first message only) ─────────────────
-      if (isFirstMessage) {
+      // Skip entirely in incognito mode — no DB trace left behind.
+      if (isFirstMessage && !isIncognitoRef.current) {
         try {
           const model = selectedModelRef.current;
           await chatService.createConversation({
@@ -294,7 +312,7 @@ export const useChatGeneration = ({
           const randomModel: any = pool[Math.floor(Math.random() * pool.length)];
           modelId = randomModel.publicId || randomModel.modelApi;
         } else {
-          modelId = 'chatboxai/gpt-oss-20b';
+          modelId = 'chatboxai/qwen-3.8-27b';
         }
       }
 
@@ -332,7 +350,7 @@ export const useChatGeneration = ({
               resolvedModel: { provider: 'Deep Research Engine', modelApi: (model as any)?.modelApi || 'auto' },
             };
 
-            useResearchStore.getState().fetchQuota(normalizedEmail).catch(() => {});
+            useResearchStore.getState().fetchQuota(normalizedEmail).catch(() => { });
           } catch (researchErr: any) {
             setIsSearching(false);
             if (researchErr.response?.status === 403 && researchErr.response?.data?.error === 'RESEARCH_LIMIT_REACHED') {
@@ -496,14 +514,28 @@ export const useChatGeneration = ({
           finalThinking = currentThinkingMode ? parsed.thinking : '';
         }
       } catch (err: any) {
-        console.error('[useChatGeneration] generation failed:', err.message);
+        console.error('[useChatGeneration] generation failed:', err?.message || err);
         setIsThinking(false);
-        setProgressMessage(err.message || 'Generation failed. Please try again.');
+        setIsSearching(false);
+        setIsFileAnalyzing(false);
+        setProgressMessage('');
         isGeneratingRef.current = false;
+        const errMsg = err?.message || 'Generation failed. Please try again.';
+        setAiResponse(`Sorry, an error occurred while processing your request: ${errMsg}`);
         return;
       }
 
       // ── Step 6: Persist to Appwrite ───────────────────────────────────────
+      // In incognito mode: skip ALL DB writes. Surface result directly to UI.
+      if (isIncognitoRef.current) {
+        setAiThinking(finalThinking);
+        setAiResponse(finalAnswerClean || responseText);
+        setIsThinking(false);
+        setProgressMessage('');
+        isGeneratingRef.current = false;
+        return { dbId: '', processedFiles: filePaths, sources };
+      }
+
       // Only save the CLEAN final answer to aiResp (no <think> pollution).
       // If there are sources, store them alongside the reasoning in a wrapper
       // so reasoning is persisted and survives a reload (Option A).

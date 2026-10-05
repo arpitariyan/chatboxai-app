@@ -22,6 +22,8 @@ interface HeaderProps {
   onOpenOptionsMenu?: (anchor?: MenuAnchorPosition) => void;
   onIncognitoChat?: () => void;
   isConversation?: boolean;
+  /** When true, the incognito button is shown in its active/tinted state */
+  isIncognito?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,6 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenOptionsMenu,
   onIncognitoChat,
   isConversation = false,
+  isIncognito = false,
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -79,10 +82,53 @@ export const Header: React.FC<HeaderProps> = ({
         </Pressable>
 
         {/* Right Action:
-            - Home screen: Incognito Chat icon (UI-only)
-            - Conversation screen: [ New Chat | Divider | Options (⋮) ]
+            - Incognito mode: Active spy icon (exit) + New private chat if active conversation
+            - Normal Conversation: [ New Chat | Divider | Options (⋮) ]
+            - Normal Home: Incognito Chat toggle button
         */}
-        {isConversation ? (
+        {isIncognito ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            {isConversation && (
+              <Pressable
+                onPress={onNewChat}
+                hitSlop={6}
+                accessibilityLabel="Start new private chat"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  {
+                    backgroundColor: pressed ? colors.hover : colors.surface,
+                    borderColor: colors.line,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+              >
+                <IconEdit size={18} color={colors.ink} />
+              </Pressable>
+            )}
+
+            <Pressable
+              onPress={onIncognitoChat}
+              hitSlop={8}
+              accessibilityLabel="Exit incognito chat"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.iconButton,
+                {
+                  backgroundColor: pressed ? '#3b285133' : '#3b285118',
+                  borderColor: '#7c4fa066',
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <IconSpy
+                size={20}
+                color="#9b5de5"
+                strokeWidth={2.2}
+              />
+            </Pressable>
+          </View>
+        ) : isConversation ? (
           <View
             style={[
               styles.segmentedPill,
@@ -137,18 +183,22 @@ export const Header: React.FC<HeaderProps> = ({
           <Pressable
             onPress={onIncognitoChat}
             hitSlop={8}
-            accessibilityLabel="Incognito chat"
+            accessibilityLabel="Enter incognito chat"
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.iconButton,
               {
                 backgroundColor: pressed ? colors.hover : colors.surface,
                 borderColor: colors.line,
-                opacity: pressed ? 0.75 : 1,
+                opacity: pressed ? 0.85 : 1,
               },
             ]}
           >
-            <IconSpy size={20} color={colors.ink} strokeWidth={1.8} />
+            <IconSpy
+              size={20}
+              color={colors.ink}
+              strokeWidth={1.8}
+            />
           </Pressable>
         )}
       </View>

@@ -11,10 +11,10 @@ import {
   IconRefresh,
   IconChevronLeft,
   IconChevronRight,
-  IconWorld,
 } from '@tabler/icons-react-native';
 import * as Speech from 'expo-speech';
 import { preprocessTextForTTS } from '@/utils/preprocessTTS';
+import { parseAiResponse, stripTrailingSources } from '@/utils/parseAiResponse';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownAnswer } from './MarkdownAnswer';
@@ -74,23 +74,44 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   // Extract structured sources list for display and bottom sheet
   const sourcesList = useMemo(() => {
-    if (!message.searchResult) return [];
-    let parsed: any = message.searchResult;
-    if (typeof message.searchResult === 'string') {
-      try {
-        parsed = JSON.parse(message.searchResult);
-      } catch {
-        return [];
+    let list: any[] = [];
+    if (message.searchResult) {
+      let parsed: any = message.searchResult;
+      if (typeof message.searchResult === 'string') {
+        try {
+          parsed = JSON.parse(message.searchResult);
+        } catch {
+          parsed = null;
+        }
+      }
+      if (parsed) {
+        list = Array.isArray(parsed)
+          ? parsed
+          : (parsed?.sources || parsed?.web || parsed?.searchResult || parsed?.mixedResults || []);
       }
     }
-    const list: any[] = Array.isArray(parsed)
-      ? parsed
-      : (parsed?.sources || parsed?.web || parsed?.searchResult || parsed?.mixedResults || []);
+
+    // Fallback: If searchResult has no sources, check if message.content has extracted sources
+    if (list.length === 0 && message.content && message.role === 'assistant') {
+      const { extractedSources } = stripTrailingSources(message.content);
+      if (extractedSources.length > 0) {
+        list = extractedSources;
+      }
+    }
+
     return list.filter((item: any) => {
       const u = item?.url || item?.link;
       return typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'));
     });
-  }, [message.searchResult]);
+  }, [message.searchResult, message.content, message.role]);
+
+  // Clean message content: strip thinking tags and any trailing duplicate sources section safely
+  const cleanMessageContent = useMemo(() => {
+    if (!message.content) return '';
+    if (message.role !== 'assistant') return message.content;
+    const parsed = parseAiResponse(message.content);
+    return parsed.finalAnswer || message.content;
+  }, [message.content, message.role]);
 
   // ── Typewriter animation ─────────────────────────────────────────────────
   // `animating` is true ONLY while the RAF loop is running.
@@ -98,21 +119,21 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   // the `message.isStreaming` prop — so the dot/toolbar state is deterministic.
   const [animating, setAnimating] = useState(() => message.isStreaming === true);
   const [displayedContent, setDisplayedContent] = useState(() =>
-    message.isStreaming ? '' : message.content
+    message.isStreaming ? '' : cleanMessageContent
   );
-  const animRef = useRef({ currentLength: 0, targetText: message.content });
+  const animRef = useRef({ currentLength: 0, targetText: cleanMessageContent });
 
   useEffect(() => {
     if (!message.isStreaming) {
       // History reload or non-streaming message — show everything immediately
       setAnimating(false);
-      setDisplayedContent(message.content);
+      setDisplayedContent(cleanMessageContent);
       return;
     }
 
     // New streaming message: kick off the animation
     setAnimating(true);
-    animRef.current = { currentLength: 0, targetText: message.content };
+    animRef.current = { currentLength: 0, targetText: cleanMessageContent };
 
     let rafId: number;
     let lastTime = 0;
@@ -139,30 +160,20 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [message.content, message.isStreaming]);
+  }, [cleanMessageContent, message.isStreaming]);
 
   const isLiked = message.liked === true || message.liked === 'true';
   const isDisliked = message.disliked === true || message.disliked === 'true';
 
-  // Extract thinking / reasoning block from <think>...</think>
+  // Extract thinking / reasoning block safely using parseAiResponse
   const thinkingContent = useMemo(() => {
     if (message.thinking) return message.thinking.trim();
     if (!message.content || message.role !== 'assistant') return '';
-    const match = message.content.match(/<think>([\s\S]*?)<\/think>/i);
-    if (match) return match[1].trim();
-    // In case thinking tag wasn't closed yet
-    const openMatch = message.content.match(/<think>([\s\S]*)$/i);
-    if (openMatch) return openMatch[1].trim();
-    return '';
+    return parseAiResponse(message.content).thinking;
   }, [message.content, message.role, message.thinking]);
 
   // Clean the content for copying and text selection
-  const fullFinalContent = useMemo(() => {
-    return message.content
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/<think>[\s\S]*$/gi, '')
-      .trim();
-  }, [message.content]);
+  const fullFinalContent = cleanMessageContent;
 
   const handleCopy = async () => {
     try {
@@ -178,9 +189,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
   const handleTTS = async () => {
     try {
       // Determine which version's content to read
-      const contentToRead = message.versions && message.currentVersionIndex !== undefined
+      const rawContentToRead = message.versions && message.currentVersionIndex !== undefined
         ? message.versions[message.currentVersionIndex].content
         : message.content;
+
+      const contentToRead = parseAiResponse(rawContentToRead || '').finalAnswer;
 
       if (isSpeaking) {
         await Speech.stop();
@@ -261,18 +274,18 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 </View>
               );
             })}
-            
+
             {message.attachments.length > 4 && (
               <View
                 style={[
                   styles.imageAttachmentCard,
-                  { 
-                    backgroundColor: colors.inset, 
-                    justifyContent: 'center', 
-                    alignItems: 'center', 
-                    marginBottom: 0, 
-                    borderWidth: 1, 
-                    borderColor: colors.line 
+                  {
+                    backgroundColor: colors.inset,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 0,
+                    borderWidth: 1,
+                    borderColor: colors.line
                   },
                 ]}
               >
@@ -340,9 +353,9 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
           )}
 
           {/* 4. Web Sources / Citations (matching sourceList.jsx) */}
-          {message.searchResult && (
+          {sourcesList.length > 0 && (
             <SourceChips
-              searchResult={message.searchResult}
+              searchResult={message.searchResult || { sources: sourcesList }}
               onOpenSheet={() => setShowSourcesSheet(true)}
             />
           )}
@@ -356,28 +369,6 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         {/* Action Toolbar — visible once animation is fully done */}
         {!animating && (
           <View style={styles.actionRow}>
-            {/* Sources Action Pill Button */}
-            {sourcesList.length > 0 && (
-              <Pressable
-                onPress={() => setShowSourcesSheet(true)}
-                hitSlop={8}
-                accessibilityLabel="View sources"
-                style={({ pressed }) => [
-                  styles.sourcesPillBtn,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.line,
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <IconWorld size={13} color={colors.accent || '#3b82f6'} />
-                <Text style={[styles.sourcesPillText, { color: colors.ink }]}>
-                  {sourcesList.length} {sourcesList.length === 1 ? 'Source' : 'Sources'}
-                </Text>
-              </Pressable>
-            )}
-
             {/* Copy Button */}
             <Pressable
               onPress={handleCopy}
@@ -593,18 +584,5 @@ const styles = StyleSheet.create({
   actionBtn: {
     paddingVertical: 4,
     paddingHorizontal: 4,
-  },
-  sourcesPillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4.5,
-    borderRadius: radius.full,
-    borderWidth: 1,
-  },
-  sourcesPillText: {
-    fontSize: 11.5,
-    fontWeight: '500',
   },
 });

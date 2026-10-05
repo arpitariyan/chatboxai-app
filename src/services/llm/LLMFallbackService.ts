@@ -1,11 +1,12 @@
 import { LLMMessage, LLMOptions, LLMResponse, callGoogleProvider, callOpenAICompat } from './providers';
 import { MODEL_REGISTRY } from '../../config/models-registry';
 
-// ── Auto-select fallback chain ───────────────────────────────────────────────
+// ── Auto-select fallback chain (Prioritizing high-context, verified working models) ───────
 const AUTO_CHAIN = [
-  'chatboxai/gpt-oss-20b',          // Groq — fast & high quality
-  'chatboxai/qwen-3.8-27b',         // Groq — reliable fallback
-  'chatboxai/allam-2-7b',           // Groq — lightest fallback
+  'chatboxai/qwen-3.8-27b',           // Groq (qwen3.8-27b) -> OpenRouter Nemotron
+  'chatboxai/nemotron-3.5-lightning', // OpenRouter (1M context free)
+  'chatboxai/gpt-oss-120b',          // Groq (120B) -> OpenRouter Nemotron
+  'chatboxai/allam-2-7b',            // Groq (allam-2-7b)
 ];
 
 export class LLMFallbackService {
@@ -76,28 +77,50 @@ export class LLMFallbackService {
 
     let lastError: any = null;
 
-    for (const key of keys) {
+    // Loop sequentially through each available API key for this provider.
+    // If Key 1 throws any error (e.g. 403, 429 rate limit, 413 token limit, 503),
+    // it automatically shifts to Key 2, Key 3, up to Key N.
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
       try {
+        console.log(`[ChatboxAI] [${provider}] Attempting with Key ${i + 1}/${keys.length} for "${modelApi}"...`);
+        let response: LLMResponse;
         switch (provider) {
           case 'openai':
-            return await callOpenAICompat(modelApi, messages, options, 'https://api.openai.com/v1', key, 'openai');
+            response = await callOpenAICompat(modelApi, messages, options, 'https://api.openai.com/v1', key, 'openai');
+            break;
           case 'groq':
-            return await callOpenAICompat(modelApi, messages, options, 'https://api.groq.com/openai/v1', key, 'groq');
+            response = await callOpenAICompat(modelApi, messages, options, 'https://api.groq.com/openai/v1', key, 'groq');
+            break;
           case 'openrouter':
-            return await callOpenAICompat(modelApi, messages, options, 'https://openrouter.ai/api/v1', key, 'openrouter');
+            response = await callOpenAICompat(modelApi, messages, options, 'https://openrouter.ai/api/v1', key, 'openrouter');
+            break;
           case 'replicate':
-            return await callOpenAICompat(modelApi, messages, options, 'https://openai-compat.replicate.com/v1', key, 'replicate');
+            response = await callOpenAICompat(modelApi, messages, options, 'https://openai-compat.replicate.com/v1', key, 'replicate');
+            break;
           case 'nvidia':
-            return await callOpenAICompat(modelApi, messages, options, 'https://integrate.api.nvidia.com/v1', key, 'nvidia');
+            response = await callOpenAICompat(modelApi, messages, options, 'https://integrate.api.nvidia.com/v1', key, 'nvidia');
+            break;
           case 'google':
-            return await callGoogleProvider(modelApi, messages, options, key);
+            response = await callGoogleProvider(modelApi, messages, options, key);
+            break;
           default:
             throw new Error(`Unknown provider: "${provider}"`);
         }
+
+        if (i > 0) {
+          console.log(`[ChatboxAI] [${provider}] Key ${i + 1}/${keys.length} succeeded!`);
+        }
+        return response;
       } catch (error: any) {
         lastError = error;
-        // Silently catch and try the next key. Do not use console.warn or console.log 
-        // as they can trigger the LogBox warning UI in Expo during development.
+        const rawMsg = error?.message || String(error);
+        const cleanMsg = rawMsg.length > 80 ? rawMsg.slice(0, 80) + '...' : rawMsg;
+        if (i + 1 < keys.length) {
+          console.log(`[ChatboxAI] [${provider}] Key ${i + 1}/${keys.length} failed (${cleanMsg}). Shifting to Key ${i + 2}/${keys.length}...`);
+        } else {
+          console.log(`[ChatboxAI] [${provider}] All ${keys.length} keys exhausted for "${modelApi}".`);
+        }
       }
     }
     
@@ -105,11 +128,11 @@ export class LLMFallbackService {
     if (provider === 'replicate') {
       console.log(`[replicate] Keys failed or missing, trying OpenRouter fallback as per website configuration.`);
       const orKeys = this.getApiKeys('openrouter');
-      for (const orKey of orKeys) {
+      for (let j = 0; j < orKeys.length; j++) {
         try {
-           return await callOpenAICompat(modelApi, messages, options, 'https://openrouter.ai/api/v1', orKey, 'openrouter-fallback');
+          return await callOpenAICompat(modelApi, messages, options, 'https://openrouter.ai/api/v1', orKeys[j], 'openrouter-fallback');
         } catch (err: any) {
-           lastError = err;
+          lastError = err;
         }
       }
     }
@@ -133,7 +156,9 @@ export class LLMFallbackService {
     // ── Resolve model from registry
     const model = MODEL_REGISTRY.find(m => m.publicId === publicId || m.providers.some((p: any) => p.modelApi === publicId));
     if (!model || !model.providers?.length) {
-      throw new Error(`Model "${publicId}" not found in registry.`);
+      // If requested model isn't in registry, route to auto chain
+      console.warn(`[ChatboxAI] Model "${publicId}" not found in registry. Falling back to default.`);
+      return await this.routeRequest('auto', messages, options);
     }
 
     // ── Try each provider in order (primary → fallbacks)
@@ -149,6 +174,22 @@ export class LLMFallbackService {
       } catch (err: any) {
         console.log(`[ChatboxAI] Provider "${provider}" failed for "${publicId}":`, err.message);
         errors.push(`${provider}: ${err.message}`);
+      }
+    }
+
+    // ── Multi-Layer Resilient Fallback ──────────────────────────────────────────
+    // If all providers for this specific model failed (e.g. Google 403 API_KEY_SERVICE_BLOCKED
+    // or Groq 413 token limit), seamlessly try the reliable models from AUTO_CHAIN so
+    // the user NEVER gets an ugly technical crash error.
+    if (!AUTO_CHAIN.includes(publicId)) {
+      console.warn(`[ChatboxAI] All providers failed for "${publicId}". Engaging automatic resilient fallback...`);
+      for (const fallbackId of AUTO_CHAIN) {
+        try {
+          console.log(`[ChatboxAI] Resilient fallback "${publicId}" → "${fallbackId}"`);
+          return await this.routeRequest(fallbackId, messages, options);
+        } catch (fbErr: any) {
+          console.warn(`[ChatboxAI] Resilient fallback "${fallbackId}" failed:`, fbErr.message);
+        }
       }
     }
 

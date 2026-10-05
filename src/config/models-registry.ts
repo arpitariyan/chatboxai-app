@@ -329,6 +329,18 @@ export const MODEL_REGISTRY: any[] = [
     },
     providers: [
       {
+        provider: "groq",
+        modelApi: "openai/gpt-oss-120b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3-super-120b-a12b:free",
+      },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
         provider: "nvidia",
         modelApi: "openai/gpt-oss-120b",
       },
@@ -349,7 +361,19 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "google",
-        modelApi: "gemini-3.5-flash",
+        modelApi: "gemini-2.5-flash",
+      },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3-super-120b-a12b:free",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
       },
     ],
   },
@@ -389,7 +413,19 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "google",
-        modelApi: "gemini-3.1-flash-lite",
+        modelApi: "gemini-2.5-flash-lite",
+      },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3-super-120b-a12b:free",
       },
     ],
   },
@@ -409,6 +445,18 @@ export const MODEL_REGISTRY: any[] = [
       {
         provider: "google",
         modelApi: "gemini-2.5-flash-lite",
+      },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
+      },
+      {
+        provider: "groq",
+        modelApi: "openai/gpt-oss-20b",
       },
     ],
   },
@@ -535,25 +583,17 @@ export const MODEL_REGISTRY: any[] = [
         provider: "groq",
         modelApi: "openai/gpt-oss-20b",
       },
-    ],
-  },
-  {
-    id: 24,
-    name: "GPT-OSS 20B",
-    publicId: "chatboxai/gpt-oss-20b",
-    supportsNativeReasoning: true,
-    desc: "OpenAI GPT-OSS 20B — MoE, tool use",
-    isPro: false,
-    accessTier: "free",
-    costTier: 1,
-    pricing: {
-      input: 0,
-      output: 0,
-    },
-    providers: [
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
       {
         provider: "openrouter",
-        modelApi: "openai/gpt-oss-20b:free",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
+      },
+      {
+        provider: "groq",
+        modelApi: "allam-2-7b",
       },
     ],
   },
@@ -800,6 +840,14 @@ export const MODEL_REGISTRY: any[] = [
         provider: "groq",
         modelApi: "allam-2-7b",
       },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
+      },
     ],
   },
   {
@@ -986,12 +1034,32 @@ export const MODEL_REGISTRY: any[] = [
     id: 209,
     name: "Qwen 3.8 27B",
     publicId: "chatboxai/qwen-3.8-27b",
-    desc: "Qwen 3.8 27B",
+    desc: "Qwen 3.8 27B — ultra-fast open-weights intelligence",
     isPro: false,
     accessTier: "free",
     costTier: 2,
     pricing: { input: 0, output: 0 },
-    providers: [{ provider: "groq", modelApi: "qwen/qwen3.8-27b" }],
+    providers: [
+      { provider: "groq", modelApi: "qwen/qwen3.8-27b" },
+      { provider: "openrouter", modelApi: "nvidia/nemotron-3-super-120b-a12b:free" },
+      { provider: "openrouter", modelApi: "nvidia/nemotron-3.5-lightning:free" },
+      { provider: "groq", modelApi: "openai/gpt-oss-120b" },
+    ],
+  },
+  {
+    id: 210,
+    name: "Nemotron 3.5 Lightning",
+    publicId: "chatboxai/nemotron-3.5-lightning",
+    desc: "NVIDIA Nemotron 3.5 Lightning (1M context) — free frontier model",
+    isPro: false,
+    accessTier: "free",
+    costTier: 2,
+    pricing: { input: 0, output: 0 },
+    providers: [
+      { provider: "openrouter", modelApi: "nvidia/nemotron-3.5-lightning:free" },
+      { provider: "openrouter", modelApi: "nvidia/nemotron-3-super-120b-a12b:free" },
+      { provider: "groq", modelApi: "qwen/qwen3.8-27b" },
+    ],
   },
 ].filter(Boolean);
 
