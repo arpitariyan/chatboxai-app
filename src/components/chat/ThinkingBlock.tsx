@@ -10,7 +10,7 @@ interface ThinkingBlockProps {
   loadingTitle?: string;
 }
 
-export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
+export const ThinkingBlock: React.FC<ThinkingBlockProps> = React.memo(({
   content,
   isFinished = true,
   isLoading = false,
@@ -93,7 +93,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
       )}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

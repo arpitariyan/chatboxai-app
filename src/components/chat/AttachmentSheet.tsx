@@ -8,7 +8,6 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  TouchableWithoutFeedback,
   ScrollView,
   Dimensions,
 } from 'react-native';
@@ -41,7 +40,7 @@ interface AddMenuSheetProps {
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const EFFORT_LEVELS: EffortLevel[] = ['Low', 'Medium', 'High', 'Extra High'];
 
-export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
+export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
   visible,
   onClose,
   onAttachmentsSelected,
@@ -49,14 +48,12 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const {
-    effortLevel,
-    setEffortLevel,
-    thinkingMode,
-    setThinkingMode,
-    webSearchEnabled,
-    setWebSearchEnabled,
-  } = useModelStore();
+  const effortLevel = useModelStore((s) => s.effortLevel);
+  const setEffortLevel = useModelStore((s) => s.setEffortLevel);
+  const thinkingMode = useModelStore((s) => s.thinkingMode);
+  const setThinkingMode = useModelStore((s) => s.setThinkingMode);
+  const webSearchEnabled = useModelStore((s) => s.webSearchEnabled);
+  const setWebSearchEnabled = useModelStore((s) => s.setWebSearchEnabled);
   const [isLoading, setIsLoading] = useState(false);
 
   // UI-only toggles
@@ -223,48 +220,57 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
       transparent
       animationType="slide"
       onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop}>
-          <TouchableWithoutFeedback>
-            <View
-              style={[
-                styles.sheetContainer,
-                {
-                  backgroundColor: colors.surface || '#1c1c1e',
-                  borderColor: colors.line || '#2c2c2e',
-                  paddingBottom: Math.max(insets.bottom + 8, spacing.lg),
-                },
-              ]}
-            >
-              {/* Drag Handle Indicator */}
-              <View style={styles.handleWrapper}>
-                <View style={[styles.handleBar, { backgroundColor: colors.line || '#3a3a3c' }]} />
-              </View>
+      <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close add menu"
+        />
+        <View
+          style={[
+            styles.sheetContainer,
+            {
+              backgroundColor: colors.surface || '#1c1c1e',
+              borderColor: colors.line || '#2c2c2e',
+              paddingBottom: Math.max(insets.bottom + 8, spacing.lg),
+            },
+          ]}
+        >
+          {/* Drag Handle Indicator */}
+          <View style={styles.handleWrapper}>
+            <View style={[styles.handleBar, { backgroundColor: colors.line || '#3a3a3c' }]} />
+          </View>
 
-              {/* Header */}
-              <View style={styles.header}>
-                <Text style={[styles.title, { color: colors.ink || '#ffffff' }]}>
-                  Add to chat
-                </Text>
-                <Text style={[styles.subtitle, { color: colors.ink3 || '#8e8e93' }]}>
-                  Choose attachments or AI tools for your conversation
-                </Text>
-              </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: colors.ink || '#ffffff' }]}>
+              Add to chat
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.ink3 || '#8e8e93' }]}>
+              Choose attachments or AI tools for your conversation
+            </Text>
+          </View>
 
-              {isLoading && (
-                <View style={[styles.loadingOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-                  <ActivityIndicator size="large" color="#ffffff" />
-                </View>
-              )}
+          {isLoading && (
+            <View style={[styles.loadingOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+              <ActivityIndicator size="large" color="#ffffff" />
+            </View>
+          )}
 
-              {/* Scrollable List of Actions */}
-              <ScrollView
-                style={{ maxHeight: SCREEN_HEIGHT * 0.68 }}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.optionsList}
-                keyboardShouldPersistTaps="handled"
-              >
+          {/* Scrollable List of Actions */}
+          <ScrollView
+            style={{ maxHeight: SCREEN_HEIGHT * 0.68 }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.optionsList}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+            bounces={false}
+            overScrollMode="never"
+            scrollEventThrottle={16}
+          >
                 {/* Choose from Photos */}
                 <Pressable
                   onPress={handlePhotos}
@@ -519,12 +525,10 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = ({
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </Pressable>
             </View>
-          </TouchableWithoutFeedback>
         </View>
-      </TouchableWithoutFeedback>
-    </Modal>
+      </Modal>
   );
-};
+});
 
 const styles = StyleSheet.create({
   backdrop: {

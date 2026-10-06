@@ -39,6 +39,8 @@ import { proxyRouter } from './routes/proxy';
 import { imageRouter } from './routes/image';
 import { researchRouter } from './routes/research';
 import { searchRouter } from './routes/search';
+import { ttsRouter } from './routes/tts';
+import { voiceAiRouter } from './routes/voiceAi';
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.MOBILE_API_PORT || 3001);
@@ -82,6 +84,10 @@ app.get('/', (_req: Request, res: Response) => {
       file: '/api/mobile/file',
       analyze: '/api/mobile/analyze',
       research: '/api/mobile/research',
+      tts: '/api/tts',
+      mobileTts: '/api/mobile/tts',
+      voiceAi: '/api/voice-ai',
+      mobileVoiceAi: '/api/mobile/voice-ai',
     },
   });
 });
@@ -95,6 +101,11 @@ app.use('/api/mobile', proxyRouter);
 app.use('/api/mobile', imageRouter);
 app.use('/api/mobile', researchRouter);
 app.use('/api/mobile', searchRouter);
+app.use('/api/mobile', ttsRouter);
+app.use('/api/mobile', voiceAiRouter);
+// Also support root /api prefix for compatibility with website endpoints
+app.use('/api', ttsRouter);
+app.use('/api', voiceAiRouter);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

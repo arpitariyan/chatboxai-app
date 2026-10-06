@@ -51,7 +51,7 @@ interface ComposerProps {
   onClearAttachment?: (uri: string) => void;
 }
 
-export const Composer: React.FC<ComposerProps> = ({
+export const Composer: React.FC<ComposerProps> = React.memo(({
   externalValue,
   onSend,
   onStop,
@@ -73,14 +73,19 @@ export const Composer: React.FC<ComposerProps> = ({
   const hasText = localText.trim().length > 0;
   const hasContent = hasText || pendingAttachments.length > 0;
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const { isResearchMode, quota, toggleResearchMode, fetchQuota, setResearchMode } = useResearchStore();
-  const { syncModelWithMode, webSearchEnabled, setWebSearchEnabled } = useModelStore();
+
+  // Targeted store selectors to prevent re-renders when other store fields change
+  const isResearchMode = useResearchStore((s) => s.isResearchMode);
+  const quota = useResearchStore((s) => s.quota);
+  const toggleResearchMode = useResearchStore((s) => s.toggleResearchMode);
+  const fetchQuota = useResearchStore((s) => s.fetchQuota);
+  const setResearchMode = useResearchStore((s) => s.setResearchMode);
+  const syncModelWithMode = useModelStore((s) => s.syncModelWithMode);
+  const setWebSearchEnabled = useModelStore((s) => s.setWebSearchEnabled);
 
   // The search type sent with each message:
   // - 'research' when Research mode is active
   // - 'search' when neither mode is active (Normal Search)
-  // webSearchEnabled (from + menu) enhances Normal Search with web data
-  // but does NOT change the mode pill state or the searchType sent.
   const currentSearchType: 'chat' | 'search' | 'research' = isResearchMode
     ? 'research'
     : 'search';
@@ -89,6 +94,18 @@ export const Composer: React.FC<ComposerProps> = ({
   useEffect(() => {
     fetchQuota(userEmail).catch(() => {});
   }, [userEmail, fetchQuota]);
+
+  // ── Instant Focus handling for responsive keyboard transition ──
+  const handleFocus = useCallback(() => {
+    setIsKeyboardVisible(true);
+    onFocus?.();
+  }, [onFocus]);
+
+  const handleBlur = useCallback(() => {
+    if (Platform.OS === 'android') {
+      setIsKeyboardVisible(false);
+    }
+  }, []);
 
   // ── Speech-to-Text hook ───────────────────────────────────────────────────
   const {
@@ -291,7 +308,8 @@ export const Composer: React.FC<ComposerProps> = ({
               style={[styles.input, { color: '#ffffff' }]}
               value={localText}
               onChangeText={setLocalText}
-              onFocus={onFocus}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
               placeholder={pendingAttachments.length > 0 ? 'Add a message...' : 'Ask ChatBox AI...'}
               placeholderTextColor="#8e8e93"
               editable={!disabled && !isGenerating}
@@ -368,7 +386,7 @@ export const Composer: React.FC<ComposerProps> = ({
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   outerContainer: {

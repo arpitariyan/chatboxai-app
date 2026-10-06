@@ -66,7 +66,7 @@ const getLangLabel = (lang: string): string =>
   LANG_NAMES[lang?.toLowerCase()] ?? (lang ? lang.toUpperCase() : 'CODE');
 
 // ── Code Block Component with Line Numbers & Copy matching DisplaySummery.jsx ──
-const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, code }) => {
+const CodeBlock: React.FC<{ language: string; code: string }> = React.memo(({ language, code }) => {
   const [copied, setCopied] = useState(false);
   const langKey = (language || '').toLowerCase().trim();
   const displayLang = getLangLabel(langKey);
@@ -140,7 +140,7 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
       </ScrollView>
     </View>
   );
-};
+});
 
 // ── Markdown Table Component — smooth horizontal scrolling, responsive sizing & copy ──
 interface TableBlockProps {
@@ -149,7 +149,7 @@ interface TableBlockProps {
   alignments?: ('left' | 'center' | 'right')[];
 }
 
-const TableBlock: React.FC<TableBlockProps> = ({ headers, rows, alignments = [] }) => {
+const TableBlock: React.FC<TableBlockProps> = React.memo(({ headers, rows, alignments = [] }) => {
   const colors = useThemeColors();
   const [copied, setCopied] = useState(false);
 
@@ -379,7 +379,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ headers, rows, alignments = [] 
       </ScrollView>
     </View>
   );
-};
+});
 
 // ── Inline Text Formatter (Bold, Italic, Code, Link, Smart URL) ──
 interface InlineToken {
@@ -542,7 +542,7 @@ function renderInline(text: string, colors: any, baseStyle?: any) {
   });
 };
 
-export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content, onLongPress }) => {
+export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ content, onLongPress }) => {
   const colors = useThemeColors();
 
   // 1. Clean content: Strip <think>...</think>, <tool_call>...</tool_call>, and canva design blocks
@@ -903,7 +903,7 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({ content, onLongP
       })}
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

@@ -10,6 +10,7 @@ import {
   Modal,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
@@ -38,7 +39,50 @@ const GRID_PADDING = spacing.md;
 const GRID_GAP = spacing.sm;
 const ITEM_WIDTH = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * (COLUMN_COUNT - 1)) / COLUMN_COUNT;
 
-export const ImagesScreen: React.FC<ImagesScreenProps> = ({ onBack }) => {
+interface ImageGridTileProps {
+  item: GeneratedImageItem;
+  colors: any;
+  onPress: (item: GeneratedImageItem) => void;
+}
+
+const ImageGridTile = React.memo<ImageGridTileProps>(({ item, colors, onPress }) => {
+  const rawUrl = item.displayUrl || item.publicUrl;
+  const imageUrl = normalizeImageUrl(rawUrl, item.generatedImagePath);
+
+  const handlePress = useCallback(() => {
+    onPress(item);
+  }, [item, onPress]);
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.gridItem,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.line,
+          opacity: pressed ? 0.85 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+        },
+      ]}
+      onPress={handlePress}
+    >
+      <ExpoImage
+        source={{ uri: imageUrl }}
+        style={styles.gridImage}
+        contentFit="cover"
+        transition={150}
+        cachePolicy="memory-disk"
+      />
+      <View style={styles.gridPromptOverlay}>
+        <Text style={styles.gridPromptText} numberOfLines={2}>
+          {item.prompt}
+        </Text>
+      </View>
+    </Pressable>
+  );
+});
+
+export const ImagesScreen: React.FC<ImagesScreenProps> = React.memo(({ onBack }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { currentUser } = useAuth();
@@ -136,37 +180,21 @@ export const ImagesScreen: React.FC<ImagesScreenProps> = ({ onBack }) => {
     setTimeout(() => setCopiedPrompt(false), 2000);
   }, []);
 
-  const renderItem = ({ item }: { item: GeneratedImageItem }) => {
-    const rawUrl = item.displayUrl || item.publicUrl;
-    const imageUrl = normalizeImageUrl(rawUrl, item.generatedImagePath);
-    
-    return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.gridItem,
-          {
-            backgroundColor: colors.surface,
-            borderColor: colors.line,
-            opacity: pressed ? 0.85 : 1,
-            transform: [{ scale: pressed ? 0.985 : 1 }],
-          },
-        ]}
-        onPress={() => setSelectedImage(item)}
-      >
-        <ExpoImage
-          source={{ uri: imageUrl }}
-          style={styles.gridImage}
-          contentFit="cover"
-          transition={200}
-        />
-        <View style={styles.gridPromptOverlay}>
-          <Text style={styles.gridPromptText} numberOfLines={2}>
-            {item.prompt}
-          </Text>
-        </View>
-      </Pressable>
-    );
-  };
+  const handleSelectImage = useCallback((item: GeneratedImageItem) => {
+    setSelectedImage(item);
+  }, []);
+
+  const renderItem = useCallback(({ item }: { item: GeneratedImageItem }) => (
+    <ImageGridTile
+      item={item}
+      colors={colors}
+      onPress={handleSelectImage}
+    />
+  ), [colors, handleSelectImage]);
+
+  const keyExtractor = useCallback((item: GeneratedImageItem) => (
+    item.entryId || item.libId || item.$id || item.generatedImagePath || Math.random().toString()
+  ), []);
 
   const selectedImageUrl = selectedImage
     ? normalizeImageUrl(selectedImage.displayUrl || selectedImage.publicUrl, selectedImage.generatedImagePath)
@@ -250,12 +278,16 @@ export const ImagesScreen: React.FC<ImagesScreenProps> = ({ onBack }) => {
       ) : (
         <FlatList
           data={images}
-          keyExtractor={(item) => item.entryId || item.libId || item.$id || Math.random().toString()}
+          keyExtractor={keyExtractor}
           renderItem={renderItem}
           numColumns={COLUMN_COUNT}
           contentContainerStyle={styles.listContent}
           columnWrapperStyle={styles.columnWrapper}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -378,7 +410,7 @@ export const ImagesScreen: React.FC<ImagesScreenProps> = ({ onBack }) => {
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

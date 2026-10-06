@@ -14,7 +14,7 @@ interface ImagePreviewListProps {
   searchResult?: any;
 }
 
-export const ImagePreviewList: React.FC<ImagePreviewListProps> = ({ searchResult }) => {
+export const ImagePreviewList: React.FC<ImagePreviewListProps> = React.memo(({ searchResult }) => {
   const colors = useThemeColors();
 
   const images = useMemo<ImageItem[]>(() => {
@@ -92,7 +92,7 @@ export const ImagePreviewList: React.FC<ImagePreviewListProps> = ({ searchResult
       </ScrollView>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

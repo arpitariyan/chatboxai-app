@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -57,7 +58,108 @@ function formatConversationDate(dateStr?: string): string {
   }
 }
 
-export const LibraryScreen: React.FC<LibraryScreenProps> = ({ 
+interface LibraryItemRowProps {
+  item: ConversationItem;
+  isPinned: boolean;
+  colors: any;
+  onSelect: (libId: string, title?: string, type?: string) => void;
+  onOpenActionMenu: (item: ConversationItem) => void;
+}
+
+const LibraryItemRow = React.memo<LibraryItemRowProps>(({
+  item,
+  isPinned,
+  colors,
+  onSelect,
+  onOpenActionMenu,
+}) => {
+  let IconComp = IconMessage2;
+  let iconColor = colors.ink;
+  let typeLabel = 'Chat';
+
+  if (item.type === 'image-generation') {
+    IconComp = IconPhoto;
+    iconColor = colors.accent || '#c084fc';
+    typeLabel = 'Image Generation';
+  } else if (item.type === 'deep-research') {
+    IconComp = IconBrain;
+    iconColor = '#eab308';
+    typeLabel = 'Deep Research';
+  } else if (item.type === 'website-builder') {
+    IconComp = IconWorld;
+    iconColor = '#38bdf8';
+    typeLabel = 'Website';
+  }
+
+  const formattedDate = formatConversationDate(item.createdAt);
+
+  return (
+    <Pressable
+      onPress={() => onSelect(item.libId, item.title, item.type)}
+      style={({ pressed }) => [
+        styles.optionRow,
+        {
+          backgroundColor: pressed ? colors.hover : colors.surface,
+          borderColor: colors.line,
+          opacity: pressed ? 0.85 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+        },
+      ]}
+    >
+      <View style={[styles.iconContainer, { backgroundColor: colors.inset || '#26262a' }]}>
+        <IconComp size={20} color={iconColor} strokeWidth={1.8} />
+      </View>
+
+      <View style={styles.optionTextCol}>
+        <Text style={[styles.optionTitle, { color: colors.ink }]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <View style={styles.subtitleRow}>
+          {isPinned && (
+            <View style={styles.pinnedBadge}>
+              <IconPinned size={12} color={colors.accent || colors.ink} strokeWidth={2} />
+              <Text style={[styles.pinnedBadgeText, { color: colors.accent || colors.ink }]}>
+                Pinned
+              </Text>
+              <Text style={[styles.dotSeparator, { color: colors.ink3 }]}>•</Text>
+            </View>
+          )}
+          <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>
+            {typeLabel}
+          </Text>
+          {formattedDate ? (
+            <>
+              <Text style={[styles.dotSeparator, { color: colors.ink3 }]}>•</Text>
+              <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>
+                {formattedDate}
+              </Text>
+            </>
+          ) : null}
+        </View>
+      </View>
+
+      <Pressable 
+        onPress={(e) => {
+          e.stopPropagation();
+          onOpenActionMenu(item);
+        }}
+        hitSlop={10}
+        accessibilityLabel="Conversation actions"
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.threeDotBtn,
+          {
+            backgroundColor: pressed ? colors.hover : 'transparent',
+          },
+        ]}
+      >
+        <IconDotsVertical size={18} color={colors.ink3} strokeWidth={1.9} />
+      </Pressable>
+    </Pressable>
+  );
+});
+
+export const LibraryScreen: React.FC<LibraryScreenProps> = React.memo(({ 
   onBack, 
   onSelectConversation,
   refreshTrigger = 0
@@ -237,96 +339,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     });
   }, [conversations, pinnedIds, searchQuery]);
 
-  const renderItem = ({ item }: { item: ConversationItem }) => {
-    const isPinned = pinnedIds.includes(item.libId);
-    let IconComp = IconMessage2;
-    let iconColor = colors.ink;
-    let typeLabel = 'Chat';
+  const renderItem = useCallback(({ item }: { item: ConversationItem }) => (
+    <LibraryItemRow
+      item={item}
+      isPinned={pinnedIds.includes(item.libId)}
+      colors={colors}
+      onSelect={onSelectConversation}
+      onOpenActionMenu={handleOpenActionMenu}
+    />
+  ), [pinnedIds, colors, onSelectConversation, handleOpenActionMenu]);
 
-    if (item.type === 'image-generation') {
-      IconComp = IconPhoto;
-      iconColor = colors.accent || '#c084fc';
-      typeLabel = 'Image Generation';
-    } else if (item.type === 'deep-research') {
-      IconComp = IconBrain;
-      iconColor = '#eab308';
-      typeLabel = 'Deep Research';
-    } else if (item.type === 'website-builder') {
-      IconComp = IconWorld;
-      iconColor = '#38bdf8';
-      typeLabel = 'Website';
-    }
-
-    const formattedDate = formatConversationDate(item.createdAt);
-
-    return (
-      <Pressable
-        onPress={() => onSelectConversation(item.libId, item.title, item.type)}
-        style={({ pressed }) => [
-          styles.optionRow,
-          {
-            backgroundColor: pressed ? colors.hover : colors.surface,
-            borderColor: colors.line,
-            opacity: pressed ? 0.85 : 1,
-            transform: [{ scale: pressed ? 0.985 : 1 }],
-          },
-        ]}
-      >
-        {/* Left circular icon container inspired by AttachmentSheet */}
-        <View style={[styles.iconContainer, { backgroundColor: colors.inset || '#26262a' }]}>
-          <IconComp size={20} color={iconColor} strokeWidth={1.8} />
-        </View>
-
-        {/* Text Column */}
-        <View style={styles.optionTextCol}>
-          <Text style={[styles.optionTitle, { color: colors.ink }]} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <View style={styles.subtitleRow}>
-            {isPinned && (
-              <View style={styles.pinnedBadge}>
-                <IconPinned size={12} color={colors.accent || colors.ink} strokeWidth={2} />
-                <Text style={[styles.pinnedBadgeText, { color: colors.accent || colors.ink }]}>
-                  Pinned
-                </Text>
-                <Text style={[styles.dotSeparator, { color: colors.ink3 }]}>•</Text>
-              </View>
-            )}
-            <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>
-              {typeLabel}
-            </Text>
-            {formattedDate ? (
-              <>
-                <Text style={[styles.dotSeparator, { color: colors.ink3 }]}>•</Text>
-                <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>
-                  {formattedDate}
-                </Text>
-              </>
-            ) : null}
-          </View>
-        </View>
-
-        {/* Right three-dot button */}
-        <Pressable 
-          onPress={(e) => {
-            e.stopPropagation();
-            handleOpenActionMenu(item);
-          }}
-          hitSlop={10}
-          accessibilityLabel="Conversation actions"
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.threeDotBtn,
-            {
-              backgroundColor: pressed ? colors.hover : 'transparent',
-            },
-          ]}
-        >
-          <IconDotsVertical size={18} color={colors.ink3} strokeWidth={1.9} />
-        </Pressable>
-      </Pressable>
-    );
-  };
+  const keyExtractor = useCallback((item: ConversationItem) => item.libId, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -439,10 +462,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
       ) : (
         <FlatList
           data={displayedConversations}
-          keyExtractor={(item) => item.libId}
+          keyExtractor={keyExtractor}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === 'android'}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -635,7 +662,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
       </Modal>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

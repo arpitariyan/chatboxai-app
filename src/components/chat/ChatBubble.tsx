@@ -59,7 +59,7 @@ import { resolveAttachment } from '@/utils/attachments';
 import { AttachmentImage } from './AttachmentImage';
 import { FileTypeIcon } from './FileTypeIcon';
 
-export const ChatBubble: React.FC<ChatBubbleProps> = ({
+export const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
   message,
   onCopy,
   onRegenerate,
@@ -504,7 +504,30 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
       />
     </>
   );
-};
+}, (prev, next) => {
+  if (
+    prev.message === next.message &&
+    prev.onCopy === next.onCopy &&
+    prev.onRegenerate === next.onRegenerate &&
+    prev.onFeedback === next.onFeedback &&
+    prev.onVersionChange === next.onVersionChange
+  ) {
+    return true;
+  }
+  return (
+    prev.message.id === next.message.id &&
+    prev.message.content === next.message.content &&
+    prev.message.isStreaming === next.message.isStreaming &&
+    prev.message.liked === next.message.liked &&
+    prev.message.disliked === next.message.disliked &&
+    prev.message.currentVersionIndex === next.message.currentVersionIndex &&
+    prev.message.thinking === next.message.thinking &&
+    prev.message.attachments === next.message.attachments &&
+    prev.message.searchResult === next.message.searchResult &&
+    prev.message.modelName === next.message.modelName &&
+    prev.message.versions?.length === next.message.versions?.length
+  );
+});
 
 const styles = StyleSheet.create({
   userWrapper: {

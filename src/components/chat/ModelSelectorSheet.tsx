@@ -18,7 +18,7 @@ interface ModelSelectorSheetProps {
   onSelectModel: (model: ModelOption) => void;
 }
 
-export const ModelSelectorSheet: React.FC<ModelSelectorSheetProps> = ({
+export const ModelSelectorSheet: React.FC<ModelSelectorSheetProps> = React.memo(({
   visible,
   onClose,
   selectedModelId,
@@ -99,7 +99,7 @@ export const ModelSelectorSheet: React.FC<ModelSelectorSheetProps> = ({
       </View>
     </BottomSheet>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

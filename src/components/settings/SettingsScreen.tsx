@@ -18,6 +18,8 @@ import {
 import { ListRow } from '@/components/common/ListRow';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { useVoicePreferenceStore } from '@/stores/useVoicePreferenceStore';
+import { VoiceSelectorModal } from '@/components/voice/VoiceSelectorModal';
 
 interface SettingsScreenProps {
   onBack: () => void;
@@ -27,6 +29,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { currentUser, userProfile, logout } = useAuth();
+  const selectedVoice = useVoicePreferenceStore((s) => s.getSelectedVoice());
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = React.useState(false);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -114,12 +118,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
           />
           <ListRow
             icon={<IconVolume size={18} color={colors.ink} />}
-            title="Auto-speak Responses"
-            isSwitch
-            switchValue={false}
-            onSwitchChange={() => {}}
+            title="Assistant Voice"
+            value={selectedVoice.name}
+            onPress={() => setIsVoiceModalOpen(true)}
           />
         </View>
+
+        {/* Assistant Voice Selector Modal */}
+        <VoiceSelectorModal
+          visible={isVoiceModalOpen}
+          onClose={() => setIsVoiceModalOpen(false)}
+        />
 
         {/* Privacy & Legal */}
         <Text style={[styles.sectionHeader, { color: colors.ink3 }]}>

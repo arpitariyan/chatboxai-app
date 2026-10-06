@@ -2720,4 +2720,189 @@ The user reported that AI responses (`aiResp`) were stopping halfway and giving 
 - **TypeScript Compiler Check (`npx tsc --noEmit`)**:
   - Exited with code 0 (zero errors, zero warnings).
 
+---
+
+## 39. Comprehensive Mobile Performance & Interaction Optimization Pass (Oct 6, 2026)
+
+#### 1. Optimization Objectives & Scope
+The user requested an end-to-end performance and interaction pass across the entire mobile APK targeting:
+- **Conversation Composer & Keyboard**: Eliminate input tap lag and delayed crawl of the composer above the soft keyboard without reintroducing scrolling or keyboard bugs.
+- **`+` Menu (AttachmentSheet)**: Smooth out bottom sheet opening/closing, eliminate jittery/stuttery scrolling, and optimize toggles.
+- **Sidebar (Drawer)**: Eliminate animation stutter/frame drops, optimize touch response, defer background fetching until after slide animation, and memoize conversation rows.
+- **Long Conversation Scrolling**: Keep 50+ turn conversations smooth even with Markdown, code blocks, tables, images, attachments, and reasoning traces.
+- **Header & Modals**: Optimize button touch response across Header, BottomSheet, and Options Menu.
+- **Lists & Virtualization**: Tune FlatLists across Library, Images, and Model selectors.
+- **Network & State Deduplication**: In-memory caching and request deduplication for conversation history and user images.
+
+#### 2. Root Cause Analysis & Implementations
+
+1. **Conversation Composer & Keyboard Transition Lag (`Composer.tsx`, `ChatScreen.tsx`, `ImageGenScreen.tsx`)**:
+   - **Root Cause**: `app.json` configures `"softwareKeyboardLayoutMode": "resize"`, meaning Android OS natively handles the viewport resize when the keyboard appears. However, `KeyboardWrapper` waited for `keyboardDidShow` and executed an additional 250ms JavaScript-driven layout animation adjusting `paddingBottom`, while `Composer.tsx` delayed adjusting its padding until after `keyboardDidShow`.
+   - **Resolution**:
+     - In `KeyboardWrapper`, detected native window resize (`heightDiff >= kh * 0.7`) and immediately set offset to 0 with zero animation lag; snappy 90ms fallback animation for edge cases.
+     - Added instant focus and blur handlers in `Composer.tsx` (`handleFocus`, `handleBlur`) setting keyboard visibility state with 0ms delay.
+     - Converted `useModelStore` and `useResearchStore` calls in `Composer.tsx` to granular, targeted selectors to prevent re-renders when unrelated store state changes.
+     - Wrapped `Composer` in `React.memo`.
+
+2. **`+` Menu (AttachmentSheet) Scrolling & Touch Responder Fix (`AttachmentSheet.tsx`)**:
+   - **Root Cause**: Double-nested `TouchableWithoutFeedback` wrapping `sheetContainer` intercepted responder touches, causing pan conflicts with the inner `ScrollView` on Android.
+   - **Resolution**:
+     - Removed `TouchableWithoutFeedback` and replaced with an absolute backdrop `Pressable` (`StyleSheet.absoluteFill`).
+     - Added smooth `ScrollView` props: `nestedScrollEnabled={true}`, `bounces={false}`, `overScrollMode="never"`, `scrollEventThrottle={16}`, and `keyboardShouldPersistTaps="handled"`.
+     - Converted store hooks to granular selectors (`effortLevel`, `thinkingMode`, `webSearchEnabled`).
+     - Wrapped `AddMenuSheet` in `React.memo`.
+
+3. **Navigation Drawer (Sidebar) Performance (`Drawer.tsx`)**:
+   - **Root Cause**: Calling `loadConversations` and `loadPins` on the first frame of the drawer opening animation triggered React state updates and network promises that competed with the JS thread during the slide animation. Additionally, tapping an item waited 220ms for the drawer close animation to conclude before firing the callback.
+   - **Resolution**:
+     - Deferred background history refresh until after the slide-in animation finishes (`.start(() => { ... })`), keeping slide-in at 60 FPS.
+     - In `handleClose(callback)`, invoked navigation callbacks immediately (`if (callback) callback();`) so destination screens mount and respond instantaneously without delay.
+     - Extracted and memoized `DrawerConversationRow` with `React.memo`.
+     - Wrapped `Drawer` in `React.memo`.
+
+4. **Conversation Scrolling & Markdown/Block Rendering Optimization (`ChatBubble.tsx`, `MarkdownAnswer.tsx`, `ThinkingBlock.tsx`, `SourceChips.tsx`, `ImagePreviewList.tsx`, `ChatScreen.tsx`)**:
+   - **Root Cause**: In long conversations, any streaming update or re-render caused all historical message bubbles and markdown regex parsers to execute on every frame.
+   - **Resolution**:
+     - Wrapped `ChatBubble` in `React.memo` with a custom comparator comparing `id`, `content`, `isStreaming`, `liked`, `disliked`, `currentVersionIndex`, `thinking`, `attachments`, `searchResult`, `modelName`, `versions.length`.
+     - Wrapped `CodeBlock`, `TableBlock`, and `MarkdownAnswer` in `React.memo`.
+     - Wrapped `ThinkingBlock`, `SourceChips`, and `ImagePreviewList` in `React.memo`.
+     - In `ChatScreen.tsx`, converted `useModelStore()` to targeted selector `useModelStore((s) => s.thinkingMode)` in `ConversationContent`, and wrapped `ConversationContent` in `React.memo`.
+
+5. **Header & Interactive Controls (`Header.tsx`, `BottomSheet.tsx`, `ConversationOptionsMenu.tsx`)**:
+   - Wrapped `Header` in `React.memo`.
+   - Replaced nested `TouchableWithoutFeedback` in `BottomSheet.tsx` and `ConversationOptionsMenu.tsx` with absolute backdrop `Pressables` (`StyleSheet.absoluteFill`) and `statusBarTranslucent`.
+   - Wrapped `BottomSheet` and `ConversationOptionsMenu` in `React.memo`.
+
+6. **Lists & Grid Virtualization Optimization (`LibraryScreen.tsx`, `ImagesScreen.tsx`, `ModelSelector.tsx`, `ModelSelectorSheet.tsx`)**:
+   - `LibraryScreen.tsx`: Extracted and memoized `LibraryItemRow` with `React.memo`. Added `keyExtractor`, `initialNumToRender={12}`, `maxToRenderPerBatch={10}`, `windowSize={7}`, `removeClippedSubviews={Platform.OS === 'android'}`. Wrapped `LibraryScreen` in `React.memo`.
+   - `ImagesScreen.tsx`: Extracted and memoized `ImageGridTile` with `React.memo`, using `cachePolicy="memory-disk"` and `transition={150}` on `ExpoImage`. Added `initialNumToRender={8}`, `maxToRenderPerBatch={6}`, `windowSize={5}`, `removeClippedSubviews={Platform.OS === 'android'}` to the grid `FlatList`. Wrapped `ImagesScreen` in `React.memo`.
+   - `ModelSelector.tsx`: Extracted and memoized `ModelRowItem` with `React.memo`. Switched to targeted Zustand store selectors. Replaced backdrop overlay with non-conflicting `Pressable` backdrop.
+   - `ModelSelectorSheet.tsx`: Wrapped in `React.memo`.
+
+7. **Network & State Deduplication (`chatService.ts`, `imageService.ts`)**:
+   - Added in-memory TTL caching (`CONVERSATIONS_CACHE`, 25s TTL) and in-flight promise deduplication (`CONVERSATIONS_IN_FLIGHT`) in `fetchUserConversations`.
+   - Added in-memory TTL caching (`ALL_IMAGES_CACHE`, 25s TTL) and in-flight promise deduplication (`ALL_IMAGES_IN_FLIGHT`) in `fetchAllUserImages`.
+   - Fixed uninitialized variable reference `normalizedEmail` in `renameConversation`.
+
+
+---
+
+### Section 40: Voice AI / Voice Agent Architecture & Mobile Implementation (October 06, 2026)
+
+#### 1. Architecture Overview
+Adapted the working website Voice AI architecture (`chatboxai_website_copy/app/(routes)/voice-ai`, `lib/voice/`, `app/api/tts/route.ts`, and `app/api/voice-ai/route.js`) into a dedicated, production-grade mobile Voice AI experience for the React Native / Expo APK.
+
+```
+src/
+├── components/
+│   ├── chat/
+│   │   └── VoiceOverlay.tsx           # Full-screen Voice AI screen (Close-only header, Orb, Mic & End Call controls)
+│   └── voice/
+│       ├── VoiceOrb.tsx               # 3D Fibonacci particle orb matching ParticlesOrb & StateCircle
+│       └── VoiceSelectorModal.tsx     # 5-Voice Assistant Selector Modal with sample previews
+├── services/
+│   ├── voice/
+│   │   ├── voiceRegistry.ts           # Approved 5-Voice Registry (Sarah, Charlie, George, Antoni, Bill)
+│   │   ├── voicePreprocess.ts         # Natural language TTS text sanitizer & number/currency normalizer
+│   │   └── voiceAiService.ts          # End-to-end voice loop, LLM generator, ElevenLabs TTS & expo-audio player
+├── stores/
+│   └── useVoicePreferenceStore.ts     # Persistent assistant voice selection via AsyncStorage
+└── server/
+    ├── services/
+    │   ├── elevenlabs.ts              # Multi-key failover ElevenLabs synthesis service
+    │   └── voicePreprocess.ts         # Server-side TTS preprocessor
+    └── routes/
+        ├── tts.ts                     # POST /api/mobile/tts with in-memory LRU audio caching
+        └── voiceAi.ts                 # POST /api/mobile/voice-ai with Gemini failover & creator query handling
+```
+
+#### 2. Key Features & Behavioral Design
+1. **Full-Screen Voice AI Screen (`VoiceOverlay.tsx`)**:
+   - **Entry Point**: Tapping the call-style phone icon in `Composer.tsx` launches the full-screen Voice AI experience.
+   - **Header**: Contains ONLY a sleek Close button (`IconX`) positioned with safe-area insets. Does NOT display `Chatbox Voice` text, as explicitly mandated.
+   - **Top Area**: Assistant voice indicator pill (`Voice: Sarah` with pulsing dot), tapping opens `VoiceSelectorModal`.
+   - **Center Section**: Status indicator (`Listening...`, `Thinking...`, `Speaking...`), the central 3D Particle Orb, and live subtitle feedback.
+   - **Bottom Controls**: Working Microphone toggle (mute / unmute / start talking) and red circular End Call button.
+
+2. **The Central 3D Particle Orb (`VoiceOrb.tsx`)**:
+   - Recreated from the website's `ParticlesOrb.jsx` and `StateCircle.jsx`:
+     - 180 3D Fibonacci sphere particle points with 4 brightness tiers: Bright Cyan highlight (`#66FFE5`), Emerald Primary (`#00E6C3`), Secondary Emerald (`#00BFA5`), and Deep Teal (`#00483F`).
+     - Luminous radial gradient center core with breathing scale.
+     - 3D rotations on X and Y axes with depth sorting (front particles larger with soft bloom halos; back particles smaller and dimmer).
+     - **IDLE State**: Gentle harmonic breathing, slow floating drift.
+     - **LISTENING State**: Wave ripple deformations propagating outward, scaling live with microphone audio levels.
+     - **THINKING State**: Concentrated vertical harmonic pulse with accelerated spin.
+     - **SPEAKING State**: Dynamic fluid wave flow responding in real-time to synthesized assistant voice amplitude.
+     - **ERROR State**: Soft rose/crimson warning glow (`#fb7185`).
+     - **Interactivity**: Tapping the orb toggles mic listening or immediately interrupts active speech playback.
+
+3. **5-Voice Assistant Registry & Persistence (`voiceRegistry.ts`, `useVoicePreferenceStore.ts`, `VoiceSelectorModal.tsx`)**:
+   - 5 Approved Voices:
+     1. `voice-1` (Sarah): Warm & Natural (Female, Default)
+     2. `voice-2` (Charlie): Friendly & Casual (Male)
+     3. `voice-3` (George): Trusted & Confident (Male)
+     4. `voice-4` (Antoni): Warm & Grounded (Male)
+     5. `voice-5` (Bill): Helpful & Reassuring (Male)
+   - Persisted across app restarts in `@react-native-async-storage/async-storage` under key `'chatbox_assistant_voice_id'`.
+   - Accessible both from inside the Voice AI screen and from the main app Settings screen.
+
+4. **Speech-to-Text & Conversational AI Pipeline (`voiceAiService.ts`)**:
+   - Voice loop: `User speaks → speech recognized → question processed → AI generates response → assistant voice speaks answer → session continues`.
+   - Mic recording via `useSpeechToText` (Groq Whisper `whisper-large-v3-turbo` with rotating Groq keys).
+   - Conversational response generation via dedicated backend `/api/mobile/voice-ai` or resilient fallback through `LLMFallbackService` (Gemini, Groq, OpenRouter).
+   - Special creator queries handled naturally in multiple languages ("Who created you?" -> "ChatBox AI created me.").
+
+5. **Server-Side ElevenLabs TTS & Security (`tts.ts`, `elevenlabs.ts`, `.env`)**:
+   - All `ELEVENLABS_API_KEY` credentials remain strictly server-side without `EXPO_PUBLIC_` prefix (never bundled into the client APK).
+   - Multi-key rotation and cascading failover across `ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY_2`, etc., on 401/402/429/503 errors.
+   - Text preprocessing strips code blocks, markdown symbols, and formats dates, phone numbers, and currencies into natural spoken English.
+   - LRU in-memory buffer caching to prevent duplicate API credit consumption.
+   - Native device speech fallback (`expo-speech`) ensures uninterrupted audio even if network or ElevenLabs keys are offline.
+
+6. **Interruption & Background Resilience**:
+   - Speaking can be immediately interrupted by tapping the mic, tapping the orb, or tapping End Call.
+   - `AppState` listener automatically stops microphone recording and playback when the app is backgrounded.
+
+#### 3. Verification & Quality Gates
+- **TypeScript Compiler Check (`npx tsc --noEmit`)**:
+  - Exited with code 0 (zero errors, zero warnings across all mobile and server files).
+- **Security Check**:
+  - `ELEVENLABS_API_KEY` is not exposed in any client bundles or client-side files.
+
+---
+
+# 41. Voice AI ElevenLabs TTS 404 Resolution & Direct Binary Streaming Fix (Oct 06, 2026)
+
+## Context
+When running voice conversation on device/emulator, after Groq generated the LLM reply, the following warning appeared:
+```
+WARN [VoiceOverlay] ElevenLabs TTS synthesis fallback to device speech: [Error: TTS HTTP 404]
+```
+
+## Root Causes Identified
+1. **Target URL Mismatch**: `voiceAiService.synthesizeSpeech()` targeted `${resolveBackendBaseUrl()}/api/mobile/tts` (`https://api-mobile.chatboxai.co.in/api/mobile/tts`), which returned HTTP 404 because `api-mobile.chatboxai.co.in` is an Appwrite storage/file microservice without `/api/mobile/tts` deployed. The active ElevenLabs TTS endpoint is the production web server `https://chatboxai.co.in/api/tts` (configured in `EXPO_PUBLIC_WEB_API_URL`).
+2. **`FileSystem.downloadAsync` POST Limitation**: In `expo-file-system`, `downloadAsync` only makes HTTP GET requests, causing POST requests to fail or return 404 on endpoints expecting JSON payloads.
+3. **Premature Temp File Deletion**: In `playSpeech()`, calling `this.stopPlayback()` before initiating playback deleted `this.currentTempAudioUri` if it was already pointing to the freshly synthesized file.
+
+## Solutions Applied
+1. **Multi-Endpoint Prioritized Candidate Resolution (`src/services/voice/voiceAiService.ts`)**:
+   - `synthesizeSpeech` evaluates candidate endpoints in priority order:
+     1. Production web server: `${process.env.EXPO_PUBLIC_WEB_API_URL}/api/tts` (`https://chatboxai.co.in/api/tts`, verified live HTTP 200 with ElevenLabs streaming audio).
+     2. Dedicated mobile backend: `${resolveBackendBaseUrl()}/api/mobile/tts`.
+     3. Backend route: `${resolveBackendBaseUrl()}/api/tts`.
+2. **Direct Fetch & Binary ArrayBuffer/Blob Conversion**:
+   - Removed `FileSystem.downloadAsync` for POST synthesis.
+   - Implemented high-speed `responseToBase64` with chunked `btoa` conversion from `arrayBuffer` and `Blob` / `FileReader` fallback.
+   - Writes base64 data to `${FileSystem.cacheDirectory}tts_<timestamp>_<rand>.mp3` with `FileSystem.writeAsStringAsync`.
+3. **Playback Lifecyle & Audio File Protection**:
+   - Introduced `stopPlaybackInternal(cleanupFile)` so that beginning a new speech playback halts prior playback without deleting the new file URI.
+   - Enhanced `playbackStatusUpdate` listener on `expo-audio` player to accurately detect track end using `status?.didJustFinish`, `!status?.playing && status?.currentTime >= status?.duration - 0.25`, or `status?.error`.
+   - Added a 20-second safety timeout to guarantee the promise resolves and state returns to `idle` for the next conversational turn.
+
+## Verification
+- Validated `https://chatboxai.co.in/api/tts` across all 5 voices (`voice-1` through `voice-5`): all returned HTTP 200 with valid `audio/mpeg` buffers.
+- Executed `npx tsc --noEmit`: 0 errors.
+
+
+
 

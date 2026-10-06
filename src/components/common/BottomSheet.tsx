@@ -18,7 +18,7 @@ interface BottomSheetProps {
   children: React.ReactNode;
 }
 
-export const BottomSheet: React.FC<BottomSheetProps> = ({
+export const BottomSheet: React.FC<BottomSheetProps> = React.memo(({
   visible,
   onClose,
   title,
@@ -35,44 +35,47 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       transparent
       animationType="fade"
       onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop}>
-          <TouchableWithoutFeedback>
-            <View
-              style={[
-                styles.sheetContainer,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.line,
-                  paddingBottom: Math.max(insets.bottom, spacing.md),
-                },
-              ]}
-            >
-              {/* Drag Handle */}
-              <View style={styles.handleWrapper}>
-                <View style={[styles.handleBar, { backgroundColor: colors.line }]} />
-              </View>
+      <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close bottom sheet"
+        />
+        <View
+          style={[
+            styles.sheetContainer,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.line,
+              paddingBottom: Math.max(insets.bottom, spacing.md),
+            },
+          ]}
+        >
+          {/* Drag Handle */}
+          <View style={styles.handleWrapper}>
+            <View style={[styles.handleBar, { backgroundColor: colors.line }]} />
+          </View>
 
-              {/* Title Header if present */}
-              {title ? (
-                <View style={[styles.titleRow, { borderBottomColor: colors.line }]}>
-                  <Text style={[styles.titleText, { color: colors.ink }]}>{title}</Text>
-                  <Pressable onPress={onClose} hitSlop={8}>
-                    <IconX size={20} color={colors.ink2} />
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {/* Sheet Body Content */}
-              <View style={styles.content}>{children}</View>
+          {/* Title Header if present */}
+          {title ? (
+            <View style={[styles.titleRow, { borderBottomColor: colors.line }]}>
+              <Text style={[styles.titleText, { color: colors.ink }]}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={8}>
+                <IconX size={20} color={colors.ink2} />
+              </Pressable>
             </View>
-          </TouchableWithoutFeedback>
+          ) : null}
+
+          {/* Sheet Body Content */}
+          <View style={styles.content}>{children}</View>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
-};
+});
 
 const styles = StyleSheet.create({
   backdrop: {

@@ -636,9 +636,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   // ── Composer behavior ─────────────────────────────────────────────────────
   const handleComposerFocus = useCallback(() => {
     if (isNearBottomRef.current) {
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
-      });
+      }, 60);
     }
   }, []);
 
@@ -732,28 +732,20 @@ const KeyboardWrapper: React.FC<{ children: React.ReactNode; colors: any }> = ({
       const heightDiff = initialLayoutHeight.current - currentLayoutHeight.current;
 
       if (heightDiff >= kh * 0.7) {
-        // OS handled it, no extra padding needed
-        Animated.timing(androidKeyboardOffset, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: false,
-        }).start();
+        // OS resized the window natively — keep 0 immediately without JS layout thrashing
+        androidKeyboardOffset.setValue(0);
       } else {
-        // OS failed to resize window, manual padding required
+        // OS failed to resize window, snappy offset
         Animated.timing(androidKeyboardOffset, {
           toValue: kh,
-          duration: 250,
+          duration: 90,
           useNativeDriver: false,
         }).start();
       }
     });
 
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      Animated.timing(androidKeyboardOffset, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
+      androidKeyboardOffset.setValue(0);
     });
 
     return () => {
@@ -816,7 +808,7 @@ interface ContentProps {
   isIncognito?: boolean;
 }
 
-const ConversationContent: React.FC<ContentProps> = ({
+const ConversationContent: React.FC<ContentProps> = React.memo(({
   messages,
   isLoadingHistory,
   isSearching,
@@ -843,35 +835,8 @@ const ConversationContent: React.FC<ContentProps> = ({
   pendingAttachments,
   onClearAttachment,
   isIncognito = false,
-}: {
-  messages: MessageItem[];
-  isLoadingHistory: boolean;
-  isSearching: boolean;
-  isThinking: boolean;
-  progressMessage: string;
-  showScrollDown: boolean;
-  scrollButtonOpacity: any;
-  scrollViewRef: any;
-  isNearBottomRef: any;
-  handleScroll: any;
-  handleSendMessage: any;
-  handleRegenerate: any;
-  handleFeedback: any;
-  handleVersionChange: any;
-  handleComposerFocus: any;
-  handleStop: any;
-  handleOpenAttachments: any;
-  handleOpenVoice: any;
-  isGenerating: boolean;
-  isFileAnalyzing: boolean;
-  currentUser: any;
-  userProfile: any;
-  colors: any;
-  pendingAttachments: ChatAttachment[];
-  onClearAttachment: (uri: string) => void;
-  isIncognito?: boolean;
-}) => {
-  const { thinkingMode } = useModelStore();
+}: ContentProps) => {
+  const thinkingMode = useModelStore((s) => s.thinkingMode);
   const isResearchMode = useResearchStore((s) => s.isResearchMode);
   const isEmptyChat = !isLoadingHistory && messages.length === 0;
 
@@ -1101,7 +1066,7 @@ const ConversationContent: React.FC<ContentProps> = ({
       <DeepResearchLimitSheet />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

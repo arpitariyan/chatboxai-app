@@ -26,7 +26,7 @@ interface HeaderProps {
   isIncognito?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export const Header: React.FC<HeaderProps> = React.memo(({
   onOpenDrawer,
   onNewChat,
   onOpenOptionsMenu,
@@ -204,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

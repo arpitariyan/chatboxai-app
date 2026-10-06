@@ -101,28 +101,20 @@ const KeyboardWrapper: React.FC<{
         initialLayoutHeight.current - currentLayoutHeight.current;
 
       if (heightDiff >= kh * 0.7) {
-        // OS resized the window itself — no extra padding needed
-        Animated.timing(androidKeyboardOffset, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: false,
-        }).start();
+        // OS resized the window itself — keep 0 immediately without JS layout thrashing
+        androidKeyboardOffset.setValue(0);
       } else {
-        // Manual offset required
+        // Manual offset required, snappy 90ms duration
         Animated.timing(androidKeyboardOffset, {
           toValue: kh,
-          duration: 250,
+          duration: 90,
           useNativeDriver: false,
         }).start();
       }
     });
 
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      Animated.timing(androidKeyboardOffset, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
+      androidKeyboardOffset.setValue(0);
     });
 
     return () => {

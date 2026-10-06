@@ -260,6 +260,22 @@ export interface DownloadImageResult {
   permissionDenied?: boolean;
 }
 
+interface ImageCacheEntry {
+  data: GeneratedImageItem[];
+  timestamp: number;
+}
+const ALL_IMAGES_CACHE = new Map<string, ImageCacheEntry>();
+const ALL_IMAGES_IN_FLIGHT = new Map<string, Promise<GeneratedImageItem[]>>();
+const ALL_IMAGES_CACHE_TTL_MS = 25 * 1000; // 25 seconds
+
+export function clearImagesCache(email?: string) {
+  if (email) {
+    ALL_IMAGES_CACHE.delete(email.trim().toLowerCase());
+  } else {
+    ALL_IMAGES_CACHE.clear();
+  }
+}
+
 export const imageService = {
   /**
    * Submit an image generation (text-to-image or image-to-image) request to https://api-mobile.chatboxai.co.in
@@ -297,7 +313,7 @@ export const imageService = {
         payload.referenceImage
       );
 
-      return {
+      const result: GenerateImageResultResponse = {
         success: true,
         docId: data.docId || data.generation?.$id || data.libId || `doc_${Date.now()}`,
         libId: data.libId,
@@ -316,6 +332,10 @@ export const imageService = {
         createdAt: data.createdAt || data.generation?.created_at || new Date().toISOString(),
         message: data.message,
       };
+      if (userEmail) {
+        clearImagesCache(userEmail);
+      }
+      return result;
     } catch (err: any) {
       const message =
         err?.response?.data?.error ||
@@ -384,10 +404,38 @@ export const imageService = {
    * Fetch ALL generated images across all conversations for the logged-in user.
    * Multi-tier strategy: Direct Appwrite DB -> Mobile API -> Web History API -> Conversation crawl
    */
-  async fetchAllUserImages(email: string): Promise<GeneratedImageItem[]> {
+  async fetchAllUserImages(email: string, forceRefresh = false): Promise<GeneratedImageItem[]> {
     if (!email) return [];
     const normalizedEmail = email.trim().toLowerCase();
 
+    // 1. In-memory TTL cache
+    if (!forceRefresh) {
+      const cached = ALL_IMAGES_CACHE.get(normalizedEmail);
+      if (cached && Date.now() - cached.timestamp < ALL_IMAGES_CACHE_TTL_MS) {
+        return cached.data;
+      }
+    }
+
+    // 2. In-flight request deduplication
+    if (ALL_IMAGES_IN_FLIGHT.has(normalizedEmail)) {
+      return ALL_IMAGES_IN_FLIGHT.get(normalizedEmail)!;
+    }
+
+    const fetchPromise = (async (): Promise<GeneratedImageItem[]> => {
+      try {
+        const result = await imageService._performFetchAllUserImages(normalizedEmail);
+        ALL_IMAGES_CACHE.set(normalizedEmail, { data: result, timestamp: Date.now() });
+        return result;
+      } finally {
+        ALL_IMAGES_IN_FLIGHT.delete(normalizedEmail);
+      }
+    })();
+
+    ALL_IMAGES_IN_FLIGHT.set(normalizedEmail, fetchPromise);
+    return fetchPromise;
+  },
+
+  async _performFetchAllUserImages(normalizedEmail: string): Promise<GeneratedImageItem[]> {
     // ── Tier 1: Direct Appwrite Query (Instant, complete across all user's image generations) ──
     if (DB_ID && IMAGE_GENERATION_COLLECTION_ID) {
       try {

@@ -94,6 +94,23 @@ const DEFAULT_PERMISSIONS = [
   Permission.delete(Role.any()),
 ];
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const CONVERSATIONS_CACHE = new Map<string, CacheEntry<ConversationItem[]>>();
+const CONVERSATIONS_IN_FLIGHT = new Map<string, Promise<ConversationItem[]>>();
+const CONVERSATION_CACHE_TTL_MS = 25 * 1000; // 25 seconds cache
+
+export function clearConversationsCache(userEmail?: string) {
+  if (userEmail) {
+    CONVERSATIONS_CACHE.delete(userEmail.trim().toLowerCase());
+  } else {
+    CONVERSATIONS_CACHE.clear();
+  }
+}
+
 /**
  * Chat and Conversation Database Service
  * Enforces strict user data isolation: all queries and updates are gated on userEmail
@@ -105,10 +122,39 @@ export const chatService = {
    * Queries library (search), image_generation, and website_projects in parallel,
    * strictly filtering every document on userEmail === normalizedEmail with Query.orderDesc('$createdAt').
    */
-  async fetchUserConversations(userEmail: string): Promise<ConversationItem[]> {
+  async fetchUserConversations(userEmail: string, forceRefresh = false): Promise<ConversationItem[]> {
     if (!userEmail) return [];
 
     const normalizedEmail = userEmail.trim().toLowerCase();
+
+    // 1. In-memory TTL cache lookup
+    if (!forceRefresh) {
+      const cached = CONVERSATIONS_CACHE.get(normalizedEmail);
+      if (cached && Date.now() - cached.timestamp < CONVERSATION_CACHE_TTL_MS) {
+        return cached.data;
+      }
+    }
+
+    // 2. In-flight request deduplication
+    if (CONVERSATIONS_IN_FLIGHT.has(normalizedEmail)) {
+      return CONVERSATIONS_IN_FLIGHT.get(normalizedEmail)!;
+    }
+
+    const fetchPromise = (async (): Promise<ConversationItem[]> => {
+      try {
+        const result = await chatService._performFetchUserConversations(normalizedEmail);
+        CONVERSATIONS_CACHE.set(normalizedEmail, { data: result, timestamp: Date.now() });
+        return result;
+      } finally {
+        CONVERSATIONS_IN_FLIGHT.delete(normalizedEmail);
+      }
+    })();
+
+    CONVERSATIONS_IN_FLIGHT.set(normalizedEmail, fetchPromise);
+    return fetchPromise;
+  },
+
+  async _performFetchUserConversations(normalizedEmail: string): Promise<ConversationItem[]> {
 
     // 1. Authenticated Mobile Backend Proxy Route
     if (auth.currentUser) {
@@ -429,6 +475,7 @@ export const chatService = {
         });
         const created = response.data;
         if (created) {
+          clearConversationsCache(normalizedEmail);
           return {
             libId: created.libId || created.$id,
             title: cleanConversationTitle(created.searchInput || params.searchInput),
@@ -503,6 +550,7 @@ export const chatService = {
         );
       }
 
+      clearConversationsCache(normalizedEmail);
       return {
         libId: created.libId || created.$id,
         title: cleanConversationTitle(created.searchInput),
@@ -668,6 +716,7 @@ export const chatService = {
    */
   async renameConversation(libId: string, userEmail: string, newTitle: string): Promise<boolean> {
     if (!libId || !userEmail || !newTitle.trim()) return false;
+    const normalizedEmail = userEmail.trim().toLowerCase();
 
     // 1. Authenticated Mobile Backend Proxy Route
     if (auth.currentUser) {
@@ -676,15 +725,16 @@ export const chatService = {
           `/api/mobile/conversations/${encodeURIComponent(libId)}`,
           { newTitle: newTitle.trim() }
         );
-        if (response.data?.success) return true;
+        if (response.data?.success) {
+          clearConversationsCache(normalizedEmail);
+          return true;
+        }
       } catch (err: any) {
         console.log('[chatService] Proxy renameConversation failed, falling back:', err?.message || err);
       }
     }
 
     if (!DB_ID) return false;
-
-    const normalizedEmail = userEmail.trim().toLowerCase();
 
     try {
       const res = await databases.listDocuments(DB_ID, LIBRARY_COLLECTION_ID, [
@@ -701,6 +751,7 @@ export const chatService = {
           await databases.updateDocument(DB_ID, LIBRARY_COLLECTION_ID, doc.$id, {
             searchInput: newTitle.trim(),
           });
+          clearConversationsCache(normalizedEmail);
           return true;
         }
       }
@@ -725,7 +776,10 @@ export const chatService = {
         const response = await apiClient.delete(
           `/api/mobile/conversations/${encodeURIComponent(libId)}`
         );
-        if (response.data?.success) return true;
+        if (response.data?.success) {
+          clearConversationsCache(userEmail);
+          return true;
+        }
       } catch (err: any) {
         console.log('[chatService] Proxy deleteConversation failed, falling back:', err?.message || err);
       }
@@ -784,6 +838,9 @@ export const chatService = {
         console.warn('[chatService] Warning deleting image generation records:', err?.message || err);
       }
 
+      if (deletedAny) {
+        clearConversationsCache(normalizedEmail);
+      }
       return deletedAny;
     } catch (error: any) {
       console.error('[chatService] Error deleting conversation:', error?.message || error);

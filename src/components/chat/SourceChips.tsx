@@ -28,7 +28,7 @@ const getDomainLabel = (item: SourceItem): string => {
   return item.title || item.name || 'Source';
 };
 
-export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult, onOpenSheet }) => {
+export const SourceChips: React.FC<SourceChipsProps> = React.memo(({ searchResult, onOpenSheet }) => {
   const colors = useThemeColors();
   const [showAll, setShowAll] = useState(false);
 
@@ -203,7 +203,7 @@ export const SourceChips: React.FC<SourceChipsProps> = ({ searchResult, onOpenSh
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

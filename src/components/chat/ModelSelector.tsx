@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal, FlatList, Image } from 'react-native';
 import { useModelStore, UIModel } from '@/stores/useModelStore';
 import { AIModelsOption, DEEP_RESEARCH_MODELS } from '@/config/models';
@@ -44,16 +44,52 @@ const getModelLogo = (model: UIModel) => {
   return MODEL_LOGOS['default'];
 };
 
-export const ModelSelector: React.FC<ModelSelectorProps> = ({ isResearch }) => {
-  const { selectedModel, setSelectedModel } = useModelStore();
+interface ModelRowItemProps {
+  item: UIModel;
+  isSelected: boolean;
+  onSelect: (item: UIModel) => void;
+}
+
+const ModelRowItem = React.memo<ModelRowItemProps>(({ item, isSelected, onSelect }) => {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.modelRow,
+        isSelected && styles.modelRowSelected,
+        { opacity: pressed ? 0.75 : 1 },
+      ]}
+      onPress={() => onSelect(item)}
+    >
+      <View style={styles.modelInfo}>
+        <Image source={getModelLogo(item)} style={styles.modelIcon} />
+        <Text style={styles.modelName}>{item.name}</Text>
+      </View>
+      {isSelected && (
+        <IconCheck size={20} color="#3b82f6" />
+      )}
+    </Pressable>
+  );
+});
+
+export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(({ isResearch }) => {
+  const selectedModel = useModelStore((s) => s.selectedModel);
+  const setSelectedModel = useModelStore((s) => s.setSelectedModel);
   const [modalVisible, setModalVisible] = useState(false);
 
   const availableModels = isResearch ? DEEP_RESEARCH_MODELS : AIModelsOption;
 
-  const handleSelect = (model: UIModel) => {
+  const handleSelect = useCallback((model: UIModel) => {
     setSelectedModel(model);
     setModalVisible(false);
-  };
+  }, [setSelectedModel]);
+
+  const renderItem = useCallback(({ item }: { item: UIModel }) => (
+    <ModelRowItem
+      item={item}
+      isSelected={selectedModel?.id === item.id}
+      onSelect={handleSelect}
+    />
+  ), [selectedModel?.id, handleSelect]);
 
   return (
     <>
@@ -69,8 +105,20 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ isResearch }) => {
         </View>
       </Pressable>
 
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <Pressable style={styles.overlay} onPress={() => setModalVisible(false)}>
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+        statusBarTranslucent
+      >
+        <View style={styles.overlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setModalVisible(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close model picker"
+          />
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Select AI Model</Text>
@@ -78,30 +126,17 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({ isResearch }) => {
             <FlatList
               data={availableModels as UIModel[]}
               keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={[
-                    styles.modelRow,
-                    selectedModel?.id === item.id && styles.modelRowSelected
-                  ]}
-                  onPress={() => handleSelect(item)}
-                >
-                  <View style={styles.modelInfo}>
-                    <Image source={getModelLogo(item)} style={styles.modelIcon} />
-                    <Text style={styles.modelName}>{item.name}</Text>
-                  </View>
-                  {selectedModel?.id === item.id && (
-                    <IconCheck size={20} color="#3b82f6" />
-                  )}
-                </Pressable>
-              )}
+              renderItem={renderItem}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={5}
             />
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </>
   );
-};
+});
 
 const styles = StyleSheet.create({
   triggerBtn: {

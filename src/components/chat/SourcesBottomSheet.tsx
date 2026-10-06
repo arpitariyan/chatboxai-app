@@ -67,7 +67,7 @@ const trimTitle = (t: string, max = 80): string =>
   t.length > max ? t.slice(0, max - 1) + '…' : t;
 
 // ── SourceRow ─────────────────────────────────────────────────────────────────
-const SourceRow: React.FC<{ item: SourceItem; index: number }> = ({ item, index }) => {
+const SourceRow = React.memo<{ item: SourceItem; index: number }>(({ item, index }) => {
   const colors = useThemeColors();
   const url = getSourceUrl(item);
   const domain = url ? getDomainFromUrl(url) : '';
@@ -98,7 +98,7 @@ const SourceRow: React.FC<{ item: SourceItem; index: number }> = ({ item, index 
 
       {/* Text */}
       <View style={styles.textBlock}>
-        <Text style={[styles.sourceDomain, { color: colors.ink3 }]} numberOfLines={1}>
+        <Text style={[styles.sourceDomain, { color: colors.ink3 }] } numberOfLines={1}>
           {domain || 'Source'}
         </Text>
         <Text style={[styles.sourceTitle, { color: colors.ink }]} numberOfLines={3}>
@@ -110,10 +110,10 @@ const SourceRow: React.FC<{ item: SourceItem; index: number }> = ({ item, index 
       <Text style={[styles.arrow, { color: colors.ink3 }]}>↗</Text>
     </Pressable>
   );
-};
+});
 
 // ── SourcesBottomSheet ────────────────────────────────────────────────────────
-export const SourcesBottomSheet: React.FC<SourcesBottomSheetProps> = ({
+export const SourcesBottomSheet: React.FC<SourcesBottomSheetProps> = React.memo(({
   visible,
   sources,
   onClose,
@@ -264,7 +264,7 @@ export const SourcesBottomSheet: React.FC<SourcesBottomSheetProps> = ({
       </View>
     </Modal>
   );
-};
+});
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({

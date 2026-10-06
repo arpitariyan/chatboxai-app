@@ -54,7 +54,95 @@ interface DrawerProps {
   refreshTrigger?: number;
 }
 
-export const Drawer: React.FC<DrawerProps> = ({
+interface DrawerConversationRowProps {
+  chat: ConversationItem;
+  isPinned?: boolean;
+  colors: any;
+  onSelect: (chat: ConversationItem) => void;
+  onOpenActionMenu: (chat: ConversationItem) => void;
+}
+
+const DrawerConversationRow = React.memo<DrawerConversationRowProps>(({
+  chat,
+  isPinned,
+  colors,
+  onSelect,
+  onOpenActionMenu,
+}) => {
+  const handlePress = useCallback(() => {
+    onSelect(chat);
+  }, [chat, onSelect]);
+
+  const handleAction = useCallback(() => {
+    onOpenActionMenu(chat);
+  }, [chat, onOpenActionMenu]);
+
+  return (
+    <View style={styles.recentRowContainer}>
+      <Pressable
+        onPress={handlePress}
+        style={({ pressed }) => [
+          styles.recentMainButton,
+          {
+            backgroundColor: pressed ? colors.surface : 'transparent',
+            opacity: pressed ? 0.75 : 1,
+          },
+        ]}
+      >
+        {chat.type === 'image-generation' ? (
+          <IconPhoto
+            size={isPinned ? 16 : 17}
+            color={isPinned ? (colors.accent || colors.ink2) : colors.ink3}
+            style={{ marginRight: spacing.sm + 2 }}
+          />
+        ) : isPinned ? (
+          <IconPin
+            size={16}
+            color={colors.accent || colors.ink2}
+            style={{ marginRight: spacing.sm + 2 }}
+          />
+        ) : chat.type === 'research' ? (
+          <IconFlask
+            size={17}
+            color="#a78bfa"
+            style={{ marginRight: spacing.sm + 2 }}
+          />
+        ) : (
+          <IconMessage2
+            size={17}
+            color={colors.ink3}
+            style={{ marginRight: spacing.sm + 2 }}
+          />
+        )}
+        <Text
+          style={[
+            styles.recentTitle,
+            { color: colors.ink, fontWeight: isPinned ? '500' : 'normal' },
+          ]}
+          numberOfLines={1}
+        >
+          {chat.title}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={handleAction}
+        hitSlop={8}
+        style={({ pressed }) => [
+          styles.recentActionBtn,
+          {
+            opacity: pressed ? 0.6 : 1,
+            backgroundColor: pressed ? colors.surface : 'transparent',
+          },
+        ]}
+      >
+        <IconDotsVertical size={16} color={colors.ink3} />
+      </Pressable>
+    </View>
+  );
+});
+
+export const Drawer: React.FC<DrawerProps> = React.memo(({
   visible,
   onClose,
   onSelectNewChat,
@@ -146,35 +234,37 @@ export const Drawer: React.FC<DrawerProps> = ({
   useEffect(() => {
     if (visible) {
       setRendered(true);
-      if (currentUser?.email) {
-        loadConversations(currentUser.email);
-        loadPins(currentUser.email);
-      }
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 260,
+          duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(backdropAnim, {
           toValue: 1,
-          duration: 260,
+          duration: 240,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => {
+        // Defer background refresh to after drawer opens so slide is 60fps smooth
+        if (currentUser?.email) {
+          loadConversations(currentUser.email);
+          loadPins(currentUser.email);
+        }
+      });
     } else if (rendered) {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: -DRAWER_WIDTH,
-          duration: 220,
+          duration: 200,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(backdropAnim, {
           toValue: 0,
-          duration: 220,
+          duration: 200,
           easing: Easing.in(Easing.quad),
           useNativeDriver: true,
         }),
@@ -182,7 +272,7 @@ export const Drawer: React.FC<DrawerProps> = ({
         setRendered(false);
       });
     }
-  }, [visible, currentUser?.email, loadConversations]);
+  }, [visible, currentUser?.email, loadConversations, loadPins]);
 
   // Refresh trigger when a new conversation is created
   const isFirstRenderRef = useRef(true);
@@ -196,31 +286,38 @@ export const Drawer: React.FC<DrawerProps> = ({
     }
   }, [refreshTrigger, currentUser?.email, loadConversations]);
 
-  const handleClose = (callback?: () => void) => {
+  const handleClose = useCallback((callback?: () => void) => {
+    if (callback) {
+      // Trigger navigation immediately for instant touch response
+      callback();
+    }
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 220,
+        duration: 200,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(backdropAnim, {
         toValue: 0,
-        duration: 220,
+        duration: 200,
         easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),
     ]).start(() => {
       setRendered(false);
       onClose();
-      if (callback) callback();
     });
-  };
+  }, [slideAnim, backdropAnim, onClose]);
 
-  const handleOpenActionMenu = (item: ConversationItem) => {
+  const handleOpenActionMenu = useCallback((item: ConversationItem) => {
     setActionTarget(item);
     setIsActionModalOpen(true);
-  };
+  }, []);
+
+  const handleSelectRow = useCallback((chat: ConversationItem) => {
+    handleClose(() => onSelectChatHistory(chat.libId, chat.title, chat.type));
+  }, [handleClose, onSelectChatHistory]);
 
   const handleStartRename = () => {
     if (!actionTarget) return;
@@ -433,53 +530,14 @@ export const Drawer: React.FC<DrawerProps> = ({
 
                 <View style={styles.recentsGroup}>
                   {pinnedConversations.map((chat: ConversationItem) => (
-                    <View key={`pinned-${chat.libId}`} style={styles.recentRowContainer}>
-                      <Pressable
-                        onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title, chat.type))}
-                        style={({ pressed }) => [
-                          styles.recentMainButton,
-                          {
-                            backgroundColor: pressed ? colors.surface : 'transparent',
-                            opacity: pressed ? 0.75 : 1,
-                          },
-                        ]}
-                      >
-                        {chat.type === 'image-generation' ? (
-                          <IconPhoto
-                            size={16}
-                            color={colors.accent || colors.ink2}
-                            style={{ marginRight: spacing.sm + 2 }}
-                          />
-                        ) : (
-                          <IconPin
-                            size={16}
-                            color={colors.accent || colors.ink2}
-                            style={{ marginRight: spacing.sm + 2 }}
-                          />
-                        )}
-                        <Text
-                          style={[styles.recentTitle, { color: colors.ink, fontWeight: '500' }]}
-                          numberOfLines={1}
-                        >
-                          {chat.title}
-                        </Text>
-                      </Pressable>
-
-                      {/* 3-Dots Action Button */}
-                      <Pressable
-                        onPress={() => handleOpenActionMenu(chat)}
-                        hitSlop={8}
-                        style={({ pressed }) => [
-                          styles.recentActionBtn,
-                          {
-                            opacity: pressed ? 0.6 : 1,
-                            backgroundColor: pressed ? colors.surface : 'transparent',
-                          },
-                        ]}
-                      >
-                        <IconDotsVertical size={16} color={colors.ink3} />
-                      </Pressable>
-                    </View>
+                    <DrawerConversationRow
+                      key={`pinned-${chat.libId}`}
+                      chat={chat}
+                      isPinned
+                      colors={colors}
+                      onSelect={handleSelectRow}
+                      onOpenActionMenu={handleOpenActionMenu}
+                    />
                   ))}
                 </View>
               </>
@@ -504,59 +562,13 @@ export const Drawer: React.FC<DrawerProps> = ({
                 </View>
               ) : (
                 recentConversations.map((chat: ConversationItem) => (
-                  <View key={chat.libId} style={styles.recentRowContainer}>
-                    <Pressable
-                      onPress={() => handleClose(() => onSelectChatHistory(chat.libId, chat.title, chat.type))}
-                      style={({ pressed }) => [
-                        styles.recentMainButton,
-                        {
-                          backgroundColor: pressed ? colors.surface : 'transparent',
-                          opacity: pressed ? 0.75 : 1,
-                        },
-                      ]}
-                    >
-                      {chat.type === 'image-generation' ? (
-                        <IconPhoto
-                          size={17}
-                          color={colors.ink3}
-                          style={{ marginRight: spacing.sm + 2 }}
-                        />
-                      ) : chat.type === 'research' ? (
-                        <IconFlask
-                          size={17}
-                          color="#a78bfa"
-                          style={{ marginRight: spacing.sm + 2 }}
-                        />
-                      ) : (
-                        <IconMessage2
-                          size={17}
-                          color={colors.ink3}
-                          style={{ marginRight: spacing.sm + 2 }}
-                        />
-                      )}
-                      <Text
-                        style={[styles.recentTitle, { color: colors.ink }]}
-                        numberOfLines={1}
-                      >
-                        {chat.title}
-                      </Text>
-                    </Pressable>
-
-                    {/* 3-Dots Action Button */}
-                    <Pressable
-                      onPress={() => handleOpenActionMenu(chat)}
-                      hitSlop={8}
-                      style={({ pressed }) => [
-                        styles.recentActionBtn,
-                        {
-                          opacity: pressed ? 0.6 : 1,
-                          backgroundColor: pressed ? colors.surface : 'transparent',
-                        },
-                      ]}
-                    >
-                      <IconDotsVertical size={16} color={colors.ink3} />
-                    </Pressable>
-                  </View>
+                  <DrawerConversationRow
+                    key={chat.libId}
+                    chat={chat}
+                    colors={colors}
+                    onSelect={handleSelectRow}
+                    onOpenActionMenu={handleOpenActionMenu}
+                  />
                 ))
               )}
             </View>
@@ -857,7 +869,7 @@ export const Drawer: React.FC<DrawerProps> = ({
       </View>
     </Modal>
   );
-};
+});
 
 const styles = StyleSheet.create({
   modalRoot: {

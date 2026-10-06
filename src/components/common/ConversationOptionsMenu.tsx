@@ -5,7 +5,6 @@ import {
   View,
   Modal,
   Pressable,
-  TouchableWithoutFeedback,
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,7 +36,7 @@ interface ConversationOptionsMenuProps {
   onDelete: () => void;
 }
 
-export const ConversationOptionsMenu: React.FC<ConversationOptionsMenuProps> = ({
+export const ConversationOptionsMenu: React.FC<ConversationOptionsMenuProps> = React.memo(({
   visible,
   onClose,
   title,
@@ -78,15 +77,17 @@ export const ConversationOptionsMenu: React.FC<ConversationOptionsMenuProps> = (
       statusBarTranslucent={true}
       onRequestClose={onClose}
     >
-      {/* Outer Dismissible Backdrop */}
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={styles.backdrop}>
-          {/* Anchored Popup Card */}
-          <TouchableWithoutFeedback>
-            <View
-              style={[
-                styles.menuCard,
-                {
+      <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close menu"
+        />
+        <View
+          style={[
+            styles.menuCard,
+            {
                   top: computedTop,
                   right: computedRight,
                   backgroundColor: colors.surface || '#1f1f23',
@@ -200,12 +201,10 @@ export const ConversationOptionsMenu: React.FC<ConversationOptionsMenuProps> = (
                 </Text>
               </Pressable>
             </View>
-          </TouchableWithoutFeedback>
         </View>
-      </TouchableWithoutFeedback>
-    </Modal>
+      </Modal>
   );
-};
+});
 
 const styles = StyleSheet.create({
   backdrop: {
