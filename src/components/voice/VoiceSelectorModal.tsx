@@ -2,12 +2,14 @@
  * src/components/voice/VoiceSelectorModal.tsx
  *
  * 5-Voice Assistant Selector Modal for Mobile APK.
- * Adapts website components/voice/VoiceSelectorModal.jsx.
- * Allows user to choose between the 5 approved assistant voice identities,
- * test sample previews, and persists their preference.
+ * Clean, premium monochrome (black & white) design.
+ * - Left: Selection Option (Radio/Check indicator)
+ * - Center: Voice Avatar + Info & Metadata
+ * - Right: Play/Stop Sample Preview Button
+ * Plays real bundled voice preview MP3s via expo-audio (createAudioPlayer).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -15,7 +17,6 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -25,14 +26,17 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
 } from '@tabler/icons-react-native';
-import * as Speech from 'expo-speech';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+} from 'expo-audio';
+import type { AudioPlayer } from 'expo-audio';
 import {
   ASSISTANT_VOICES,
   AssistantVoice,
-  PREVIEW_SAMPLE_TEXT,
 } from '../../services/voice/voiceRegistry';
 import { useVoicePreferenceStore } from '../../stores/useVoicePreferenceStore';
-import { useThemeColors, spacing, radius, typography } from '../../theme';
+import { spacing, radius, typography } from '../../theme';
 
 interface VoiceSelectorModalProps {
   visible: boolean;
@@ -43,53 +47,105 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
   visible,
   onClose,
 }) => {
-  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
   const selectedVoiceId = useVoicePreferenceStore((s) => s.selectedVoiceId);
   const setSelectedVoiceId = useVoicePreferenceStore((s) => s.setSelectedVoiceId);
 
   const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const listenerRef = useRef<{ remove: () => void } | null>(null);
 
-  const handleStopPreview = () => {
-    try {
-      Speech.stop();
-    } catch (_) {}
+  /** Cleanly stop and release the current preview player */
+  const stopAndRelease = useCallback(() => {
+    if (listenerRef.current) {
+      try { listenerRef.current.remove(); } catch (_) {}
+      listenerRef.current = null;
+    }
+    if (playerRef.current) {
+      try {
+        playerRef.current.pause();
+        playerRef.current.remove();
+      } catch (_) {}
+      playerRef.current = null;
+    }
     setPreviewingId(null);
-  };
+  }, []);
 
-  const handleTogglePreview = (voice: AssistantVoice) => {
+  // Stop preview when modal hides
+  useEffect(() => {
+    if (!visible) {
+      stopAndRelease();
+    }
+  }, [visible, stopAndRelease]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (listenerRef.current) {
+        try { listenerRef.current.remove(); } catch (_) {}
+        listenerRef.current = null;
+      }
+      if (playerRef.current) {
+        try {
+          playerRef.current.pause();
+          playerRef.current.remove();
+        } catch (_) {}
+        playerRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleTogglePreview = useCallback(async (voice: AssistantVoice) => {
+    // Tapping again stops the currently previewing voice
     if (previewingId === voice.id) {
-      handleStopPreview();
+      stopAndRelease();
       return;
     }
 
-    handleStopPreview();
-    setPreviewingId(voice.id);
+    // Stop whatever was playing before
+    stopAndRelease();
 
     try {
-      Speech.speak(PREVIEW_SAMPLE_TEXT, {
-        pitch: voice.gender === 'female' ? 1.1 : 0.95,
-        rate: 1.0,
-        onDone: () => setPreviewingId(null),
-        onStopped: () => setPreviewingId(null),
-        onError: () => setPreviewingId(null),
+      // Configure audio output to speaker
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+        shouldPlayInBackground: false,
       });
-    } catch (e) {
-      setPreviewingId(null);
+
+      setPreviewingId(voice.id);
+
+      const player = createAudioPlayer(voice.previewAsset);
+      playerRef.current = player;
+
+      // Listen for playback-finished to reset state
+      const subscription = player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          stopAndRelease();
+        }
+      });
+      listenerRef.current = subscription;
+
+      player.play();
+    } catch (err) {
+      console.warn('[VoiceSelectorModal] Preview playback error:', err);
+      stopAndRelease();
     }
-  };
+  }, [previewingId, stopAndRelease]);
 
-  const handleSelect = (voiceId: string) => {
-    handleStopPreview();
+  const handleSelect = useCallback((voiceId: string) => {
+    stopAndRelease();
     setSelectedVoiceId(voiceId);
-    onClose();
-  };
+    setTimeout(() => {
+      onClose();
+    }, 150);
+  }, [stopAndRelease, setSelectedVoiceId, onClose]);
 
-  const handleCloseModal = () => {
-    handleStopPreview();
+  const handleCloseModal = useCallback(() => {
+    stopAndRelease();
     onClose();
-  };
+  }, [stopAndRelease, onClose]);
 
   if (!visible) return null;
 
@@ -107,21 +163,22 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
           style={[
             styles.container,
             {
-              backgroundColor: colors.surface,
-              borderColor: colors.line,
               marginBottom: Math.max(insets.bottom, 16),
             },
           ]}
         >
+          {/* Top Sheet Drag Handle */}
+          <View style={styles.dragHandle} />
+
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <View style={[styles.headerIconWrapper, { backgroundColor: 'rgba(0, 230, 195, 0.15)' }]}>
-                <IconVolume size={18} color={colors.accent} />
+              <View style={styles.headerIconWrapper}>
+                <IconVolume size={18} color="#ffffff" strokeWidth={2} />
               </View>
-              <View>
-                <Text style={[styles.title, { color: colors.ink }]}>Assistant Voice</Text>
-                <Text style={[styles.subtitle, { color: colors.ink3 }]}>
+              <View style={styles.headerTextGroup}>
+                <Text style={styles.title}>Assistant Voice</Text>
+                <Text style={styles.subtitle}>
                   Choose your preferred voice personality
                 </Text>
               </View>
@@ -129,16 +186,19 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 
             <Pressable
               onPress={handleCloseModal}
-              hitSlop={8}
+              hitSlop={10}
               style={({ pressed }) => [
                 styles.closeButton,
                 { opacity: pressed ? 0.6 : 1 },
               ]}
               accessibilityLabel="Close voice modal"
             >
-              <IconX size={20} color={colors.ink2} />
+              <IconX size={18} color="#ffffff" strokeWidth={2} />
             </Pressable>
           </View>
+
+          {/* Subtle Divider */}
+          <View style={styles.divider} />
 
           {/* Voice Cards */}
           <ScrollView
@@ -156,32 +216,36 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                   onPress={() => handleSelect(voice.id)}
                   style={({ pressed }) => [
                     styles.voiceCard,
-                    {
-                      backgroundColor: isSelected
-                        ? 'rgba(0, 230, 195, 0.12)'
-                        : colors.hover || 'rgba(255, 255, 255, 0.05)',
-                      borderColor: isSelected ? colors.accent : colors.line,
-                      opacity: pressed ? 0.85 : 1,
-                    },
+                    isSelected ? styles.voiceCardSelected : styles.voiceCardUnselected,
+                    { opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
-                  <View style={styles.cardMain}>
+                  {/* LEFT: Selection Option (Radio / Check) */}
+                  <View
+                    style={[
+                      styles.selectIndicator,
+                      isSelected ? styles.selectIndicatorSelected : styles.selectIndicatorUnselected,
+                    ]}
+                  >
+                    {isSelected && (
+                      <IconCheck size={12} color="#000000" strokeWidth={3} />
+                    )}
+                  </View>
+
+                  {/* CENTER: Avatar + Voice Info */}
+                  <View style={styles.cardCenter}>
                     {/* Voice Avatar */}
                     <View
                       style={[
                         styles.avatar,
-                        {
-                          backgroundColor: isSelected
-                            ? colors.accent
-                            : colors.line,
-                        },
+                        isSelected ? styles.avatarSelected : styles.avatarUnselected,
                       ]}
                     >
                       <Text
                         style={[
                           styles.avatarText,
                           {
-                            color: isSelected ? '#ffffff' : colors.ink2,
+                            color: isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.7)',
                           },
                         ]}
                       >
@@ -192,69 +256,54 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     {/* Voice Info */}
                     <View style={styles.infoWrapper}>
                       <View style={styles.nameRow}>
-                        <Text style={[styles.voiceName, { color: colors.ink }]}>
+                        <Text style={styles.voiceName}>
                           {voice.name}
                         </Text>
-                        <View style={[styles.badge, { backgroundColor: colors.line }]}>
-                          <Text style={[styles.badgeText, { color: colors.ink2 }]}>
+                        <View style={styles.genderBadge}>
+                          <Text style={styles.genderBadgeText}>
                             {voice.gender}
                           </Text>
                         </View>
                         {voice.isDefault && (
-                          <View
-                            style={[
-                              styles.badge,
-                              { backgroundColor: 'rgba(0, 230, 195, 0.15)' },
-                            ]}
-                          >
-                            <Text style={[styles.badgeText, { color: colors.accent }]}>
+                          <View style={styles.defaultBadge}>
+                            <Text style={styles.defaultBadgeText}>
                               Default
                             </Text>
                           </View>
                         )}
                       </View>
 
-                      <Text style={[styles.description, { color: colors.ink2 }]}>
+                      <Text style={styles.description} numberOfLines={1}>
                         {voice.description}
                       </Text>
-                      <Text style={[styles.personality, { color: colors.ink3 }]}>
+                      <Text style={styles.personality} numberOfLines={1}>
                         {voice.personality}
                       </Text>
                     </View>
                   </View>
 
-                  {/* Actions: Preview Audio + Checkmark */}
-                  <View style={styles.cardActions}>
-                    <Pressable
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handleTogglePreview(voice);
-                      }}
-                      hitSlop={8}
-                      style={({ pressed }) => [
-                        styles.previewBtn,
-                        {
-                          backgroundColor: isPreviewing ? colors.accent : colors.line,
-                          opacity: pressed ? 0.75 : 1,
-                        },
-                      ]}
-                      accessibilityLabel={
-                        isPreviewing ? 'Stop voice sample' : 'Play voice sample'
-                      }
-                    >
-                      {isPreviewing ? (
-                        <IconPlayerStop size={14} color="#ffffff" />
-                      ) : (
-                        <IconPlayerPlay size={14} color={colors.ink} />
-                      )}
-                    </Pressable>
-
-                    {isSelected && (
-                      <View style={styles.checkWrapper}>
-                        <IconCheck size={18} color={colors.accent} strokeWidth={2.6} />
-                      </View>
+                  {/* RIGHT: Play Preview Button */}
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleTogglePreview(voice);
+                    }}
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.previewBtn,
+                      isPreviewing ? styles.previewBtnActive : styles.previewBtnIdle,
+                      { opacity: pressed ? 0.75 : 1 },
+                    ]}
+                    accessibilityLabel={
+                      isPreviewing ? 'Stop voice sample' : 'Play voice sample'
+                    }
+                  >
+                    {isPreviewing ? (
+                      <IconPlayerStop size={14} color="#000000" strokeWidth={2.4} />
+                    ) : (
+                      <IconPlayerPlay size={14} color="#ffffff" strokeWidth={2} />
                     )}
-                  </View>
+                  </Pressable>
                 </Pressable>
               );
             })}
@@ -268,7 +317,7 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'flex-end',
     paddingHorizontal: spacing.md,
   },
@@ -276,44 +325,83 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
   },
   container: {
+    backgroundColor: '#12131a',
     borderRadius: 24,
     borderWidth: 1,
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    paddingTop: 12,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
     maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    alignSelf: 'center',
+    marginBottom: 14,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
+    paddingHorizontal: 4,
+    marginBottom: 12,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    flex: 1,
   },
   headerIconWrapper: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerTextGroup: {
+    flex: 1,
+  },
   title: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.bold,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
     marginTop: 2,
   },
   closeButton: {
-    padding: spacing.xs,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: spacing.sm,
+    marginHorizontal: 4,
   },
   list: {
-    marginTop: spacing.xs,
+    marginTop: 2,
   },
   listContent: {
     gap: spacing.sm,
@@ -323,27 +411,65 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: spacing.md,
-    borderRadius: radius.xl,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     borderWidth: 1,
   },
-  cardMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    flex: 1,
-    paddingRight: spacing.sm,
+  voiceCardSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  voiceCardUnselected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  /* LEFT: Select option radio / check indicator */
+  selectIndicator: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 10,
+  },
+  selectIndicatorSelected: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+  },
+  selectIndicatorUnselected: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  /* CENTER: Avatar & text metadata */
+  cardCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    paddingRight: 8,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  avatarSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  avatarUnselected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   avatarText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
+    fontSize: 14,
+    fontWeight: '700',
   },
   infoWrapper: {
     flex: 1,
@@ -351,46 +477,64 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 6,
     marginBottom: 2,
   },
   voiceName: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
   },
-  badge: {
+  genderBadge: {
     paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 10,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
-  badgeText: {
-    fontSize: 9,
-    fontWeight: typography.fontWeight.medium,
+  genderBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.75)',
     textTransform: 'capitalize',
   },
+  defaultBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    backgroundColor: '#ffffff',
+  },
+  defaultBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#000000',
+  },
   description: {
-    fontSize: 11,
-    fontWeight: typography.fontWeight.medium,
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.75)',
   },
   personality: {
-    fontSize: 10,
+    fontSize: 10.5,
+    color: 'rgba(255, 255, 255, 0.45)',
     marginTop: 1,
   },
-  cardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
+  /* RIGHT: Preview play button */
   previewBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  checkWrapper: {
-    width: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+  previewBtnActive: {
+    backgroundColor: '#ffffff',
+    borderColor: '#ffffff',
+  },
+  previewBtnIdle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
   },
 });

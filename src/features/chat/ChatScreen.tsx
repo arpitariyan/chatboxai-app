@@ -24,6 +24,7 @@ import { IconArrowDown } from '@tabler/icons-react-native';
 import { ChatBubble, MessageItem } from '@/components/chat/ChatBubble';
 import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
 import { Composer } from '@/components/chat/Composer';
+import type { VoiceButtonOrigin } from '@/components/chat/Composer';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
 import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
@@ -80,6 +81,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [voiceButtonOrigin, setVoiceButtonOrigin] = useState<VoiceButtonOrigin | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
 
   // ── Scroll-down FAB — use a ref for the bool so handleScroll is stable ──
@@ -645,8 +647,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleStop = useCallback(() => resetGeneration(), [resetGeneration]);
   const handleOpenAttachments = useCallback(() => setIsAttachmentOpen(true), []);
   const handleOpenVoice = useCallback(() => setIsVoiceOpen(true), []);
+  const handleVoiceButtonMeasure = useCallback((origin: VoiceButtonOrigin) => {
+    setVoiceButtonOrigin(origin);
+  }, []);
   const handleCloseAttachments = useCallback(() => setIsAttachmentOpen(false), []);
-  const handleCloseVoice = useCallback(() => setIsVoiceOpen(false), []);
+  const handleCloseVoice = useCallback(() => {
+    setIsVoiceOpen(false);
+    // Delay clearing origin so close animation can still reference it if needed
+    setTimeout(() => setVoiceButtonOrigin(null), 600);
+  }, []);
 
   const handleAttachmentsSelected = useCallback((newAttachments: ChatAttachment[]) => {
     setPendingAttachments(prev => {
@@ -687,6 +696,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           handleStop={handleStop}
           handleOpenAttachments={handleOpenAttachments}
           handleOpenVoice={handleOpenVoice}
+          handleVoiceButtonMeasure={handleVoiceButtonMeasure}
           isGenerating={isGenerating}
           isFileAnalyzing={isFileAnalyzing}
           currentUser={currentUser}
@@ -708,7 +718,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           onSelectCreateImage?.(undefined, imgAtt?.uri);
         }}
       />
-      <VoiceOverlay visible={isVoiceOpen} onClose={handleCloseVoice} />
+      <VoiceOverlay
+        visible={isVoiceOpen}
+        onClose={handleCloseVoice}
+        buttonOrigin={voiceButtonOrigin}
+      />
     </View>
   );
 };
@@ -798,6 +812,7 @@ interface ContentProps {
   handleStop: () => void;
   handleOpenAttachments: () => void;
   handleOpenVoice: () => void;
+  handleVoiceButtonMeasure: (origin: VoiceButtonOrigin) => void;
   isGenerating: boolean;
   isFileAnalyzing: boolean;
   currentUser: any;
@@ -827,6 +842,7 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
   handleStop,
   handleOpenAttachments,
   handleOpenVoice,
+  handleVoiceButtonMeasure,
   isGenerating,
   isFileAnalyzing,
   currentUser,
@@ -1056,6 +1072,7 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
         onStop={handleStop}
         onOpenAttachments={handleOpenAttachments}
         onOpenVoice={handleOpenVoice}
+        onVoiceButtonMeasure={handleVoiceButtonMeasure}
         onFocus={handleComposerFocus}
         isGenerating={isGenerating}
         pendingAttachments={pendingAttachments}

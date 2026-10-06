@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Share, Alert } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { StyleSheet, View, Share, Alert, Animated, Easing, Keyboard, useWindowDimensions, PanResponder } from 'react-native';
 import { Header, MenuAnchorPosition } from '@/components/common/Header';
 import { Drawer } from '@/components/common/Drawer';
 import { ConversationOptionsMenu } from '@/components/common/ConversationOptionsMenu';
@@ -18,9 +18,14 @@ import { useModelStore } from '@/stores/useModelStore';
 export const AppShell: React.FC = () => {
   const colors = useThemeColors();
   const { currentUser } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
 
   const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen' | 'images' | 'library'>('chat');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Master animation progress for synchronized drawer slide and main-screen spatial depth (0 → 1)
+  const drawerProgress = useRef(new Animated.Value(0)).current;
+  // Dedicated non-native progress for smooth card corner radius & perimeter illumination (0 → 1)
+  const cornerProgress = useRef(new Animated.Value(0)).current;
   const [activeLibId, setActiveLibId] = useState<string | null>(null);
   const [activeTitle, setActiveTitle] = useState<string>('');
   const [isConversation, setIsConversation] = useState<boolean>(Boolean(activeLibId));
@@ -37,6 +42,61 @@ export const AppShell: React.FC = () => {
 
   // ── Incognito Mode ────────────────────────────────────────────────────────
   const { isIncognito, toggleIncognito, exitIncognito } = useIncognitoStore();
+
+  // ── Responsive Spatial Dimensions & Interpolations ───────────────────────
+  // Responsive drawer width: ~76% of viewport, max 320px
+  const drawerWidth = useMemo(() => Math.min(320, Math.round(windowWidth * 0.76)), [windowWidth]);
+  // Main surface shifts right to reveal drawer while overlapping the drawer's right edge by ~22-26dp
+  const shiftDistance = useMemo(() => Math.round(drawerWidth * 0.90), [drawerWidth]);
+
+  // Coordinated right shift (~70% of viewport, sitting on top of drawer's right edge)
+  const mainTranslateX = useMemo(() => {
+    return drawerProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, shiftDistance],
+    });
+  }, [drawerProgress, shiftDistance]);
+
+  const mainScale = useMemo(() => {
+    return drawerProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0.94],
+    });
+  }, [drawerProgress]);
+
+  const mainBorderRadius = useMemo(() => {
+    return cornerProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 26],
+    });
+  }, [cornerProgress]);
+
+  const cardBorderColor = useMemo(() => {
+    return cornerProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.12)'],
+    });
+  }, [cornerProgress]);
+
+  const cardDismissOpacity = useMemo(() => {
+    return drawerProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 0.15],
+    });
+  }, [drawerProgress]);
+
+  // Card dismiss pan responder: tap or swipe left anywhere on the foreground card dismisses the drawer
+  const cardDismissPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 6,
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -8 || (Math.abs(gestureState.dx) < 6 && Math.abs(gestureState.dy) < 6)) {
+          handleCloseDrawer();
+        }
+      },
+    })
+  ).current;
 
   // =====================================================================
   // PIN STATE SYNCHRONIZATION
@@ -74,6 +134,8 @@ export const AppShell: React.FC = () => {
 
     // 1. Close drawer and options menu immediately to prevent cross-user flash
     setIsDrawerOpen(false);
+    drawerProgress.setValue(0);
+    cornerProgress.setValue(0);
     setIsOptionsMenuOpen(false);
     // 2. Reset active chat session
     setActiveLibId(null);
@@ -86,7 +148,7 @@ export const AppShell: React.FC = () => {
     setDrawerRefreshTrigger(0);
     // 4. Always exit incognito when account changes — never carry private sessions across accounts
     exitIncognito();
-  }, [currentUser?.email, exitIncognito]);
+  }, [currentUser?.email, exitIncognito, drawerProgress, cornerProgress]);
 
   // ── All callbacks are stable ───────────────────────────────────────────────
 
@@ -163,8 +225,45 @@ export const AppShell: React.FC = () => {
     console.log('[AppShell] Incognito toggled');
   }, [toggleIncognito]);
 
-  const handleOpenDrawer = useCallback(() => setIsDrawerOpen(true), []);
-  const handleCloseDrawer = useCallback(() => setIsDrawerOpen(false), []);
+  const handleOpenDrawer = useCallback(() => {
+    Keyboard.dismiss();
+    setIsDrawerOpen(true);
+    Animated.parallel([
+      Animated.timing(drawerProgress, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.bezier(0.22, 1, 0.36, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(cornerProgress, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.bezier(0.22, 1, 0.36, 1),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [drawerProgress, cornerProgress]);
+
+  const handleCloseDrawer = useCallback((onFinished?: () => void) => {
+    Animated.parallel([
+      Animated.timing(drawerProgress, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.bezier(0.22, 1, 0.36, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(cornerProgress, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.bezier(0.22, 1, 0.36, 1),
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      setIsDrawerOpen(false);
+      onFinished?.();
+    });
+  }, [drawerProgress, cornerProgress]);
+
   const handleOpenSettings = useCallback(() => setActiveView('settings'), []);
   const handleOpenImages = useCallback(() => setActiveView('images'), []);
   const handleOpenLibrary = useCallback(() => setActiveView('library'), []);
@@ -248,66 +347,111 @@ export const AppShell: React.FC = () => {
 
   return (
     <View style={[styles.shell, { backgroundColor: colors.background }]}>
-      {/* Top Header */}
-      {activeView !== 'settings' && activeView !== 'images' && activeView !== 'library' && (
-        <Header
-          onOpenDrawer={handleOpenDrawer}
-          onNewChat={handleNewChat}
-          onOpenOptionsMenu={handleOpenOptionsMenu}
-          onIncognitoChat={handleIncognitoChat}
-          isConversation={isConversation}
-          isIncognito={isIncognito}
-        />
-      )}
-
-      {/* Main Active View */}
-      {activeView === 'chat' ? (
-        <ChatScreen
-          key={chatSessionId}
-          activeLibId={activeLibId}
-          onConversationCreated={handleConversationCreated}
-          onConversationActiveChange={handleConversationActiveChange}
-          onConversationTitleChange={setActiveTitle}
-          onSelectCreateImage={handleSelectCreateImage}
-          isIncognito={isIncognito}
-        />
-      ) : activeView === 'image-gen' ? (
-        <ImageGenScreen
-          key={chatSessionId}
-          initialLibId={activeLibId}
-          initialPrompt={imagePrompt}
-          initialReferenceImageUri={imageReferenceUri}
-          onConversationCreated={handleConversationCreated}
-          onConversationActiveChange={handleConversationActiveChange}
-          onConversationTitleChange={setActiveTitle}
-        />
-      ) : activeView === 'images' ? (
-        <ImagesScreen onBack={handleBackToChat} />
-      ) : activeView === 'library' ? (
-        <LibraryScreen 
-          onBack={handleBackToChat} 
-          onSelectConversation={handleSelectChatHistory}
+      {/* ── Layer 1: Background Drawer Navigation Surface (Underneath) ── */}
+      <View
+        style={styles.drawerBackgroundLayer}
+        pointerEvents={isDrawerOpen ? 'auto' : 'none'}
+      >
+        <Drawer
+          key={drawerKey}
+          visible={isDrawerOpen}
+          onClose={handleCloseDrawer}
+          progress={drawerProgress}
+          cornerProgress={cornerProgress}
+          onSelectNewChat={handleNewChat}
+          onSelectChatHistory={handleSelectChatHistory}
+          onSelectNewImageGeneration={handleSelectNewImageGeneration}
+          onOpenSettings={handleOpenSettings}
+          onOpenImages={handleOpenImages}
+          onOpenLibrary={handleOpenLibrary}
           refreshTrigger={drawerRefreshTrigger}
         />
-      ) : (
-        <SettingsScreen onBack={handleBackToChat} />
-      )}
+      </View>
 
-      {/* Slide-over Navigation Drawer */}
-      <Drawer
-        key={drawerKey}
-        visible={isDrawerOpen}
-        onClose={handleCloseDrawer}
-        onSelectNewChat={handleNewChat}
-        onSelectChatHistory={handleSelectChatHistory}
-        onSelectNewImageGeneration={handleSelectNewImageGeneration}
-        onOpenSettings={handleOpenSettings}
-        onOpenImages={handleOpenImages}
-        onOpenLibrary={handleOpenLibrary}
-        refreshTrigger={drawerRefreshTrigger}
-      />
+      {/* ── Layer 2: Foreground Main Application Surface (Sitting ABOVE Drawer) ── */}
+      <Animated.View
+        collapsable={false}
+        style={[
+          styles.mainTransformLayer,
+          {
+            transform: [
+              { translateX: mainTranslateX },
+              { scale: mainScale },
+            ],
+          },
+        ]}
+      >
+        <Animated.View
+          collapsable={false}
+          style={[
+            styles.mainCardLayer,
+            {
+              backgroundColor: colors.background,
+              borderRadius: mainBorderRadius,
+              borderColor: cardBorderColor,
+            },
+          ]}
+        >
+          {/* Top Header */}
+          {activeView !== 'settings' && activeView !== 'images' && activeView !== 'library' && (
+            <Header
+              onOpenDrawer={handleOpenDrawer}
+              onNewChat={handleNewChat}
+              onOpenOptionsMenu={handleOpenOptionsMenu}
+              onIncognitoChat={handleIncognitoChat}
+              isConversation={isConversation}
+              isIncognito={isIncognito}
+            />
+          )}
 
-      {/* Three-Dot Options Menu Popup */}
+          {/* Main Active View */}
+          {activeView === 'chat' ? (
+            <ChatScreen
+              key={chatSessionId}
+              activeLibId={activeLibId}
+              onConversationCreated={handleConversationCreated}
+              onConversationActiveChange={handleConversationActiveChange}
+              onConversationTitleChange={setActiveTitle}
+              onSelectCreateImage={handleSelectCreateImage}
+              isIncognito={isIncognito}
+            />
+          ) : activeView === 'image-gen' ? (
+            <ImageGenScreen
+              key={chatSessionId}
+              initialLibId={activeLibId}
+              initialPrompt={imagePrompt}
+              initialReferenceImageUri={imageReferenceUri}
+              onConversationCreated={handleConversationCreated}
+              onConversationActiveChange={handleConversationActiveChange}
+              onConversationTitleChange={setActiveTitle}
+            />
+          ) : activeView === 'images' ? (
+            <ImagesScreen onBack={handleBackToChat} />
+          ) : activeView === 'library' ? (
+            <LibraryScreen 
+              onBack={handleBackToChat} 
+              onSelectConversation={handleSelectChatHistory}
+              refreshTrigger={drawerRefreshTrigger}
+            />
+          ) : (
+            <SettingsScreen onBack={handleBackToChat} />
+          )}
+
+          {/* Subtle Inactive Overlay & Dismiss Handler on Foreground Card when Drawer is Open */}
+          {isDrawerOpen && (
+            <Animated.View
+              {...cardDismissPanResponder.panHandlers}
+              style={[
+                StyleSheet.absoluteFill,
+                styles.cardDismissOverlay,
+                { opacity: cardDismissOpacity },
+              ]}
+            />
+          )}
+        </Animated.View>
+      </Animated.View>
+
+      {/* ── Layer 3: Three-Dot Options Menu Popup ── */}
       <ConversationOptionsMenu
         visible={isOptionsMenuOpen}
         onClose={() => setIsOptionsMenuOpen(false)}
@@ -327,5 +471,31 @@ const styles = StyleSheet.create({
   shell: {
     flex: 1,
     width: '100%',
+  },
+  drawerBackgroundLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1,
+    elevation: 1,
+  },
+  mainTransformLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 10,
+    elevation: 20,
+  },
+  mainCardLayer: {
+    flex: 1,
+    width: '100%',
+    overflow: 'hidden',
+    borderCurve: 'continuous',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: -8, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    elevation: 20,
+  },
+  cardDismissOverlay: {
+    backgroundColor: '#000000',
+    zIndex: 999,
   },
 });

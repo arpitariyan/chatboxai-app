@@ -2,17 +2,24 @@
  * src/components/chat/VoiceOverlay.tsx
  *
  * Dedicated Full-Screen Voice AI Experience for ChatBox AI APK.
- * Adapts the complete website Voice AI architecture (app/(routes)/voice-ai):
- * - Seamless voice loop: User speaks -> speech recognized -> AI generates answer -> assistant speaks -> session continues
- * - Central 3D Fibonacci Particle Orb reacting to real-time Voice AI states (listening, thinking, speaking, idle, error)
- * - Assistant Voice Selection with approved 5-voice registry (Sarah, Charlie, George, Antoni, Bill)
- * - Microphone recording via Groq Whisper STT and ElevenLabs / native TTS playback
- * - Clean header with ONLY a Close button (no "Chatbox Voice" title text)
- * - Working Mute/Unmute microphone button and red End Call button
- * - Graceful app backgrounding, permission requests, and session cleanup
+ * Features a premium shared-element transition:
+ *   - Orb spawns at the call button's screen coordinates
+ *   - Animates (scale + translate) to the center of the screen
+ *   - Background and UI fade in behind the travelling orb
+ *
+ * Voice AI Pipeline:
+ *   - User speaks → Groq Whisper STT → AI generates → ElevenLabs / native TTS
+ *   - Central 3D Fibonacci Particle Orb reacting to real-time Voice AI states
+ *   - 5-voice registry (Sarah, Charlie, George, Antoni, Bill)
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   StyleSheet,
   Text,
@@ -22,6 +29,9 @@ import {
   AppState,
   AppStateStatus,
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -29,9 +39,6 @@ import {
   IconMicrophone,
   IconMicrophoneOff,
   IconPhoneOff,
-  IconVolume,
-  IconVolumeOff,
-  IconSparkles,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '../../theme';
 import { VoiceOrb, VoiceOrbState } from '../voice/VoiceOrb';
@@ -39,25 +46,36 @@ import { VoiceSelectorModal } from '../voice/VoiceSelectorModal';
 import { useVoicePreferenceStore } from '../../stores/useVoicePreferenceStore';
 import { useSpeechToText, STTError } from '../../hooks/useSpeechToText';
 import { voiceAiService } from '../../services/voice/voiceAiService';
+import type { VoiceButtonOrigin } from './Composer';
+import { generateCurvedTrajectory } from './voiceTransitionCurve';
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Transition timing constants
+// ──────────────────────────────────────────────────────────────────────────────
+const ANIM_DURATION_TOTAL = 950; // ms — total curved trajectory transition
 
 interface VoiceOverlayProps {
   visible: boolean;
   onClose: () => void;
+  /** If provided, the orb will animate along a curved path from this position on open */
+  buttonOrigin?: VoiceButtonOrigin | null;
 }
 
 export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
   visible,
   onClose,
+  buttonOrigin,
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-  // Assistant Voice State
+  // ── Assistant Voice State ──────────────────────────────────────────────────
   const selectedVoice = useVoicePreferenceStore((s) => s.getSelectedVoice());
   const selectedVoiceId = useVoicePreferenceStore((s) => s.selectedVoiceId);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
-  // Voice AI Session States
+  // ── Voice AI Session States ────────────────────────────────────────────────
   const [voiceState, setVoiceState] = useState<VoiceOrbState>('idle');
   const [isMuted, setIsMuted] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Tap mic to start talking');
@@ -65,11 +83,157 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
   const [lastAiResponse, setLastAiResponse] = useState('');
   const [liveAudioLevel, setLiveAudioLevel] = useState(0);
 
-  // Multi-turn conversation history for voice context
+  // ── Transition Animation State ─────────────────────────────────────────────
+  const [uiReady, setUiReady] = useState(false);
+  // Single master progress value driving all synchronized interpolations
+  const animProgress = useRef(new Animated.Value(0)).current;
+
+  // ── Multi-turn conversation history ───────────────────────────────────────
   const conversationHistoryRef = useRef<Array<{ role: string; content: string }>>([]);
   const isSessionActiveRef = useRef(false);
 
-  // Callback when Groq Whisper returns speech transcript
+  // ──────────────────────────────────────────────────────────────────────────
+  // Curved trajectory calculation (Catmull-Rom spline with arc-length lookup)
+  // ──────────────────────────────────────────────────────────────────────────
+  const curveTable = useMemo(() => {
+    if (!buttonOrigin) return null;
+    const destX = SCREEN_W / 2;
+    const destY = SCREEN_H / 2;
+    return generateCurvedTrajectory({
+      buttonX: buttonOrigin.x,
+      buttonY: buttonOrigin.y,
+      destX,
+      destY,
+      screenWidth: SCREEN_W,
+      screenHeight: SCREEN_H,
+    });
+  }, [buttonOrigin, SCREEN_W, SCREEN_H]);
+
+  // Background fade: home screen remains visible underneath at t=0, darkens smoothly
+  const bgOpacity = useMemo(() => {
+    return animProgress.interpolate({
+      inputRange: [0, 0.42],
+      outputRange: [0, 1],
+      extrapolate: 'clamp',
+    });
+  }, [animProgress]);
+
+  // Orb scale: tiny at button (matching button size) -> expands along curve -> settles at 1.0
+  const orbScale = useMemo(() => {
+    if (!buttonOrigin) {
+      return animProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.85, 1.0],
+      });
+    }
+    return animProgress.interpolate({
+      inputRange: [0, 0.12, 0.45, 0.82, 1.0],
+      outputRange: [0.08, 0.22, 0.64, 0.94, 1.0],
+      extrapolate: 'clamp',
+    });
+  }, [animProgress, buttonOrigin]);
+
+  // Orb position: follows the curved trajectory table (or stays at center if no button origin)
+  const orbTranslateX = useMemo(() => {
+    if (!curveTable) {
+      return animProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 0] });
+    }
+    return animProgress.interpolate({
+      inputRange: curveTable.inputRange,
+      outputRange: curveTable.outputRangeX,
+    });
+  }, [animProgress, curveTable]);
+
+  const orbTranslateY = useMemo(() => {
+    if (!curveTable) {
+      return animProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 0] });
+    }
+    return animProgress.interpolate({
+      inputRange: curveTable.inputRange,
+      outputRange: curveTable.outputRangeY,
+    });
+  }, [animProgress, curveTable]);
+
+  // Luminous energy aura: glows softly during movement, gently dissolves as orb settles
+  const haloOpacity = useMemo(() => {
+    if (!buttonOrigin) {
+      return animProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 0] });
+    }
+    return animProgress.interpolate({
+      inputRange: [0, 0.15, 0.55, 0.82, 1.0],
+      outputRange: [0, 0.70, 0.85, 0.35, 0],
+      extrapolate: 'clamp',
+    });
+  }, [animProgress, buttonOrigin]);
+
+  const haloScale = useMemo(() => {
+    return animProgress.interpolate({
+      inputRange: [0, 0.2, 0.6, 1.0],
+      outputRange: [0.35, 0.85, 1.18, 1.0],
+      extrapolate: 'clamp',
+    });
+  }, [animProgress]);
+
+  // Subtle curved motion trail particles following the orb
+  const trailsInterpolations = useMemo(() => {
+    if (!curveTable) return [];
+    return curveTable.trails.map((tr) => ({
+      translateX: animProgress.interpolate({
+        inputRange: curveTable.inputRange,
+        outputRange: tr.outputRangeX,
+      }),
+      translateY: animProgress.interpolate({
+        inputRange: curveTable.inputRange,
+        outputRange: tr.outputRangeY,
+      }),
+      opacity: animProgress.interpolate({
+        inputRange: curveTable.inputRange,
+        outputRange: tr.outputRangeOpacity,
+      }),
+      scale: animProgress.interpolate({
+        inputRange: curveTable.inputRange,
+        outputRange: tr.outputRangeScale,
+      }),
+    }));
+  }, [animProgress, curveTable]);
+
+  // UI opacity: reveals smoothly as the orb reaches the central region
+  const uiOpacity = useMemo(() => {
+    return animProgress.interpolate({
+      inputRange: [0, 0.62, 1.0],
+      outputRange: [0, 0, 1],
+      extrapolate: 'clamp',
+    });
+  }, [animProgress]);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Entry animation trigger
+  // ──────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!visible) {
+      animProgress.setValue(0);
+      setUiReady(false);
+      return;
+    }
+
+    animProgress.setValue(0);
+    setUiReady(false);
+
+    Animated.timing(animProgress, {
+      toValue: 1,
+      duration: ANIM_DURATION_TOTAL,
+      easing: Easing.bezier(0.22, 1, 0.36, 1), // fluid natural momentum with gentle settle
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setUiReady(true);
+      }
+    });
+  }, [visible, animProgress]);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Voice pipeline callbacks
+  // ──────────────────────────────────────────────────────────────────────────
   const handleTranscript = useCallback(async (transcriptText: string) => {
     if (!transcriptText || !transcriptText.trim()) {
       setVoiceState('idle');
@@ -82,50 +246,45 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
     setVoiceState('thinking');
     setStatusMessage('Thinking...');
 
-    // Append user turn to conversation history
     conversationHistoryRef.current.push({ role: 'user', content: cleanQuery });
 
     try {
-      // 1. Generate Voice AI response
-      const aiResult = await voiceAiService.generateVoiceResponse(
+      const historyForApi = conversationHistoryRef.current.slice(-10);
+      const { response: aiText } = await voiceAiService.generateVoiceResponse(
         cleanQuery,
-        conversationHistoryRef.current
+        historyForApi,
       );
 
-      const reply = aiResult.response;
-      setLastAiResponse(reply);
-      conversationHistoryRef.current.push({ role: 'assistant', content: reply });
-
       if (!isSessionActiveRef.current) return;
 
-      // 2. Synthesize audio with selected ElevenLabs voice (with native fallback)
-      setStatusMessage('Speaking...');
+      conversationHistoryRef.current.push({ role: 'assistant', content: aiText });
+      setLastAiResponse(aiText);
       setVoiceState('speaking');
+      setStatusMessage('Speaking...');
 
-      let audioUri = '';
       try {
-        audioUri = await voiceAiService.synthesizeSpeech(reply, selectedVoiceId);
+        const audioUri = await voiceAiService.synthesizeSpeech(aiText, selectedVoiceId);
+        if (!isSessionActiveRef.current) return;
+
+        await voiceAiService.playSpeech(audioUri, aiText, (level) => {
+          setLiveAudioLevel(level);
+        });
       } catch (ttsErr) {
-        console.warn('[VoiceOverlay] ElevenLabs TTS synthesis fallback to device speech:', ttsErr);
+        console.warn('[VoiceOverlay] TTS failed, falling back to native speech:', ttsErr);
+        // playSpeech handles its own native TTS fallback internally
       }
 
       if (!isSessionActiveRef.current) return;
 
-      // 3. Play audio response and react to real-time speech amplitude
-      await voiceAiService.playSpeech(audioUri, reply, (level) => {
-        setLiveAudioLevel(level);
-      });
-
-      // 4. Session continuation: When assistant finishes, ready for next turn
-      if (isSessionActiveRef.current) {
-        setLiveAudioLevel(0);
-        setVoiceState('idle');
-        setStatusMessage('Tap mic or start talking');
-      }
-    } catch (err: any) {
+      setVoiceState('idle');
+      setLiveAudioLevel(0);
+      setStatusMessage('Tap mic to start talking');
+    } catch (err) {
       console.error('[VoiceOverlay] Pipeline error:', err);
-      setVoiceState('error');
-      setStatusMessage('Sorry, something went wrong. Tap mic to retry.');
+      if (isSessionActiveRef.current) {
+        setVoiceState('error');
+        setStatusMessage('Something went wrong. Try again.');
+      }
     }
   }, [selectedVoiceId]);
 
@@ -142,7 +301,7 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
     setLiveAudioLevel(0);
   }, []);
 
-  // Hook for microphone capture and speech transcription
+  // ── Microphone hook ────────────────────────────────────────────────────────
   const {
     isListening,
     isTranscribing,
@@ -155,14 +314,19 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
     onError: handleSTTError,
   });
 
-  // Keep orb audio level in sync with mic recording or audio playback
+  // Throttled audio level sync (30 Hz)
+  const lastLevelUpdateRef = useRef(0);
   useEffect(() => {
     if (voiceState === 'listening') {
-      setLiveAudioLevel(micAudioLevel);
+      const now = Date.now();
+      if (now - lastLevelUpdateRef.current > 33) {
+        lastLevelUpdateRef.current = now;
+        setLiveAudioLevel(micAudioLevel);
+      }
     }
   }, [voiceState, micAudioLevel]);
 
-  // Sync isTranscribing with thinking state
+  // Sync isTranscribing → thinking state
   useEffect(() => {
     if (isTranscribing && voiceState !== 'thinking') {
       setVoiceState('thinking');
@@ -170,7 +334,17 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
     }
   }, [isTranscribing, voiceState]);
 
-  // Clean end-of-call handler
+  // ── Toggle mute ────────────────────────────────────────────────────────────
+  const handleToggleMic = useCallback(async () => {
+    if (!isMuted) {
+      setIsMuted(true);
+      if (isListening) stopListening();
+    } else {
+      setIsMuted(false);
+    }
+  }, [isMuted, isListening, stopListening]);
+
+  // ── End call ──────────────────────────────────────────────────────────────
   const handleEndCall = useCallback(() => {
     isSessionActiveRef.current = false;
     cancelListening();
@@ -181,70 +355,35 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
     onClose();
   }, [cancelListening, onClose]);
 
-  // Tap on the central Orb: toggle listening or interrupt speaking
+  // ── Orb press: toggle listen / interrupt speaking ─────────────────────────
   const handleOrbPress = useCallback(async () => {
     if (voiceState === 'speaking') {
-      // User interrupted the assistant! Stop speech immediately and switch to listening
       voiceAiService.stopPlayback();
       setVoiceState('listening');
       setStatusMessage('Listening...');
-      setIsMuted(false);
-      await startListening();
+      if (!isMuted) await startListening();
       return;
     }
-
     if (voiceState === 'listening') {
-      // Tap to stop listening and begin transcribing
-      await stopListening();
+      stopListening();
       return;
     }
-
     if (voiceState === 'idle' || voiceState === 'error') {
-      setIsMuted(false);
+      if (isMuted) {
+        setStatusMessage('Mic is muted. Unmute first.');
+        return;
+      }
       setVoiceState('listening');
       setStatusMessage('Listening...');
       await startListening();
     }
-  }, [voiceState, startListening, stopListening]);
+  }, [voiceState, isMuted, startListening, stopListening]);
 
-  // Microphone toggle button
-  const handleToggleMic = useCallback(async () => {
-    if (voiceState === 'speaking') {
-      voiceAiService.stopPlayback();
-    }
-
-    if (isListening) {
-      setIsMuted(true);
-      await stopListening();
-      setVoiceState('idle');
-      setStatusMessage('Microphone muted');
-    } else {
-      setIsMuted(false);
-      setVoiceState('listening');
-      setStatusMessage('Listening...');
-      await startListening();
-    }
-  }, [voiceState, isListening, startListening, stopListening]);
-
-  // Handle session start and cleanup on mount/unmount
+  // ── Session lifecycle ──────────────────────────────────────────────────────
   useEffect(() => {
     if (visible) {
       isSessionActiveRef.current = true;
-      setVoiceState('listening');
-      setStatusMessage('Listening...');
-      setIsMuted(false);
-      setLastTranscript('');
-      setLastAiResponse('');
-
-      // Auto-start listening on session open
-      const startTimer = setTimeout(() => {
-        if (isSessionActiveRef.current) {
-          startListening();
-        }
-      }, 350);
-
       return () => {
-        clearTimeout(startTimer);
         isSessionActiveRef.current = false;
         cancelListening();
         voiceAiService.stopPlayback();
@@ -255,9 +394,9 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
       voiceAiService.stopPlayback();
       setVoiceState('idle');
     }
-  }, [visible, startListening, cancelListening]);
+  }, [visible, cancelListening]);
 
-  // AppState backgrounding safety listener: pause/stop when app is backgrounded
+  // App backgrounding safety
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState.match(/inactive|background/)) {
@@ -269,25 +408,97 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
         }
       }
     };
-
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => sub.remove();
   }, [cancelListening]);
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Render
+  // ──────────────────────────────────────────────────────────────────────────
   if (!visible) return null;
+
+  // The orb sits absolutely at the center of the screen (transform offsets
+  // handle the "start at button" position via translateX/Y)
+  const ORB_SIZE = 250;
 
   return (
     <Modal
       visible={visible}
-      transparent={false}
-      animationType="fade"
+      transparent
+      animationType="none"
       statusBarTranslucent
       onRequestClose={handleEndCall}
     >
-      <View style={[styles.container, { backgroundColor: '#090a0f' }]}>
-        {/* Top Header - ONLY a Close button, NO "Chatbox Voice" title */}
+      {/* ── Layer 0: Animated dark background ── */}
+      <Animated.View
+        style={[styles.absoluteFill, { backgroundColor: '#090a0f', opacity: bgOpacity }]}
+        pointerEvents="none"
+      />
+
+      {/* ── Layer 0.5: Subtle curved motion trail particles ── */}
+      <View style={styles.absoluteCenter} pointerEvents="none">
+        {trailsInterpolations.map((tr, idx) => (
+          <Animated.View
+            key={`trail-${idx}`}
+            style={[
+              styles.trailParticle,
+              {
+                transform: [
+                  { translateX: tr.translateX },
+                  { translateY: tr.translateY },
+                  { scale: tr.scale },
+                ],
+                opacity: tr.opacity,
+              },
+            ]}
+          >
+            <View style={styles.trailCore} />
+          </Animated.View>
+        ))}
+      </View>
+
+      {/* ── Layer 1: Animated orb (follows curved trajectory → center) ── */}
+      <Animated.View
+        style={[
+          styles.orbLayer,
+          {
+            transform: [
+              { translateX: orbTranslateX },
+              { translateY: orbTranslateY },
+              { scale: orbScale },
+            ],
+          },
+        ]}
+        pointerEvents="box-none"
+      >
+        {/* Luminous energy halo during movement */}
+        <Animated.View
+          style={[
+            styles.orbHalo,
+            {
+              opacity: haloOpacity,
+              transform: [{ scale: haloScale }],
+            },
+          ]}
+          pointerEvents="none"
+        />
+
+        <VoiceOrb
+          state={voiceState}
+          size={ORB_SIZE}
+          audioLevel={liveAudioLevel}
+          onPress={uiReady ? handleOrbPress : undefined}
+        />
+      </Animated.View>
+
+      {/* ── Layer 2: Animated UI (header + status text + controls) ── */}
+      <Animated.View
+        style={[styles.absoluteFill, { opacity: uiOpacity }]}
+        pointerEvents={uiReady ? 'box-none' : 'none'}
+      >
+        {/* Top Header */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 18) }]}>
-          {/* Top Area: Assistant Voice Selector Pill Button */}
+          {/* Voice selector pill */}
           <Pressable
             onPress={() => setIsVoiceModalOpen(true)}
             style={({ pressed }) => [
@@ -306,14 +517,11 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             <Text style={styles.voicePillName}>{selectedVoice.name}</Text>
           </Pressable>
 
-          {/* Close button on right */}
+          {/* Close button */}
           <Pressable
             onPress={handleEndCall}
             hitSlop={12}
-            style={({ pressed }) => [
-              styles.closeBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
+            style={({ pressed }) => [styles.closeBtn, { opacity: pressed ? 0.6 : 1 }]}
             accessibilityRole="button"
             accessibilityLabel="Close voice call"
           >
@@ -321,22 +529,13 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
           </Pressable>
         </View>
 
-        {/* Center: Voice State, The 3D Orb, Subtitle feedback */}
-        <View style={styles.centerSection}>
+        {/* Center: status text above orb placeholder, subtitle below */}
+        <View style={styles.centerSection} pointerEvents="none">
           {/* Status Label */}
           <Text
             style={[
               styles.stateLabel,
-              {
-                color:
-                  voiceState === 'error'
-                    ? '#fb7185'
-                    : voiceState === 'speaking'
-                    ? '#66FFE5'
-                    : voiceState === 'listening'
-                    ? '#00E6C3'
-                    : '#e5e7eb',
-              },
+              { color: voiceState === 'error' ? '#fb7185' : '#ffffff' },
             ]}
           >
             {voiceState === 'listening'
@@ -350,36 +549,27 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
               : 'Idle'}
           </Text>
 
-          {/* The Central 3D Particle Orb */}
-          <View style={styles.orbWrapper}>
-            <VoiceOrb
-              state={voiceState}
-              size={250}
-              audioLevel={liveAudioLevel}
-              onPress={handleOrbPress}
-            />
-          </View>
+          {/* Spacer where the orb lives (actual orb is in its own layer above) */}
+          <View style={{ height: ORB_SIZE + 2 * (spacing as any).xl }} />
 
-          {/* User Transcript or Subtitle Response */}
+          {/* Transcript + hint */}
           <View style={styles.subtitleContainer}>
             {lastTranscript ? (
               <Text style={styles.transcriptText} numberOfLines={2}>
                 "{lastTranscript}"
               </Text>
             ) : null}
-
             <Text style={styles.hintText}>{statusMessage}</Text>
           </View>
         </View>
 
-        {/* Bottom Controls: Microphone Toggle + End Call */}
+        {/* Bottom Controls: Mic + End Call */}
         <View
           style={[
             styles.bottomControls,
             { paddingBottom: Math.max(insets.bottom, 28) },
           ]}
         >
-          {/* Mic Button */}
           <Pressable
             onPress={handleToggleMic}
             style={({ pressed }) => [
@@ -388,11 +578,11 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
                 backgroundColor: isMuted
                   ? '#dc2626'
                   : voiceState === 'listening'
-                  ? 'rgba(0, 230, 195, 0.2)'
+                  ? 'rgba(255, 255, 255, 0.2)'
                   : 'rgba(255, 255, 255, 0.12)',
                 borderColor:
                   voiceState === 'listening'
-                    ? '#00E6C3'
+                    ? '#ffffff'
                     : 'rgba(255, 255, 255, 0.15)',
                 transform: [{ scale: pressed ? 0.94 : 1 }],
               },
@@ -403,15 +593,10 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             {isMuted ? (
               <IconMicrophoneOff size={24} color="#ffffff" strokeWidth={2} />
             ) : (
-              <IconMicrophone
-                size={24}
-                color={voiceState === 'listening' ? '#00E6C3' : '#ffffff'}
-                strokeWidth={2}
-              />
+              <IconMicrophone size={24} color="#ffffff" strokeWidth={2} />
             )}
           </Pressable>
 
-          {/* Red End Call Button */}
           <Pressable
             onPress={handleEndCall}
             style={({ pressed }) => [
@@ -427,28 +612,84 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             <IconPhoneOff size={24} color="#ffffff" strokeWidth={2.2} />
           </Pressable>
         </View>
+      </Animated.View>
 
-        {/* Assistant Voice Selector Sheet */}
-        <VoiceSelectorModal
-          visible={isVoiceModalOpen}
-          onClose={() => setIsVoiceModalOpen(false)}
-        />
-      </View>
+      {/* ── Voice Selector Sheet (rendered last so it sits on top) ── */}
+      <VoiceSelectorModal
+        visible={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+      />
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: spacing.xl,
-    justifyContent: 'space-between',
+  absoluteFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // Orb layer: sits at the vertical center of the screen
+  // and uses transforms to start at the button position
+  orbLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  absoluteCenter: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orbHalo: {
+    position: 'absolute',
+    width: 250 * 0.95,
+    height: 250 * 0.95,
+    borderRadius: (250 * 0.95) / 2,
+    backgroundColor: 'rgba(0, 230, 195, 0.14)',
+    shadowColor: '#00E6C3',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 32,
+    elevation: 6,
+  },
+  trailParticle: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 230, 195, 0.28)',
+    shadowColor: '#66FFE5',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  trailCore: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffffff',
+    opacity: 0.9,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
     zIndex: 10,
   },
   voicePill: {
@@ -460,48 +701,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   voiceIndicatorDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#00E6C3',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffffff',
     marginRight: 6,
   },
   voicePillLabel: {
     fontSize: 12,
-    color: '#9ca3af',
+    color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500',
   },
   voicePillName: {
     fontSize: 12,
-    color: '#00E6C3',
+    color: '#ffffff',
     fontWeight: '700',
   },
   closeBtn: {
     padding: spacing.xs,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   centerSection: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
   },
   stateLabel: {
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: -0.4,
-    marginBottom: spacing.xl,
     textAlign: 'center',
-  },
-  orbWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: spacing.xl,
+    marginBottom: 0,
   },
   subtitleContainer: {
     alignItems: 'center',
@@ -528,6 +767,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 36,
+    paddingHorizontal: spacing.xl,
   },
   controlCircle: {
     width: 60,

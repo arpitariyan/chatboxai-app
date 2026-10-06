@@ -14,6 +14,8 @@ export interface AssistantVoice {
   gender: 'female' | 'male' | 'neutral';
   enabled: boolean;
   isDefault?: boolean;
+  /** Bundled local MP3 preview file (require'd asset) */
+  previewAsset: number;
 }
 
 export const PREVIEW_SAMPLE_TEXT = "Hey! I'm here. How can I help you today?";
@@ -28,6 +30,7 @@ export const ASSISTANT_VOICES: AssistantVoice[] = [
     gender: 'female',
     enabled: true,
     isDefault: true,
+    previewAsset: require('../../../assets/voice-previews/voice-1.mp3'),
   },
   {
     id: 'voice-2',
@@ -37,6 +40,7 @@ export const ASSISTANT_VOICES: AssistantVoice[] = [
     personality: 'Friendly, upbeat, casual, energetic',
     gender: 'male',
     enabled: true,
+    previewAsset: require('../../../assets/voice-previews/voice-2.mp3'),
   },
   {
     id: 'voice-3',
@@ -46,6 +50,7 @@ export const ASSISTANT_VOICES: AssistantVoice[] = [
     personality: 'Calm, reliable, confident, professional',
     gender: 'male',
     enabled: true,
+    previewAsset: require('../../../assets/voice-previews/voice-3.mp3'),
   },
   {
     id: 'voice-4',
@@ -55,6 +60,7 @@ export const ASSISTANT_VOICES: AssistantVoice[] = [
     personality: 'Warm, mature, grounded, relaxed',
     gender: 'male',
     enabled: true,
+    previewAsset: require('../../../assets/voice-previews/voice-4.mp3'),
   },
   {
     id: 'voice-5',
@@ -64,6 +70,7 @@ export const ASSISTANT_VOICES: AssistantVoice[] = [
     personality: 'Helpful, gentle, reassuring, friendly',
     gender: 'male',
     enabled: true,
+    previewAsset: require('../../../assets/voice-previews/voice-5.mp3'),
   },
 ];
 

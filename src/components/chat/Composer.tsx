@@ -34,6 +34,14 @@ import { auth } from '@/config/firebase';
 import { ChatAttachment } from '@/hooks/useChatGeneration';
 import { FileTypeIcon } from './FileTypeIcon';
 
+/** Screen coordinates of the call button, passed back so the parent can
+ *  animate the orb transition from this position. */
+export interface VoiceButtonOrigin {
+  x: number;  // center X in screen coordinates
+  y: number;  // center Y in screen coordinates
+  size: number;
+}
+
 interface ComposerProps {
   /** Optional external value — only used for externally-driven clears (e.g. after send).
    *  Do NOT use this to drive every keystroke — that is what caused the 1-char bug.
@@ -42,6 +50,8 @@ interface ComposerProps {
   onSend: (text: string, searchType: 'chat' | 'search' | 'research', attachments?: ChatAttachment[]) => void;
   onStop?: () => void;
   onOpenAttachments?: () => void;
+  /** Called with screen coords of the call button BEFORE onOpenVoice is called */
+  onVoiceButtonMeasure?: (origin: VoiceButtonOrigin) => void;
   onOpenVoice?: () => void;
   onFocus?: () => void;
   isGenerating?: boolean;
@@ -56,6 +66,7 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
   onSend,
   onStop,
   onOpenAttachments,
+  onVoiceButtonMeasure,
   onOpenVoice,
   onFocus,
   isGenerating = false,
@@ -63,6 +74,8 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
   pendingAttachments = [],
   onClearAttachment,
 }) => {
+  // Ref for the call button so we can measure its screen position
+  const callBtnRef = useRef<View>(null);
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
@@ -164,6 +177,29 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
     // Clear local text immediately after send
     setLocalText('');
   }, [localText, isGenerating, disabled, onSend, currentSearchType, pendingAttachments]);
+
+  // Guard against rapid duplicate taps on Voice AI button
+  const isOpeningVoiceRef = useRef(false);
+  const handleOpenVoicePress = useCallback(() => {
+    if (isOpeningVoiceRef.current || disabled) return;
+    isOpeningVoiceRef.current = true;
+    setTimeout(() => {
+      isOpeningVoiceRef.current = false;
+    }, 1200);
+
+    if (onVoiceButtonMeasure && callBtnRef.current) {
+      callBtnRef.current.measureInWindow((x, y, w, h) => {
+        onVoiceButtonMeasure({
+          x: x + w / 2,
+          y: y + h / 2,
+          size: Math.max(w, h),
+        });
+        onOpenVoice?.();
+      });
+    } else {
+      onOpenVoice?.();
+    }
+  }, [disabled, onVoiceButtonMeasure, onOpenVoice]);
 
   return (
     <View
@@ -363,8 +399,9 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
                   </Pressable>
                 ) : (
                   <Pressable
+                    ref={callBtnRef}
                     disabled={disabled}
-                    onPress={onOpenVoice}
+                    onPress={handleOpenVoicePress}
                     hitSlop={8}
                     style={({ pressed }) => [
                       styles.callBtn,

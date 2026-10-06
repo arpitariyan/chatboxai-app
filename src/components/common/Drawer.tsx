@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,10 +9,13 @@ import {
   TouchableWithoutFeedback,
   Animated,
   Dimensions,
+  useWindowDimensions,
   Easing,
   Image,
   TextInput,
   ActivityIndicator,
+  BackHandler,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -39,11 +42,16 @@ import { pinService } from '@/services/pinService';
 
 const logoImg = require('../../../assets/images/logo.png');
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const DRAWER_WIDTH = Math.min(320, SCREEN_WIDTH * 0.82);
+// Target ~70% of screen width (max 310px), leaving substantial ~30% visible strip of the transformed main canvas
+const DRAWER_WIDTH = Math.min(310, Math.round(SCREEN_WIDTH * 0.70));
 
 interface DrawerProps {
   visible: boolean;
-  onClose: () => void;
+  onClose: (callback?: () => void) => void;
+  /** Coordinated progress from AppShell (0 → 1) driving synchronized main screen shift & scale */
+  progress?: Animated.Value;
+  /** Coordinated corner progress from AppShell (0 → 1) driving card corner rounding */
+  cornerProgress?: Animated.Value;
   onSelectNewChat: () => void;
   onSelectChatHistory: (libId: string, title?: string, type?: string) => void;
   onSelectNewImageGeneration?: () => void;
@@ -145,6 +153,8 @@ const DrawerConversationRow = React.memo<DrawerConversationRowProps>(({
 export const Drawer: React.FC<DrawerProps> = React.memo(({
   visible,
   onClose,
+  progress,
+  cornerProgress,
   onSelectNewChat,
   onSelectChatHistory,
   onSelectNewImageGeneration,
@@ -155,7 +165,11 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
 }) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { currentUser, userProfile } = useAuth();
+
+  // Responsive drawer width: ~70% of viewport, max 310px, leaving substantial ~30% visible strip of the transformed main canvas
+  const drawerWidth = useMemo(() => Math.min(310, Math.round(windowWidth * 0.70)), [windowWidth]);
 
   const [isProfileSheetOpen, setIsProfileSheetOpen] = useState(false);
   const [rendered, setRendered] = useState(visible);
@@ -178,8 +192,141 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
   const [deleteTarget, setDeleteTarget] = useState<ConversationItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-  const backdropAnim = useRef(new Animated.Value(0)).current;
+  // Fallback internal animation if progress prop is not provided
+  const internalSlideAnim = useRef(new Animated.Value(-drawerWidth)).current;
+
+  // Master slide animation: derived from coordinated progress prop (subtle parallax entrance)
+  // or driven by internal animated value
+  const slideAnim = useMemo(() => {
+    if (progress) {
+      return progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-Math.round(drawerWidth * 0.20), 0],
+      });
+    }
+    return internalSlideAnim;
+  }, [progress, drawerWidth, internalSlideAnim]);
+
+  // Swipe-to-close interactive horizontal gesture
+  const isClosingRef = useRef(false);
+
+  const handleClose = useCallback((callback?: () => void) => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    if (callback) {
+      // Trigger navigation immediately for instant touch response
+      callback();
+    }
+    if (progress) {
+      onClose(callback);
+      setTimeout(() => {
+        isClosingRef.current = false;
+      }, 250);
+    } else {
+      Animated.timing(internalSlideAnim, {
+        toValue: -drawerWidth,
+        duration: 200,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => {
+        setRendered(false);
+        isClosingRef.current = false;
+        onClose(callback);
+      });
+    }
+  }, [progress, onClose, internalSlideAnim, drawerWidth]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only capture distinct horizontal drags to the left
+        return gestureState.dx < -8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.4;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dx < 0) {
+          const currentProgress = Math.max(0, Math.min(1, 1 + gestureState.dx / drawerWidth));
+          if (progress) {
+            progress.setValue(currentProgress);
+          }
+          if (cornerProgress) {
+            cornerProgress.setValue(currentProgress);
+          }
+          if (!progress) {
+            internalSlideAnim.setValue(gestureState.dx);
+          }
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const shouldClose = gestureState.dx < -drawerWidth * 0.22 || gestureState.vx < -0.45;
+        if (shouldClose) {
+          handleClose();
+        } else {
+          // Return smoothly to fully open state
+          if (progress && cornerProgress) {
+            Animated.parallel([
+              Animated.timing(progress, {
+                toValue: 1,
+                duration: 180,
+                easing: Easing.bezier(0.22, 1, 0.36, 1),
+                useNativeDriver: true,
+              }),
+              Animated.timing(cornerProgress, {
+                toValue: 1,
+                duration: 180,
+                easing: Easing.bezier(0.22, 1, 0.36, 1),
+                useNativeDriver: false,
+              }),
+            ]).start();
+          } else if (progress) {
+            Animated.timing(progress, {
+              toValue: 1,
+              duration: 180,
+              easing: Easing.bezier(0.22, 1, 0.36, 1),
+              useNativeDriver: true,
+            }).start();
+          } else {
+            Animated.spring(internalSlideAnim, {
+              toValue: 0,
+              useNativeDriver: true,
+              bounciness: 0,
+            }).start();
+          }
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (progress && cornerProgress) {
+          Animated.parallel([
+            Animated.timing(progress, {
+              toValue: 1,
+              duration: 160,
+              useNativeDriver: true,
+            }),
+            Animated.timing(cornerProgress, {
+              toValue: 1,
+              duration: 160,
+              useNativeDriver: false,
+            }),
+          ]).start();
+        } else if (progress) {
+          Animated.timing(progress, {
+            toValue: 1,
+            duration: 160,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // Hardware Back button handling on Android
+  useEffect(() => {
+    if (!visible) return;
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleClose();
+      return true;
+    });
+    return () => backSub.remove();
+  }, [visible, handleClose]);
 
   // Load pinned conversation IDs for the user
   const loadPins = useCallback(async (explicitEmail?: string) => {
@@ -234,45 +381,34 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
   useEffect(() => {
     if (visible) {
       setRendered(true);
-      Animated.parallel([
-        Animated.timing(slideAnim, {
+      if (!progress) {
+        Animated.timing(internalSlideAnim, {
           toValue: 0,
           duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-        }),
-        Animated.timing(backdropAnim, {
-          toValue: 1,
-          duration: 240,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // Defer background refresh to after drawer opens so slide is 60fps smooth
-        if (currentUser?.email) {
-          loadConversations(currentUser.email);
-          loadPins(currentUser.email);
-        }
-      });
+        }).start();
+      }
+      // Defer background refresh so slide is 60fps smooth
+      if (currentUser?.email) {
+        loadConversations(currentUser.email);
+        loadPins(currentUser.email);
+      }
     } else if (rendered) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: -DRAWER_WIDTH,
+      if (!progress) {
+        Animated.timing(internalSlideAnim, {
+          toValue: -drawerWidth,
           duration: 200,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
-        }),
-        Animated.timing(backdropAnim, {
-          toValue: 0,
-          duration: 200,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
+        }).start(() => {
+          setRendered(false);
+        });
+      } else {
         setRendered(false);
-      });
+      }
     }
-  }, [visible, currentUser?.email, loadConversations, loadPins]);
+  }, [visible, progress, currentUser?.email, loadConversations, loadPins, internalSlideAnim, drawerWidth]);
 
   // Refresh trigger when a new conversation is created
   const isFirstRenderRef = useRef(true);
@@ -285,30 +421,6 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
       loadConversations();
     }
   }, [refreshTrigger, currentUser?.email, loadConversations]);
-
-  const handleClose = useCallback((callback?: () => void) => {
-    if (callback) {
-      // Trigger navigation immediately for instant touch response
-      callback();
-    }
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: -DRAWER_WIDTH,
-        duration: 200,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropAnim, {
-        toValue: 0,
-        duration: 200,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setRendered(false);
-      onClose();
-    });
-  }, [slideAnim, backdropAnim, onClose]);
 
   const handleOpenActionMenu = useCallback((item: ConversationItem) => {
     setActionTarget(item);
@@ -412,39 +524,25 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
   if (!visible && !rendered) return null;
 
   return (
-    <Modal
-      visible={rendered}
-      transparent
-      animationType="none"
-      onRequestClose={() => handleClose()}
+    <View
+      style={[styles.drawerRoot, { backgroundColor: colors.background }]}
+      pointerEvents={visible || rendered ? 'auto' : 'none'}
     >
-      <View style={styles.modalRoot}>
-        {/* Animated Fading Backdrop */}
-        <TouchableWithoutFeedback onPress={() => handleClose()}>
-          <Animated.View
-            style={[
-              styles.backdrop,
-              {
-                opacity: backdropAnim,
-              },
-            ]}
-          />
-        </TouchableWithoutFeedback>
-
-        {/* Animated Sliding Drawer Container */}
-        <Animated.View
-          style={[
-            styles.drawerContainer,
-            {
-              width: DRAWER_WIDTH,
-              backgroundColor: colors.background,
-              borderColor: colors.line,
-              paddingTop: Math.max(insets.top, 14),
-              paddingBottom: Math.max(insets.bottom, 12),
-              transform: [{ translateX: slideAnim }],
-            },
-          ]}
-        >
+      {/* Animated Sliding Drawer Container */}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={[
+          styles.drawerContainer,
+          {
+            width: drawerWidth,
+            backgroundColor: colors.background,
+            borderColor: colors.line,
+            paddingTop: Math.max(insets.top, 14),
+            paddingBottom: Math.max(insets.bottom, 12),
+            transform: [{ translateX: slideAnim }],
+          },
+        ]}
+      >
           {/* Top Header Row: Brand Logo */}
           <View style={styles.headerRow}>
             <Image
@@ -867,29 +965,22 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
           </View>
         </Modal>
       </View>
-    </Modal>
   );
 });
 
 const styles = StyleSheet.create({
-  modalRoot: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+  drawerRoot: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1,
   },
   drawerContainer: {
-    height: '100%',
-    borderRightWidth: 1,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRightWidth: 0,
+    overflow: 'hidden',
     paddingHorizontal: spacing.md,
-    borderCurve: radius.borderCurve,
-    zIndex: 100,
   },
   headerRow: {
     height: 48,
