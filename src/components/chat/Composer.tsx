@@ -27,6 +27,7 @@ import {
 import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { VoiceWaveformBar } from './VoiceWaveformBar';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { useTranslation } from '@/i18n';
 import { ModelSelector } from './ModelSelector';
 import { useModelStore } from '@/stores/useModelStore';
 import { useResearchStore } from '@/stores/useResearchStore';
@@ -78,6 +79,7 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
   const callBtnRef = useRef<View>(null);
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   // ── LOCAL text state — decoupled from parent to prevent re-render cascade ──
   const [localText, setLocalText] = useState('');
@@ -220,24 +222,48 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
         </View>
         <View style={styles.toggles}>
           <Pressable
-            style={[styles.toggleBtn, !isResearchMode && styles.toggleBtnActive]}
+            style={[
+              styles.toggleBtn,
+              {
+                backgroundColor: !isResearchMode
+                  ? (colors.isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.12)')
+                  : (colors.isDark ? '#1c1c1e' : colors.surface2),
+                borderColor: !isResearchMode
+                  ? 'rgba(59, 130, 246, 0.5)'
+                  : (colors.isDark ? '#2c2c2e' : colors.line),
+              },
+            ]}
             onPress={() => {
               if (isResearchMode) {
                 // Deactivate Research mode — return to Normal Search
                 setResearchMode(false);
                 syncModelWithMode(false);
               }
-              // If already in Normal Search (not Research), pressing Search does nothing
             }}
           >
-            <IconWorldSearch size={15} color={!isResearchMode ? '#3b82f6' : '#8e8e93'} />
-            <Text style={[styles.toggleText, !isResearchMode && styles.toggleTextActive]} numberOfLines={1}>Search</Text>
+            <IconWorldSearch size={15} color={!isResearchMode ? '#3b82f6' : colors.ink3} />
+            <Text
+              style={[
+                styles.toggleText,
+                !isResearchMode && styles.toggleTextActive,
+                isResearchMode && { color: colors.ink3 },
+              ]}
+              numberOfLines={1}
+            >
+              Search
+            </Text>
           </Pressable>
           <Pressable
             style={[
               styles.toggleBtn,
-              isResearchMode && styles.toggleBtnResearchActive,
-              quota && !quota.canResearch && styles.toggleBtnLocked,
+              {
+                backgroundColor: isResearchMode
+                  ? (colors.isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.14)')
+                  : (colors.isDark ? '#1c1c1e' : colors.surface2),
+                borderColor: isResearchMode
+                  ? 'rgba(139, 92, 246, 0.5)'
+                  : (quota && !quota.canResearch ? 'rgba(245, 158, 11, 0.4)' : (colors.isDark ? '#2c2c2e' : colors.line)),
+              },
             ]}
             onPress={() => {
               toggleResearchMode(auth.currentUser?.email || undefined);
@@ -249,12 +275,13 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
             {quota && !quota.canResearch ? (
               <IconLock size={14} color="#f59e0b" />
             ) : (
-              <IconFlask size={15} color={isResearchMode ? '#a78bfa' : '#8e8e93'} />
+              <IconFlask size={15} color={isResearchMode ? '#a78bfa' : colors.ink3} />
             )}
             <Text
               style={[
                 styles.toggleText,
                 isResearchMode && styles.toggleTextResearchActive,
+                !isResearchMode && { color: colors.ink3 },
                 quota && !quota.canResearch && { color: '#f59e0b' },
               ]}
               numberOfLines={1}
@@ -278,7 +305,7 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
           contentContainerStyle={styles.attachmentStripContent}
         >
           {pendingAttachments.slice(0, 4).map((att) => (
-            <View key={att.uri} style={styles.attachmentChip}>
+            <View key={att.uri} style={[styles.attachmentChip, { backgroundColor: colors.isDark ? '#1c1c1e' : colors.surface2, borderColor: colors.isDark ? '#2c2c2e' : colors.line }]}>
               {att.type === 'image' && (att.data || att.uri) ? (
                 <Image
                   source={{ uri: att.data || att.uri }}
@@ -286,20 +313,20 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
                   resizeMode="cover"
                 />
               ) : (
-                <View style={styles.attachmentFileIcon}>
+                <View style={[styles.attachmentFileIcon, { backgroundColor: colors.surface }]}>
                   <FileTypeIcon fileName={att.name} mimeType={att.mimeType} size={18} />
                 </View>
               )}
-              <Text style={styles.attachmentName} numberOfLines={1}>
+              <Text style={[styles.attachmentName, { color: colors.ink }]} numberOfLines={1}>
                 {att.name.length > 16 ? `${att.name.slice(0, 13)}...` : att.name}
               </Text>
               {onClearAttachment && (
                 <Pressable
                   onPress={() => onClearAttachment(att.uri)}
                   hitSlop={6}
-                  style={styles.attachmentRemoveBtn}
+                  style={[styles.attachmentRemoveBtn, { backgroundColor: colors.surface }]}
                 >
-                  <IconX size={12} color="#8e8e93" />
+                  <IconX size={12} color={colors.ink3} />
                 </Pressable>
               )}
             </View>
@@ -314,7 +341,15 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
         </ScrollView>
       )}
 
-      <View style={styles.composerBar}>
+      <View
+        style={[
+          styles.composerBar,
+          {
+            backgroundColor: colors.isDark ? '#1c1c1e' : colors.surface2,
+            borderColor: colors.isDark ? '#2c2c2e' : colors.line,
+          },
+        ]}
+      >
         {isListening || isTranscribing ? (
           <VoiceWaveformBar
             isListening={isListening}
@@ -335,19 +370,19 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
                 { opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <IconPlus size={22} color="#8e8e93" />
+              <IconPlus size={22} color={colors.ink2} />
             </Pressable>
 
             {/* Center: Multiline Input — local state only, NO parent setState per keystroke */}
             <TextInput
               ref={inputRef}
-              style={[styles.input, { color: '#ffffff' }]}
+              style={[styles.input, { color: colors.ink }]}
               value={localText}
               onChangeText={setLocalText}
               onFocus={handleFocus}
               onBlur={handleBlur}
               placeholder={pendingAttachments.length > 0 ? 'Add a message...' : 'Ask ChatBox AI...'}
-              placeholderTextColor="#8e8e93"
+              placeholderTextColor={colors.ink3}
               editable={!disabled && !isGenerating}
               multiline
               maxLength={4000}
@@ -376,9 +411,9 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
                     styles.micBtn,
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
-                  accessibilityLabel="Dictate message with voice"
+                  accessibilityLabel={t('dictate', 'Dictate message with voice')}
                 >
-                  <IconMicrophone size={20} color="#8e8e93" />
+                  <IconMicrophone size={20} color={colors.ink2} />
                 </Pressable>
 
                 {hasContent ? (
@@ -406,7 +441,7 @@ export const Composer: React.FC<ComposerProps> = React.memo(({
                     style={({ pressed }) => [
                       styles.callBtn,
                       {
-                        backgroundColor: '#2563eb',
+                        backgroundColor: colors.accent,
                         opacity: pressed ? 0.85 : 1,
                         transform: [{ scale: pressed ? 0.96 : 1 }],
                       },
@@ -543,9 +578,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     maxHeight: 120,
     borderRadius: 26,
-    backgroundColor: '#1c1c1e',
     borderWidth: 1,
-    borderColor: '#2c2c2e',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.xs + 4,

@@ -24,7 +24,6 @@ import {
   IconClock,
   IconPuzzle,
   IconEdit,
-  IconPlus,
   IconMessage2,
   IconFlask,
   IconSettings,
@@ -37,10 +36,12 @@ import {
 import { UserProfileSheet } from './UserProfileSheet';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { useTranslation } from '@/i18n';
 import { chatService, ConversationItem, cleanConversationTitle } from '@/services/chatService';
 import { pinService } from '@/services/pinService';
 
-const logoImg = require('../../../assets/images/logo.png');
+const darkLogo = require('../../../assets/images/logo.png');
+const lightLogo = require('../../../assets/images/Chatboxai_logo_main.png');
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Target ~70% of screen width (max 310px), leaving substantial ~30% visible strip of the transformed main canvas
 const DRAWER_WIDTH = Math.min(310, Math.round(SCREEN_WIDTH * 0.70));
@@ -164,6 +165,8 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
   refreshTrigger = 0,
 }) => {
   const colors = useThemeColors();
+  const logoImg = colors.isDark ? darkLogo : lightLogo;
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { currentUser, userProfile } = useAuth();
@@ -503,8 +506,8 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
 
   // Feature items matching initial Drawer design
   const featureItems = [
-    { id: 'images', icon: IconPhoto, title: 'Images' },
-    { id: 'library', icon: IconBooks, title: 'Library' },
+    { id: 'images', icon: IconPhoto, title: t('images', 'Images') },
+    { id: 'library', icon: IconBooks, title: t('library', 'Library') },
     { id: 'scheduled', icon: IconClock, title: 'Scheduled' },
     { id: 'plugins', icon: IconPuzzle, title: 'Plugins' },
   ];
@@ -552,35 +555,30 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
             />
           </View>
 
-          {/* New Chat Quick Action Card */}
+          {/* New Chat Action Row (Matches Explore item design) */}
           <Pressable
             onPress={() => handleClose(onSelectNewChat)}
             style={({ pressed }) => [
-              styles.newChatCard,
+              styles.featureRow,
               {
-                backgroundColor: colors.surface,
-                borderColor: colors.line,
-                opacity: pressed ? 0.85 : 1,
-                transform: [{ scale: pressed ? 0.985 : 1 }],
+                backgroundColor: pressed ? colors.surface : 'transparent',
+                opacity: pressed ? 0.75 : 1,
+                marginTop: spacing.xs,
+                marginBottom: 2,
               },
             ]}
           >
-            <View style={styles.newChatLeft}>
-              <View style={[styles.newChatIconCircle, { backgroundColor: colors.background, borderColor: colors.line }]}>
-                <IconEdit size={16} color={colors.ink} />
-              </View>
-              <Text style={[styles.newChatTitle, { color: colors.ink }]}>
-                New Chat
-              </Text>
-            </View>
-            <IconPlus size={16} color={colors.ink3} />
+            <IconEdit size={19} color={colors.ink} style={{ marginRight: spacing.sm + 4 }} />
+            <Text style={[styles.featureTitle, { color: colors.ink }]}>
+              {t('newChat', 'New Chat')}
+            </Text>
           </Pressable>
 
           {/* Scrollable Feature Menu & Recents List */}
           <ScrollView style={styles.scrollList} showsVerticalScrollIndicator={false}>
             {/* EXPLORE Section */}
             <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
-              EXPLORE
+              {t('explore', 'EXPLORE')}
             </Text>
             <View style={styles.featureGroup}>
               {featureItems.map((item) => {
@@ -621,7 +619,7 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <IconPin size={13} color={colors.accent || colors.ink2} />
                     <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
-                      PINNED
+                      {t('pinned', 'PINNED')}
                     </Text>
                   </View>
                 </View>
@@ -644,7 +642,7 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
             {/* RECENTS Section */}
             <View style={styles.recentsHeaderRow}>
               <Text style={[styles.sectionHeading, { color: colors.ink3 }]}>
-                RECENTS
+                {t('recents', 'RECENTS')}
               </Text>
               {loadingHistory && (
                 <ActivityIndicator size="small" color={colors.accent} style={{ transform: [{ scale: 0.7 }] }} />
@@ -655,7 +653,7 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
               {recentConversations.length === 0 && !loadingHistory && pinnedConversations.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Text style={[styles.emptyText, { color: colors.ink3 }]}>
-                    No conversations yet
+                    {t('noConversations', 'No conversations yet')}
                   </Text>
                 </View>
               ) : (
@@ -672,8 +670,8 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
             </View>
           </ScrollView>
 
-          {/* Bottom Drawer Toolbar & Profile Card */}
-          <View style={[styles.bottomToolbar, { borderTopColor: colors.line }]}>
+          {/* Bottom Drawer Toolbar & Profile Card (No top dividing line) */}
+          <View style={styles.bottomToolbar}>
             {/* User Profile Card Button */}
             <Pressable
               onPress={() => setIsProfileSheetOpen(true)}
@@ -707,8 +705,8 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
                   {displayName}
                 </Text>
                 <View style={styles.planBadgeRow}>
-                  <View style={[styles.planBadge, { backgroundColor: '#1c1c1e', borderColor: colors.line }]}>
-                    <Text style={styles.planBadgeText}>
+                  <View style={[styles.planBadge, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+                    <Text style={[styles.planBadgeText, { color: colors.ink3 }]}>
                       {(userProfile?.plan || 'FREE').toUpperCase()}
                     </Text>
                   </View>
@@ -727,14 +725,14 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
               style={({ pressed }) => [
                 styles.settingsBtn,
                 {
-                  backgroundColor: colors.surface,
+                  backgroundColor: pressed ? colors.hover : colors.surface,
                   borderColor: colors.line,
-                  opacity: pressed ? 0.7 : 1,
+                  opacity: pressed ? 0.8 : 1,
                   transform: [{ scale: pressed ? 0.95 : 1 }],
                 },
               ]}
             >
-              <IconSettings size={18} color={colors.ink} />
+              <IconSettings size={18} color={colors.ink} strokeWidth={1.8} />
             </Pressable>
           </View>
 
@@ -993,36 +991,7 @@ const styles = StyleSheet.create({
     width: 125,
     height: 32,
   },
-  newChatCard: {
-    height: 44,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.sm + 2,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-    borderCurve: radius.borderCurve,
-  },
-  newChatLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  newChatIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  newChatTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: -0.2,
-  },
+
   scrollList: {
     flex: 1,
     marginTop: spacing.xs,
@@ -1095,27 +1064,27 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   bottomToolbar: {
-    minHeight: 60,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
-    paddingTop: spacing.xs,
+    paddingTop: spacing.sm,
+    paddingBottom: 2,
   },
   profileCard: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
+    gap: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
     borderRadius: radius.md,
   },
   avatarCircle: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1.5,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1125,6 +1094,7 @@ const styles = StyleSheet.create({
   },
   profileTextGroup: {
     flex: 1,
+    justifyContent: 'center',
   },
   userNameText: {
     fontSize: typography.fontSize.sm,
@@ -1138,19 +1108,19 @@ const styles = StyleSheet.create({
   },
   planBadge: {
     paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 3,
-    borderWidth: 0.5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
   },
   planBadgeText: {
-    color: '#ffffff',
-    fontSize: 8,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   settingsBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

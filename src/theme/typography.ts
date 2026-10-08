@@ -35,11 +35,33 @@ export const typography: ThemeTypography = {
   },
 };
 
+import { Platform } from 'react-native';
+
 /**
- * Helper to resolve the active font family for chat messages
+ * Helper to resolve the active font family for chat messages across Android and iOS
  */
 export function getChatFontFamily(font: ChatFont = 'default'): string {
-  return FONT_TOKENS.chatFonts[font] || FONT_TOKENS.chatFonts.default;
+  switch (font) {
+    case 'sans':
+      return Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif';
+    case 'system':
+      return Platform.OS === 'ios' ? 'System' : 'Roboto';
+    case 'dyslexic':
+      return Platform.OS === 'ios' ? 'Arial' : 'sans-serif';
+    case 'oswald':
+      return Platform.OS === 'ios' ? 'AvenirNextCondensed-Medium' : 'sans-serif-condensed';
+    case 'boldonse':
+      return Platform.OS === 'ios' ? 'Arial-BoldMT' : 'sans-serif-medium';
+    case 'libre-baskerville':
+      return Platform.OS === 'ios' ? 'Georgia' : 'serif';
+    case 'unbounded':
+      return Platform.OS === 'ios' ? 'Avenir-Medium' : 'sans-serif-medium';
+    case 'berkshire-swash':
+      return Platform.OS === 'ios' ? 'Snell Roundhand' : 'serif';
+    case 'default':
+    default:
+      return Platform.OS === 'ios' ? 'System' : 'sans-serif';
+  }
 }
 
 /**

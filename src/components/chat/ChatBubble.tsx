@@ -16,6 +16,8 @@ import * as Speech from 'expo-speech';
 import { preprocessTextForTTS } from '@/utils/preprocessTTS';
 import { parseAiResponse, stripTrailingSources } from '@/utils/parseAiResponse';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { getChatFontFamily } from '@/theme/typography';
+import { usePreferencesStore } from '@/stores/usePreferencesStore';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownAnswer } from './MarkdownAnswer';
 import { TextSelectionSheet } from './TextSelectionSheet';
@@ -33,6 +35,8 @@ export interface MessageItem {
   searchResult?: any;
   attachments?: any[];
   modelName?: string;
+  isVerified?: boolean;
+  confidenceLevel?: string;
   liked?: boolean | string;
   disliked?: boolean | string;
   versions?: {
@@ -41,6 +45,8 @@ export interface MessageItem {
     thinking?: string;
     searchResult?: any;
     modelName?: string;
+    isVerified?: boolean;
+    confidenceLevel?: string;
     liked?: boolean | string;
     disliked?: boolean | string;
   }[];
@@ -67,6 +73,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
   onVersionChange,
 }) => {
   const colors = useThemeColors();
+  const chatFont = usePreferencesStore((s) => s.chatFont);
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showTextSelection, setShowTextSelection] = useState(false);
@@ -304,13 +311,13 @@ export const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
             style={({ pressed }) => [
               styles.userCapsule,
               {
-                backgroundColor: '#27272a',
+                backgroundColor: colors.isDark ? '#27272a' : colors.surface2,
                 borderColor: colors.line,
                 opacity: pressed ? 0.9 : 1,
               },
             ]}
           >
-            <Text style={[styles.userText, { color: '#ffffff' }]}>
+            <Text style={[styles.userText, { color: colors.ink, fontFamily: getChatFontFamily(chatFont) }]}>
               {message.content}
             </Text>
           </Pressable>
@@ -451,6 +458,14 @@ export const ChatBubble: React.FC<ChatBubbleProps> = React.memo(({
                 <IconRefresh size={16} color={colors.ink3} />
               </Pressable>
             )}
+
+            {/* Verified Quality Badge */}
+            {/* {(message.isVerified || message.searchResult?.isVerified) && (
+              <View style={styles.verifiedBadge}>
+                <IconCheck size={11} color="#10b981" strokeWidth={2.5} />
+                <Text style={styles.verifiedText}>Verified</Text>
+              </View>
+            )} */}
 
             {/* Version Navigation */}
             {message.versions && message.versions.length > 1 && (
@@ -607,5 +622,23 @@ const styles = StyleSheet.create({
   actionBtn: {
     paddingVertical: 4,
     paddingHorizontal: 4,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+    marginLeft: 4,
+  },
+  verifiedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10b981',
+    letterSpacing: 0.2,
   },
 });

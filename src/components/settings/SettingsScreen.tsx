@@ -1,177 +1,204 @@
-import React from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable, Linking } from 'react-native';
+/**
+ * src/components/settings/SettingsScreen.tsx
+ *
+ * Dedicated Full-Screen Mobile Settings Experience for ChatBox AI APK.
+ * Follows the unified visual design language of the Home Screen + Menus + Bottom Sheets:
+ * - Surfaces: colors.background, colors.surface, colors.surface2
+ * - Borders: clean layout with lines above and below the tab bar removed
+ * - Icon styling: 20px / 18px strokeWidth 1.8 circular header button & category pills
+ * - Typography: Inter/System with strict hierarchy
+ * - Full-screen edge-to-edge layout with safe-area insets
+ * - Unconstrained native scrolling with nestedScrollEnabled on Android
+ */
+
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   IconArrowLeft,
+  IconAdjustmentsHorizontal,
   IconUser,
-  IconAward,
-  IconBolt,
-  IconPalette,
-  IconMoon,
-  IconTypography,
-  IconMicrophone,
-  IconVolume,
-  IconFileDescription,
-  IconLock,
-  IconInfoCircle,
+  IconShieldLock,
+  IconBrain,
+  IconKey,
+  IconHelpCircle,
 } from '@tabler/icons-react-native';
-import { ListRow } from '@/components/common/ListRow';
-import { useAuth } from '@/contexts/AuthContext';
-import { useThemeColors, spacing, radius, typography } from '@/theme';
-import { useVoicePreferenceStore } from '@/stores/useVoicePreferenceStore';
-import { VoiceSelectorModal } from '@/components/voice/VoiceSelectorModal';
+import { useThemeColors, spacing } from '@/theme';
+import { GeneralSection } from './sections/GeneralSection';
+import { AccountSection } from './sections/AccountSection';
+import { SecuritySection } from './sections/SecuritySection';
+import { MemorySection } from './sections/MemorySection';
+import { ApiKeySection } from './sections/ApiKeySection';
+import { HelpSection } from './sections/HelpSection';
+import { useTranslation } from '@/i18n';
+
+export type SettingsTabId = 'general' | 'account' | 'security' | 'memory' | 'api-keys' | 'help';
+
+interface TabItem {
+  id: SettingsTabId;
+  label: string;
+  icon: React.ComponentType<{ size: number; color: string; strokeWidth?: number }>;
+}
 
 interface SettingsScreenProps {
   onBack: () => void;
+  initialTab?: SettingsTabId;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  onBack,
+  initialTab = 'general',
+}) => {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { currentUser, userProfile, logout } = useAuth();
-  const selectedVoice = useVoicePreferenceStore((s) => s.getSelectedVoice());
-  const [isVoiceModalOpen, setIsVoiceModalOpen] = React.useState(false);
+  const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
 
-  return (
+  const tabs: TabItem[] = [
+    { id: 'general', label: t('tabGeneral', 'General'), icon: IconAdjustmentsHorizontal },
+    { id: 'account', label: t('tabAccount', 'Account'), icon: IconUser },
+    { id: 'security', label: t('tabSecurity', 'Security'), icon: IconShieldLock },
+    { id: 'memory', label: t('tabMemory', 'Memory'), icon: IconBrain },
+    { id: 'api-keys', label: t('tabApiKeys', 'API Keys'), icon: IconKey },
+    { id: 'help', label: t('tabHelp', 'Help'), icon: IconHelpCircle },
+  ];
+
+  const screenBody = (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top Header */}
+      {/* Header — border line above tab bar removed cleanly */}
       <View
         style={[
-          styles.headerRow,
+          styles.headerContainer,
           {
-            borderBottomColor: colors.line,
+            backgroundColor: colors.background,
             paddingTop: Math.max(insets.top, 12),
           },
         ]}
       >
-        <Pressable onPress={onBack} hitSlop={8} style={styles.backBtn}>
-          <IconArrowLeft size={20} color={colors.ink} style={{ marginRight: 4 }} />
-          <Text style={[styles.backText, { color: colors.ink }]}>Back</Text>
-        </Pressable>
-        <Text style={[styles.title, { color: colors.ink }]}>Settings</Text>
-        <View style={{ width: 60 }} />
+        <View style={styles.headerRow}>
+          <Pressable
+            onPress={onBack}
+            hitSlop={8}
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.iconButton,
+              {
+                backgroundColor: pressed ? colors.hover : colors.surface,
+                borderColor: colors.line,
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}
+          >
+            <IconArrowLeft size={20} color={colors.ink} strokeWidth={2} />
+          </Pressable>
+
+          <View style={styles.titleContainer} pointerEvents="none">
+            <Text style={[styles.headerTitle, { color: colors.ink }]}>{t('settings', 'Settings')}</Text>
+          </View>
+
+          <View style={styles.rightSpacer} />
+        </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Account Section */}
-        <Text style={[styles.sectionHeader, { color: colors.ink3 }]}>ACCOUNT</Text>
-        <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-          <ListRow
-            icon={<IconUser size={18} color={colors.ink} />}
-            title="Email"
-            value={currentUser?.email || 'Guest'}
-            showChevron={false}
-          />
-          <ListRow
-            icon={<IconAward size={18} color="#eab308" />}
-            title="Plan"
-            value={(userProfile?.plan || 'FREE').toUpperCase()}
-            showChevron={false}
-          />
-          <ListRow
-            icon={<IconBolt size={18} color={colors.accent} />}
-            title="Available Credits"
-            value={(userProfile?.credits ?? 5000).toLocaleString()}
-            showChevron={false}
-          />
-        </View>
-
-        {/* Appearance & Preferences */}
-        <Text style={[styles.sectionHeader, { color: colors.ink3 }]}>
-          PREFERENCES & THEME
-        </Text>
-        <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-          <ListRow
-            icon={<IconPalette size={18} color={colors.ink} />}
-            title="Accent Theme"
-            value="Violet"
-            onPress={() => {}}
-          />
-          <ListRow
-            icon={<IconMoon size={18} color={colors.ink} />}
-            title="Dark Mode"
-            isSwitch
-            switchValue={true}
-            onSwitchChange={() => {}}
-          />
-          <ListRow
-            icon={<IconTypography size={18} color={colors.ink} />}
-            title="Chat Font"
-            value="Geist Sans"
-            onPress={() => {}}
-          />
-        </View>
-
-        {/* Voice & Audio Section */}
-        <Text style={[styles.sectionHeader, { color: colors.ink3 }]}>
-          VOICE & AUDIO
-        </Text>
-        <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-          <ListRow
-            icon={<IconMicrophone size={18} color={colors.ink} />}
-            title="Voice Mode"
-            value="Enabled"
-            showChevron={false}
-          />
-          <ListRow
-            icon={<IconVolume size={18} color={colors.ink} />}
-            title="Assistant Voice"
-            value={selectedVoice.name}
-            onPress={() => setIsVoiceModalOpen(true)}
-          />
-        </View>
-
-        {/* Assistant Voice Selector Modal */}
-        <VoiceSelectorModal
-          visible={isVoiceModalOpen}
-          onClose={() => setIsVoiceModalOpen(false)}
-        />
-
-        {/* Privacy & Legal */}
-        <Text style={[styles.sectionHeader, { color: colors.ink3 }]}>
-          ABOUT & LEGAL
-        </Text>
-        <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-          <ListRow
-            icon={<IconFileDescription size={18} color={colors.ink} />}
-            title="Terms of Service"
-            onPress={() => Linking.openURL('https://chatboxai.co.in/terms-conditions')}
-          />
-          <ListRow
-            icon={<IconLock size={18} color={colors.ink} />}
-            title="Privacy Policy"
-            onPress={() => Linking.openURL('https://chatboxai.co.in/privacy-policy')}
-          />
-          <ListRow
-            icon={<IconInfoCircle size={18} color={colors.ink} />}
-            title="App Version"
-            value="1.0.0 (Expo SDK 57)"
-            showChevron={false}
-          />
-        </View>
-
-        {/* Sign Out CTA */}
-        <Pressable
-          onPress={logout}
-          style={({ pressed }) => [
-            styles.logoutBtn,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.line,
-              opacity: pressed ? 0.75 : 1,
-            },
-          ]}
+      {/* Tab pill bar — border lines above and below removed cleanly */}
+      <View style={styles.tabBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabBarScroll}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled={true}
+          overScrollMode="never"
         >
-          <Text style={[styles.logoutText, { color: colors.destructive }]}>
-            Sign Out of ChatBox AI
-          </Text>
-        </Pressable>
+          {tabs.map((tab, idx) => {
+            const isActive = activeTab === tab.id;
+            const IconComponent = tab.icon;
+            const isLast = idx === tabs.length - 1;
+
+            return (
+              <Pressable
+                key={tab.id}
+                onPress={() => setActiveTab(tab.id)}
+                style={({ pressed }) => [
+                  styles.tabPill,
+                  {
+                    backgroundColor: isActive ? colors.surface : colors.surface2,
+                    borderColor: isActive ? colors.accent : colors.line,
+                    borderWidth: isActive ? 1.5 : 1,
+                    marginRight: isLast ? 0 : 8,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+              >
+                <IconComponent
+                  size={16}
+                  color={isActive ? colors.accent : colors.ink2}
+                  strokeWidth={isActive ? 2 : 1.8}
+                />
+                <Text
+                  style={[
+                    styles.tabPillText,
+                    {
+                      color: isActive ? colors.ink : colors.ink2,
+                      fontWeight: isActive ? '600' : '500',
+                    },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Section content — single outer ScrollView handles all scrolling smoothly */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 24) + 64 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        nestedScrollEnabled={true}
+        overScrollMode="always"
+        bounces={true}
+      >
+        {activeTab === 'general' && <GeneralSection />}
+        {activeTab === 'account' && <AccountSection />}
+        {activeTab === 'security' && <SecuritySection />}
+        {activeTab === 'memory' && <MemorySection />}
+        {activeTab === 'api-keys' && <ApiKeySection />}
+        {activeTab === 'help' && <HelpSection />}
       </ScrollView>
     </View>
   );
+
+  if (Platform.OS === 'ios') {
+    return (
+      <KeyboardAvoidingView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        behavior="padding"
+      >
+        {screenBody}
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return screenBody;
 };
 
 const styles = StyleSheet.create({
@@ -179,59 +206,71 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  headerContainer: {
+    width: '100%',
+    paddingBottom: 4,
+  },
   headerRow: {
-    height: 52,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
   },
-  backBtn: {
-    paddingVertical: spacing.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-  },
-  title: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.bold,
-    letterSpacing: -0.2,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: 1.1,
-    marginTop: spacing.md,
-    marginBottom: spacing.xs,
-    paddingHorizontal: spacing.xs,
-  },
-  groupCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: spacing.sm,
-    borderCurve: radius.borderCurve,
-  },
-  logoutBtn: {
-    height: 48,
-    borderRadius: radius.control,
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
-    borderCurve: radius.borderCurve,
   },
-  logoutText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
+  titleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  rightSpacer: {
+    width: 40,
+    height: 40,
+  },
+  tabBarContainer: {
+    paddingVertical: 8,
+  },
+  tabBarScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingRight: spacing.xl,
+  },
+  tabPill: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+  },
+  tabPillText: {
+    fontSize: 13,
+    letterSpacing: -0.1,
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
   },
 });

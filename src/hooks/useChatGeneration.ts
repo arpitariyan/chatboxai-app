@@ -14,6 +14,9 @@ import { webSearchService, SearchResultItem } from '../services/search/webSearch
 import { analyzeUserQuery } from '../services/search/queryPlanner';
 
 import { toMobileUploadUrl, toMobileAnalyzeUrl, toMobileFileUrl } from '../config/mobileApi';
+import { checkModelEligibility, calculateChatCredits, deductUsageCredits } from '../services/creditEngine';
+import { UserProfile } from '../services/userService';
+import { AdaptiveResponseOrchestrator } from '../services/intelligence';
 
 // ── Attachment type exposed from this hook ────────────────────────────────────
 export interface ChatAttachment {
@@ -34,6 +37,8 @@ interface UseChatGenerationOptions {
   userEmail: string;
   userId: string;
   userPlan?: string;
+  userProfile?: UserProfile | null;
+  refreshProfile?: () => Promise<any>;
   onConversationCreated?: (libId: string, title?: string) => void;
   /**
    * When true the hook generates AI responses but never writes to Appwrite.
@@ -57,7 +62,7 @@ interface UseChatGenerationReturn {
     searchType?: 'chat' | 'search' | 'research',
     history?: Array<{ role: 'user' | 'assistant'; content: string }>,
     attachments?: any[],
-  ) => Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[] } | void>;
+  ) => Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[]; isVerified?: boolean; confidenceLevel?: string } | void>;
   reset: () => void;
 }
 
@@ -132,6 +137,8 @@ export const useChatGeneration = ({
   userEmail,
   userId,
   userPlan = 'free',
+  userProfile,
+  refreshProfile,
   onConversationCreated,
   isIncognito = false,
 }: UseChatGenerationOptions): UseChatGenerationReturn => {
@@ -140,6 +147,13 @@ export const useChatGeneration = ({
   useEffect(() => {
     isIncognitoRef.current = isIncognito;
   }, [isIncognito]);
+
+  const userProfileRef = useRef(userProfile);
+  const refreshProfileRef = useRef(refreshProfile);
+  useEffect(() => {
+    userProfileRef.current = userProfile;
+    refreshProfileRef.current = refreshProfile;
+  }, [userProfile, refreshProfile]);
   const [isSearching, setIsSearching] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isFileAnalyzing, setIsFileAnalyzing] = useState(false);
@@ -199,7 +213,7 @@ export const useChatGeneration = ({
       searchType: 'chat' | 'search' | 'research' = 'chat',
       history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
       attachments: any[] = []
-    ): Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[] } | void> => {
+    ): Promise<{ dbId: string; processedFiles?: any[]; sources?: SearchResultItem[]; isVerified?: boolean; confidenceLevel?: string } | void> => {
       const effectiveEmail = (userEmail || (isIncognitoRef.current ? 'incognito_session' : '')).trim().toLowerCase();
       if (!effectiveEmail || !query.trim()) return;
       if (isGeneratingRef.current) {
@@ -317,6 +331,27 @@ export const useChatGeneration = ({
       }
 
       const messages = buildMessages(query, sources, history, attachments);
+
+      // ── Plan-Aware Pre-Flight Credit & Model Eligibility Check ───────────
+      const resolvedModelForCheck = {
+        modelApi: modelId,
+        publicId: modelId,
+        accessTier: (model as any)?.accessTier,
+        isPro: (model as any)?.isPro,
+      };
+
+      if (userProfileRef.current) {
+        const eligibility = checkModelEligibility(userProfileRef.current, resolvedModelForCheck);
+        if (!eligibility.allowed) {
+          setIsThinking(false);
+          setIsSearching(false);
+          setIsFileAnalyzing(false);
+          setProgressMessage('');
+          isGeneratingRef.current = false;
+          setAiResponse(eligibility.reason);
+          return;
+        }
+      }
 
       let responseText = '';
       let llmResult: any = null;
@@ -501,17 +536,28 @@ export const useChatGeneration = ({
             resolvedModel: { provider: actualProvider, modelApi: actualModel },
           };
         } else {
-          // --- LOCAL SERVICE BRANCH (Fast text-only/fallback) ---
-          llmResult = await LLMFallbackService.routeRequest(modelId, messages, {
+          // --- ADAPTIVE RESPONSE INTELLIGENCE PIPELINE ---
+          const orchestrated = await AdaptiveResponseOrchestrator.execute({
+            query,
+            modelId,
+            userEmail: normalizedEmail,
+            conversationHistory: history,
+            sources,
+            attachments,
+            isIncognito: isIncognitoRef.current,
             effortLevel: currentEffortLevel,
             thinkingMode: currentThinkingMode,
-            queryComplexity: queryAnalysis.complexity,
+            onProgress: (stageMsg) => setProgressMessage(stageMsg),
           });
-          responseText = llmResult?.choices?.[0]?.message?.content || '';
 
-          const parsed = parseAiResponse(responseText);
-          finalAnswerClean = parsed.finalAnswer;
-          finalThinking = currentThinkingMode ? parsed.thinking : '';
+          finalAnswerClean = orchestrated.finalAnswer;
+          finalThinking = currentThinkingMode ? (orchestrated.finalThinking || '') : '';
+          responseText = finalAnswerClean;
+
+          llmResult = {
+            resolvedModel: { provider: orchestrated.modelUsed, modelApi: modelId },
+            orchestrated,
+          };
         }
       } catch (err: any) {
         console.error('[useChatGeneration] generation failed:', err?.message || err);
@@ -525,6 +571,33 @@ export const useChatGeneration = ({
         return;
       }
 
+      // ── Step 5b: Dual-Wallet Credit Deduction ────────────────────────────
+      if (userProfileRef.current && !isIncognitoRef.current) {
+        const promptTokens = Math.max(10, Math.ceil(query.length / 4));
+        const completionTokens = Math.max(15, Math.ceil((finalAnswerClean || responseText).length / 4));
+        const creditCalc = calculateChatCredits(modelId, promptTokens, completionTokens);
+        const searchCost = sources.length > 0 ? 25 : 0;
+        const totalCreditsToDeduct = creditCalc.creditsUsed + searchCost;
+
+        deductUsageCredits({
+          userProfile: userProfileRef.current,
+          modelIdOrApi: modelId,
+          creditsToDeduct: totalCreditsToDeduct,
+          metadata: {
+            lib_id: currentLibId,
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            search_cost: searchCost,
+          },
+        })
+          .then(() => {
+            refreshProfileRef.current?.();
+          })
+          .catch((err: any) => {
+            console.warn('[useChatGeneration] Credit deduction non-fatal:', err?.message || err);
+          });
+      }
+
       // ── Step 6: Persist to Appwrite ───────────────────────────────────────
       // In incognito mode: skip ALL DB writes. Surface result directly to UI.
       if (isIncognitoRef.current) {
@@ -533,7 +606,13 @@ export const useChatGeneration = ({
         setIsThinking(false);
         setProgressMessage('');
         isGeneratingRef.current = false;
-        return { dbId: '', processedFiles: filePaths, sources };
+        return {
+          dbId: '',
+          processedFiles: filePaths,
+          sources,
+          isVerified: llmResult?.orchestrated?.isVerified,
+          confidenceLevel: llmResult?.orchestrated?.confidence?.level,
+        };
       }
 
       // Only save the CLEAN final answer to aiResp (no <think> pollution).
@@ -542,11 +621,16 @@ export const useChatGeneration = ({
       try {
         const resolvedModel = llmResult?.resolvedModel;
         let searchResultPayload = '';
-        if (sources.length > 0 || finalThinking) {
-          // Build a wrapper object: { sources: [...], reasoning: '...' }
+        const isVerified = llmResult?.orchestrated?.isVerified;
+        const confidenceLevel = llmResult?.orchestrated?.confidence?.level;
+
+        if (sources.length > 0 || finalThinking || isVerified || confidenceLevel) {
+          // Build a wrapper object: { sources: [...], reasoning: '...', isVerified: true, confidence: '...' }
           searchResultPayload = JSON.stringify({
             sources: sources.length > 0 ? sources : [],
             ...(finalThinking ? { reasoning: finalThinking } : {}),
+            ...(isVerified ? { isVerified: true } : {}),
+            ...(confidenceLevel ? { confidence: confidenceLevel } : {}),
           });
         }
 
@@ -579,7 +663,13 @@ export const useChatGeneration = ({
         setProgressMessage('');
         isGeneratingRef.current = false;
 
-        return { dbId, processedFiles: filePaths, sources };
+        return {
+          dbId,
+          processedFiles: filePaths,
+          sources,
+          isVerified,
+          confidenceLevel,
+        };
       } catch (dbErr: any) {
         // Non-fatal — user still sees the response even if DB write fails
         console.warn('[useChatGeneration] addChatMessage failed:', dbErr?.message || dbErr);
@@ -591,7 +681,13 @@ export const useChatGeneration = ({
         setProgressMessage('');
         isGeneratingRef.current = false;
 
-        return { dbId: '', processedFiles: filePaths, sources };
+        return {
+          dbId: '',
+          processedFiles: filePaths,
+          sources,
+          isVerified: llmResult?.orchestrated?.isVerified,
+          confidenceLevel: llmResult?.orchestrated?.confidence?.level,
+        };
       }
     },
     // Only userEmail is a true dep; everything else comes from stable refs

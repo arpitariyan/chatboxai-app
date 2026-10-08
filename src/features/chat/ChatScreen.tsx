@@ -20,7 +20,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IconArrowDown } from '@tabler/icons-react-native';
+import { IconArrowDown, IconSpy } from '@tabler/icons-react-native';
 import { ChatBubble, MessageItem } from '@/components/chat/ChatBubble';
 import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
 import { Composer } from '@/components/chat/Composer';
@@ -39,6 +39,7 @@ import { useModelStore } from '@/stores/useModelStore';
 import { parseStoredAttachments } from '@/utils/attachments';
 import { getFadeGradientConfig } from '@/utils/gradientFade';
 import { parseAiResponse } from '@/utils/parseAiResponse';
+import { IntelligenceTelemetry } from '@/services/intelligence';
 
 // ── Hoist this out of the component so it is created exactly ONCE ──────────
 // Calling Animated.createAnimatedComponent() inside render creates a new type
@@ -50,7 +51,8 @@ const AnimatedScrollContainer = Animated.createAnimatedComponent(
   View,
 );
 
-const logoImg = require('../../../assets/images/logo.png');
+const darkLogo = require('../../../assets/images/logo.png');
+const lightLogo = require('../../../assets/images/Chatboxai_logo_main.png');
 
 interface ChatScreenProps {
   activeLibId?: string | null;
@@ -71,7 +73,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   isIncognito = false,
 }) => {
   const colors = useThemeColors();
-  const { currentUser, userProfile } = useAuth();
+  const logoImg = colors.isDark ? darkLogo : lightLogo;
+  const { currentUser, userProfile, refreshProfile } = useAuth();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [currentLibIdState, setCurrentLibIdState] = useState<string | null>(
@@ -134,6 +137,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     userEmail,
     userId,
     userPlan: userProfile?.plan || 'free',
+    userProfile,
+    refreshProfile,
     onConversationCreated: handleConversationCreatedStable,
     isIncognito,
   });
@@ -142,6 +147,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const aiResponseRef = useRef('');
   const aiThinkingRef = useRef('');
   const sourceListRef = useRef(sourceList);
+  const lastMetaRef = useRef<{ isVerified?: boolean; confidenceLevel?: string }>({});
   useEffect(() => {
     aiResponseRef.current = aiResponse;
     aiThinkingRef.current = aiThinking;
@@ -222,6 +228,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               // or an Option-A wrapper object { sources: [...], deepResearch: true, confidence: '...', reasoning: '...' }
               let parsedSources: any | undefined;
               let persistedReasoning: string | undefined;
+              let isVerifiedFromDb: boolean | undefined;
+              let confidenceFromDb: string | undefined;
+
               if (rec.searchResult) {
                 try {
                   const raw = JSON.parse(rec.searchResult as string);
@@ -243,6 +252,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                     persistedReasoning = typeof raw.reasoning === 'string' && raw.reasoning
                       ? raw.reasoning
                       : undefined;
+                    isVerifiedFromDb = raw.isVerified === true;
+                    confidenceFromDb = typeof raw.confidence === 'string' ? raw.confidence : undefined;
                   }
                 } catch {
                   parsedSources = undefined;
@@ -272,6 +283,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                       thinking: aiMsg.thinking,
                       searchResult: aiMsg.searchResult,
                       modelName: aiMsg.modelName,
+                      isVerified: aiMsg.isVerified,
+                      confidenceLevel: aiMsg.confidenceLevel,
                       liked: aiMsg.liked,
                       disliked: aiMsg.disliked,
                     }];
@@ -282,6 +295,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                     thinking: persistedReasoning,
                     searchResult: parsedSources,
                     modelName: selectedModel?.name || 'ChatBox AI',
+                    isVerified: isVerifiedFromDb,
+                    confidenceLevel: confidenceFromDb,
                     liked: rec.liked,
                     disliked: rec.disliked,
                   });
@@ -291,6 +306,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   aiMsg.thinking = persistedReasoning;
                   aiMsg.searchResult = parsedSources;
                   aiMsg.modelName = selectedModel?.name || 'ChatBox AI';
+                  aiMsg.isVerified = isVerifiedFromDb;
+                  aiMsg.confidenceLevel = confidenceFromDb;
                   aiMsg.liked = rec.liked;
                   aiMsg.disliked = rec.disliked;
                 }
@@ -304,6 +321,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                   timestamp: formattedTime,
                   searchResult: parsedSources,
                   modelName: selectedModel?.name || 'ChatBox AI',
+                  isVerified: isVerifiedFromDb,
+                  confidenceLevel: confidenceFromDb,
                   liked: rec.liked,
                   disliked: rec.disliked,
                 });
@@ -362,6 +381,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         isStreaming: true, // Trigger local typewriter animation in ChatBubble
         modelName: selectedModel?.name || 'Auto',
         searchResult: currentSources.length > 0 ? currentSources : undefined,
+        isVerified: lastMetaRef.current.isVerified,
+        confidenceLevel: lastMetaRef.current.confidenceLevel,
       };
 
       setMessages((prev) => {
@@ -388,6 +409,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               thinking: assistantMessage.thinking,
               searchResult: assistantMessage.searchResult,
               modelName: assistantMessage.modelName,
+              isVerified: assistantMessage.isVerified,
+              confidenceLevel: assistantMessage.confidenceLevel,
               liked: assistantMessage.liked,
               disliked: assistantMessage.disliked,
             });
@@ -398,6 +421,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             target.thinking = assistantMessage.thinking;
             target.searchResult = assistantMessage.searchResult;
             target.modelName = assistantMessage.modelName;
+            target.isVerified = assistantMessage.isVerified;
+            target.confidenceLevel = assistantMessage.confidenceLevel;
             target.liked = assistantMessage.liked;
             target.disliked = assistantMessage.disliked;
 
@@ -521,6 +546,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
       const result = await generateResponse(messageContent || ' ', searchType, history, attachments);
 
+      if (result) {
+        lastMetaRef.current = {
+          isVerified: result.isVerified,
+          confidenceLevel: result.confidenceLevel,
+        };
+      }
+
       // Once generation and DB write finish, update the local user message with the REAL DB id
       // and merge uploaded file metadata (fileId, publicUrl, etc.) while strictly preserving local preview URIs.
       if (result?.dbId || result?.processedFiles) {
@@ -580,6 +612,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
         // DO NOT push a new user message to the UI. Just trigger response directly.
         regeneratingMessageIdRef.current = id;
+        IntelligenceTelemetry.recordFeedback(id.replace(/-ai$/, ''), 'regenerate');
         generateResponse(messages[idx - 1].content, 'chat', history);
       }
     },
@@ -589,6 +622,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleFeedback = useCallback((id: string, field: 'liked' | 'disliked', value: boolean) => {
     // Extract the raw DB id by removing the '-ai' suffix if present
     const dbId = id.replace(/-ai$/, '');
+
+    // Record feedback in Intelligence Telemetry
+    IntelligenceTelemetry.recordFeedback(dbId, value ? (field === 'liked' ? 'like' : 'dislike') : 'like');
 
     // Update local state instantly
     setMessages((prev) => prev.map((msg) => {
@@ -852,6 +888,7 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
   onClearAttachment,
   isIncognito = false,
 }: ContentProps) => {
+  const logoImg = colors.isDark ? darkLogo : lightLogo;
   const thinkingMode = useModelStore((s) => s.thinkingMode);
   const isResearchMode = useResearchStore((s) => s.isResearchMode);
   const isEmptyChat = !isLoadingHistory && messages.length === 0;
@@ -897,26 +934,25 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
             </View>
           ) : isEmptyChat ? (
             isIncognito ? (
-              /* Incognito Home Banner */
+              /* Incognito Home Greeting */
               <Pressable style={styles.newChatGreeting} onPress={Keyboard.dismiss}>
-                <View style={[
-                  styles.incognitoBadge,
-                  { backgroundColor: colors.surface, borderColor: colors.line },
-                ]}>
-                  <Text style={[styles.incognitoIcon]}>🕵️</Text>
-                  <Text style={[styles.incognitoLabel, { color: colors.ink }]}>Incognito Mode</Text>
+                <View
+                  style={[
+                    styles.incognitoIconCircle,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.line,
+                    },
+                  ]}
+                >
+                  <IconSpy size={26} color={colors.ink} strokeWidth={1.8} />
                 </View>
                 <Text style={[styles.greetingTitle, { color: colors.ink }]}>
-                  You're browsing privately
+                  Incognito Chat
                 </Text>
                 <Text style={[styles.greetingSubtitle, { color: colors.ink2 }]}>
-                  This conversation won't be saved to your account. No history, no trace.
+                  Chats in this session won't be saved to your history or account.
                 </Text>
-                <View style={[styles.incognitoInfoBox, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  Chat responses are not stored</Text>
-                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  No history entry will be created</Text>
-                  <Text style={[styles.incognitoInfoLine, { color: colors.ink2 }]}>✓  Session ends when you leave this chat</Text>
-                </View>
                 <View style={{ width: '100%', marginTop: spacing.md }}>
                   <SuggestionCards
                     onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
@@ -945,22 +981,16 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
             <View style={styles.threadContainer}>
               {isIncognito && (
                 <View
-                  style={{
-                    alignSelf: 'center',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    paddingHorizontal: 12,
-                    paddingVertical: 5,
-                    borderRadius: 20,
-                    backgroundColor: '#3b285122',
-                    borderColor: '#7c4fa044',
-                    borderWidth: 1,
-                    marginBottom: 12,
-                  }}
+                  style={[
+                    styles.incognitoThreadBadge,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.line,
+                    },
+                  ]}
                 >
-                  <Text style={{ fontSize: 13 }}>🕵️</Text>
-                  <Text style={{ fontSize: 11, fontWeight: '500', color: colors.ink2 }}>
+                  <IconSpy size={13} color={colors.ink2} strokeWidth={1.8} />
+                  <Text style={[styles.incognitoThreadBadgeText, { color: colors.ink2 }]}>
                     Incognito Chat • Nothing saved
                   </Text>
                 </View>
@@ -1195,37 +1225,30 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  // ── Incognito Banner Styles ────────────────────────────────────────────────
-  incognitoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 24,
+  // ── Incognito Styles ───────────────────────────────────────────────────────
+  incognitoIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  incognitoIcon: {
-    fontSize: 20,
-  },
-  incognitoLabel: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: 0.2,
-  },
-  incognitoInfoBox: {
-    width: '100%',
-    marginTop: spacing.md,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
+  incognitoThreadBadge: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 12,
   },
-  incognitoInfoLine: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: 20,
+  incognitoThreadBadgeText: {
+    fontSize: 11,
+    fontWeight: '500',
   },
 });
 

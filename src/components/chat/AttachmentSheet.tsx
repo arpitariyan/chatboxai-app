@@ -277,21 +277,23 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.optionRow,
                     {
-                      backgroundColor: pressed ? '#2c2c2e' : '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: pressed
+                        ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                        : (colors.isDark ? '#242426' : colors.surface2),
+                      borderColor: colors.line,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Choose from Photos"
                 >
-                  <View style={styles.iconContainer}>
-                    <IconPhoto size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconPhoto size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Choose from Photos</Text>
-                    <Text style={styles.optionSubtitle}>Select images from your gallery</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Choose from Photos</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Select images from your gallery</Text>
                   </View>
-                  <IconChevronRight size={18} color="#8e8e93" />
+                  <IconChevronRight size={18} color={colors.ink3} />
                 </Pressable>
 
                 {/* Take Photo */}
@@ -300,21 +302,23 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.optionRow,
                     {
-                      backgroundColor: pressed ? '#2c2c2e' : '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: pressed
+                        ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                        : (colors.isDark ? '#242426' : colors.surface2),
+                      borderColor: colors.line,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Take Photo"
                 >
-                  <View style={styles.iconContainer}>
-                    <IconCamera size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconCamera size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Take Photo</Text>
-                    <Text style={styles.optionSubtitle}>Capture a picture with your camera</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Take Photo</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Capture a picture with your camera</Text>
                   </View>
-                  <IconChevronRight size={18} color="#8e8e93" />
+                  <IconChevronRight size={18} color={colors.ink3} />
                 </Pressable>
 
                 {/* Attach Files */}
@@ -323,21 +327,23 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.optionRow,
                     {
-                      backgroundColor: pressed ? '#2c2c2e' : '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: pressed
+                        ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                        : (colors.isDark ? '#242426' : colors.surface2),
+                      borderColor: colors.line,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Attach Files"
                 >
-                  <View style={styles.iconContainer}>
-                    <IconFile size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconFile size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Attach Files</Text>
-                    <Text style={styles.optionSubtitle}>Documents, PDFs, audio or files</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Attach Files</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Documents, PDFs, audio or files</Text>
                   </View>
-                  <IconChevronRight size={18} color="#8e8e93" />
+                  <IconChevronRight size={18} color={colors.ink3} />
                 </Pressable>
 
                 {/* Create Image */}
@@ -349,21 +355,23 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.optionRow,
                     {
-                      backgroundColor: pressed ? '#2c2c2e' : '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: pressed
+                        ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                        : (colors.isDark ? '#242426' : colors.surface2),
+                      borderColor: colors.line,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Create Image"
                 >
-                  <View style={styles.iconContainer}>
-                    <IconSparkles size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconSparkles size={22} color={colors.accent || colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Create Image</Text>
-                    <Text style={styles.optionSubtitle}>Generate AI images or stickers</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Create Image</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Generate AI images or stickers</Text>
                   </View>
-                  <IconChevronRight size={18} color="#8e8e93" />
+                  <IconChevronRight size={18} color={colors.ink3} />
                 </Pressable>
 
                 {/* Reasoning Effort */}
@@ -372,30 +380,32 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={({ pressed }) => [
                     styles.optionRow,
                     {
-                      backgroundColor: pressed ? '#2c2c2e' : '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: pressed
+                        ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                        : (colors.isDark ? '#242426' : colors.surface2),
+                      borderColor: colors.line,
                     },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Reasoning Effort"
                 >
-                  <View style={styles.iconContainer}>
-                    <IconBolt size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconBolt size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Reasoning Effort</Text>
-                    <Text style={styles.optionSubtitle}>{effortLevel} effort level</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Reasoning Effort</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>{effortLevel} effort level</Text>
                   </View>
                   <IconChevronRight
                     size={18}
-                    color="#8e8e93"
+                    color={colors.ink3}
                     style={{ transform: [{ rotate: showEffortPicker ? '90deg' : '0deg' }] }}
                   />
                 </Pressable>
 
                 {/* Effort Sub-Picker */}
                 {showEffortPicker && (
-                  <View style={[styles.effortSheet, { borderColor: colors.line || '#333336' }]}>
+                  <View style={[styles.effortSheet, { backgroundColor: colors.isDark ? '#242426' : colors.surface2, borderColor: colors.line }]}>
                     {EFFORT_LEVELS.map((level, i) => {
                       const isActive = effortLevel === level;
                       const isLast = i === EFFORT_LEVELS.length - 1;
@@ -406,23 +416,23 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                             styles.effortRow,
                             !isLast && {
                               borderBottomWidth: StyleSheet.hairlineWidth,
-                              borderBottomColor: '#333336',
+                              borderBottomColor: colors.line,
                             },
-                            { backgroundColor: pressed ? '#2c2c2e' : 'transparent' },
+                            { backgroundColor: pressed ? (colors.isDark ? '#2c2c2e' : colors.hover) : 'transparent' },
                           ]}
                           onPress={() => selectEffort(level)}
                         >
                           <Text
                             style={[
                               styles.effortLabel,
-                              { color: isActive ? '#ffffff' : '#8e8e93' },
+                              { color: isActive ? colors.ink : colors.ink3 },
                               isActive && styles.effortLabelActive,
                             ]}
                           >
                             {level}
                           </Text>
                           {isActive && (
-                            <IconCheck size={16} color="#ffffff" strokeWidth={2.2} />
+                            <IconCheck size={16} color={colors.accent || '#10b981'} strokeWidth={2.2} />
                           )}
                         </Pressable>
                       );
@@ -435,24 +445,24 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={[
                     styles.optionRow,
                     {
-                      backgroundColor: '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: colors.isDark ? '#242426' : colors.surface2,
+                      borderColor: colors.line,
                     },
                   ]}
                 >
-                  <View style={styles.iconContainer}>
-                    <IconBrain size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconBrain size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Thinking Mode</Text>
-                    <Text style={styles.optionSubtitle}>Show deep reasoning process</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Thinking Mode</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Show deep reasoning process</Text>
                   </View>
                   <Switch
                     value={thinkingMode}
                     onValueChange={setThinkingMode}
-                    trackColor={{ false: '#3a3a3c', true: colors.accent || '#c084fc' }}
+                    trackColor={{ false: colors.isDark ? '#3a3a3c' : '#d1d5db', true: colors.accent || '#c084fc' }}
                     thumbColor="#ffffff"
-                    ios_backgroundColor="#3a3a3c"
+                    ios_backgroundColor={colors.isDark ? '#3a3a3c' : '#d1d5db'}
                   />
                 </View>
 
@@ -461,24 +471,24 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={[
                     styles.optionRow,
                     {
-                      backgroundColor: '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: colors.isDark ? '#242426' : colors.surface2,
+                      borderColor: colors.line,
                     },
                   ]}
                 >
-                  <View style={styles.iconContainer}>
-                    <IconWorldSearch size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconWorldSearch size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Web search</Text>
-                    <Text style={styles.optionSubtitle}>Browse live web sources</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Web search</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Browse live web sources</Text>
                   </View>
                   <Switch
                     value={webSearchEnabled}
                     onValueChange={setWebSearchEnabled}
-                    trackColor={{ false: '#3a3a3c', true: colors.accent || '#c084fc' }}
+                    trackColor={{ false: colors.isDark ? '#3a3a3c' : '#d1d5db', true: colors.accent || '#c084fc' }}
                     thumbColor="#ffffff"
-                    ios_backgroundColor="#3a3a3c"
+                    ios_backgroundColor={colors.isDark ? '#3a3a3c' : '#d1d5db'}
                   />
                 </View>
 
@@ -487,24 +497,24 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                   style={[
                     styles.optionRow,
                     {
-                      backgroundColor: '#242426',
-                      borderColor: colors.line || '#333336',
+                      backgroundColor: colors.isDark ? '#242426' : colors.surface2,
+                      borderColor: colors.line,
                     },
                   ]}
                 >
-                  <View style={styles.iconContainer}>
-                    <IconHistory size={22} color="#ffffff" strokeWidth={1.9} />
+                  <View style={[styles.iconContainer, { backgroundColor: colors.isDark ? '#323236' : colors.surface, borderColor: colors.line }]}>
+                    <IconHistory size={22} color={colors.ink} strokeWidth={1.9} />
                   </View>
                   <View style={styles.optionTextCol}>
-                    <Text style={styles.optionTitle}>Memory</Text>
-                    <Text style={styles.optionSubtitle}>Remember across conversations</Text>
+                    <Text style={[styles.optionTitle, { color: colors.ink }]}>Memory</Text>
+                    <Text style={[styles.optionSubtitle, { color: colors.ink3 }]}>Remember across conversations</Text>
                   </View>
                   <Switch
                     value={memoryEnabled}
                     onValueChange={setMemoryEnabled}
-                    trackColor={{ false: '#3a3a3c', true: colors.accent || '#c084fc' }}
+                    trackColor={{ false: colors.isDark ? '#3a3a3c' : '#d1d5db', true: colors.accent || '#c084fc' }}
                     thumbColor="#ffffff"
-                    ios_backgroundColor="#3a3a3c"
+                    ios_backgroundColor={colors.isDark ? '#3a3a3c' : '#d1d5db'}
                   />
                 </View>
               </ScrollView>
@@ -515,14 +525,16 @@ export const AddMenuSheet: React.FC<AddMenuSheetProps> = React.memo(({
                 style={({ pressed }) => [
                   styles.cancelBtn,
                   {
-                    backgroundColor: pressed ? '#2c2c2e' : '#222224',
-                    borderColor: colors.line || '#333336',
+                    backgroundColor: pressed
+                      ? (colors.isDark ? '#2c2c2e' : colors.hover)
+                      : (colors.isDark ? '#222224' : colors.surface2),
+                    borderColor: colors.line,
                   },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Cancel"
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={[styles.cancelBtnText, { color: colors.ink }]}>Cancel</Text>
               </Pressable>
             </View>
         </View>

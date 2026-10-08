@@ -36,7 +36,8 @@ import {
   AssistantVoice,
 } from '../../services/voice/voiceRegistry';
 import { useVoicePreferenceStore } from '../../stores/useVoicePreferenceStore';
-import { spacing, radius, typography } from '../../theme';
+import { spacing, radius, typography, useThemeColors } from '../../theme';
+import { useTranslation } from '@/i18n';
 
 interface VoiceSelectorModalProps {
   visible: boolean;
@@ -47,6 +48,8 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
   visible,
   onClose,
 }) => {
+  const colors = useThemeColors();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   const selectedVoiceId = useVoicePreferenceStore((s) => s.selectedVoiceId);
@@ -163,22 +166,26 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
           style={[
             styles.container,
             {
+              backgroundColor: colors.surface,
+              borderColor: colors.line,
               marginBottom: Math.max(insets.bottom, 16),
             },
           ]}
         >
           {/* Top Sheet Drag Handle */}
-          <View style={styles.dragHandle} />
+          <View style={[styles.dragHandle, { backgroundColor: colors.line }]} />
 
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <View style={styles.headerIconWrapper}>
-                <IconVolume size={18} color="#ffffff" strokeWidth={2} />
+              <View style={[styles.headerIconWrapper, { backgroundColor: colors.surface2, borderColor: colors.line }]}>
+                <IconVolume size={18} color={colors.ink} strokeWidth={2} />
               </View>
               <View style={styles.headerTextGroup}>
-                <Text style={styles.title}>Assistant Voice</Text>
-                <Text style={styles.subtitle}>
+                <Text style={[styles.title, { color: colors.ink }]}>
+                  {t('assistantVoice', 'Assistant Voice')}
+                </Text>
+                <Text style={[styles.subtitle, { color: colors.ink3 }]}>
                   Choose your preferred voice personality
                 </Text>
               </View>
@@ -189,16 +196,16 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
               hitSlop={10}
               style={({ pressed }) => [
                 styles.closeButton,
-                { opacity: pressed ? 0.6 : 1 },
+                { backgroundColor: colors.surface2, borderColor: colors.line, opacity: pressed ? 0.6 : 1 },
               ]}
               accessibilityLabel="Close voice modal"
             >
-              <IconX size={18} color="#ffffff" strokeWidth={2} />
+              <IconX size={18} color={colors.ink} strokeWidth={2} />
             </Pressable>
           </View>
 
           {/* Subtle Divider */}
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.line }]} />
 
           {/* Voice Cards */}
           <ScrollView
@@ -216,19 +223,25 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                   onPress={() => handleSelect(voice.id)}
                   style={({ pressed }) => [
                     styles.voiceCard,
-                    isSelected ? styles.voiceCardSelected : styles.voiceCardUnselected,
-                    { opacity: pressed ? 0.85 : 1 },
+                    {
+                      backgroundColor: isSelected ? colors.accent + '14' : colors.surface2,
+                      borderColor: isSelected ? colors.accent : colors.line,
+                    },
+                    pressed && { opacity: 0.85 },
                   ]}
                 >
                   {/* LEFT: Selection Option (Radio / Check) */}
                   <View
                     style={[
                       styles.selectIndicator,
-                      isSelected ? styles.selectIndicatorSelected : styles.selectIndicatorUnselected,
+                      {
+                        backgroundColor: isSelected ? colors.accent : 'transparent',
+                        borderColor: isSelected ? colors.accent : colors.line,
+                      },
                     ]}
                   >
                     {isSelected && (
-                      <IconCheck size={12} color="#000000" strokeWidth={3} />
+                      <IconCheck size={12} color="#ffffff" strokeWidth={3} />
                     )}
                   </View>
 
@@ -238,14 +251,17 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     <View
                       style={[
                         styles.avatar,
-                        isSelected ? styles.avatarSelected : styles.avatarUnselected,
+                        {
+                          backgroundColor: isSelected ? colors.accent + '25' : colors.surface,
+                          borderColor: isSelected ? colors.accent : colors.line,
+                        },
                       ]}
                     >
                       <Text
                         style={[
                           styles.avatarText,
                           {
-                            color: isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.7)',
+                            color: isSelected ? colors.accent : colors.ink,
                           },
                         ]}
                       >
@@ -256,27 +272,27 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     {/* Voice Info */}
                     <View style={styles.infoWrapper}>
                       <View style={styles.nameRow}>
-                        <Text style={styles.voiceName}>
+                        <Text style={[styles.voiceName, { color: colors.ink }]}>
                           {voice.name}
                         </Text>
-                        <View style={styles.genderBadge}>
-                          <Text style={styles.genderBadgeText}>
+                        <View style={[styles.genderBadge, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+                          <Text style={[styles.genderBadgeText, { color: colors.ink2 }]}>
                             {voice.gender}
                           </Text>
                         </View>
                         {voice.isDefault && (
-                          <View style={styles.defaultBadge}>
-                            <Text style={styles.defaultBadgeText}>
+                          <View style={[styles.defaultBadge, { backgroundColor: colors.accent }]}>
+                            <Text style={[styles.defaultBadgeText, { color: '#ffffff' }]}>
                               Default
                             </Text>
                           </View>
                         )}
                       </View>
 
-                      <Text style={styles.description} numberOfLines={1}>
+                      <Text style={[styles.description, { color: colors.ink2 }]} numberOfLines={1}>
                         {voice.description}
                       </Text>
-                      <Text style={styles.personality} numberOfLines={1}>
+                      <Text style={[styles.personality, { color: colors.ink3 }]} numberOfLines={1}>
                         {voice.personality}
                       </Text>
                     </View>
@@ -291,17 +307,20 @@ export const VoiceSelectorModal: React.FC<VoiceSelectorModalProps> = ({
                     hitSlop={8}
                     style={({ pressed }) => [
                       styles.previewBtn,
-                      isPreviewing ? styles.previewBtnActive : styles.previewBtnIdle,
-                      { opacity: pressed ? 0.75 : 1 },
+                      {
+                        backgroundColor: isPreviewing ? colors.accent : colors.surface,
+                        borderColor: isPreviewing ? colors.accent : colors.line,
+                        opacity: pressed ? 0.75 : 1,
+                      },
                     ]}
                     accessibilityLabel={
                       isPreviewing ? 'Stop voice sample' : 'Play voice sample'
                     }
                   >
                     {isPreviewing ? (
-                      <IconPlayerStop size={14} color="#000000" strokeWidth={2.4} />
+                      <IconPlayerStop size={14} color="#ffffff" strokeWidth={2.4} />
                     ) : (
-                      <IconPlayerPlay size={14} color="#ffffff" strokeWidth={2} />
+                      <IconPlayerPlay size={14} color={colors.ink} strokeWidth={2} />
                     )}
                   </Pressable>
                 </Pressable>

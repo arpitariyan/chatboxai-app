@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Share, Alert, Animated, Easing, Keyboard, useWindowDimensions, PanResponder } from 'react-native';
+import { StyleSheet, View, Share, Alert, Animated, Easing, Keyboard, useWindowDimensions, PanResponder, BackHandler } from 'react-native';
 import { Header, MenuAnchorPosition } from '@/components/common/Header';
 import { Drawer } from '@/components/common/Drawer';
 import { ConversationOptionsMenu } from '@/components/common/ConversationOptionsMenu';
@@ -264,10 +264,26 @@ export const AppShell: React.FC = () => {
     });
   }, [drawerProgress, cornerProgress]);
 
-  const handleOpenSettings = useCallback(() => setActiveView('settings'), []);
+  const handleOpenSettings = useCallback(() => {
+    setIsDrawerOpen(false);
+    drawerProgress.setValue(0);
+    cornerProgress.setValue(0);
+    setActiveView('settings');
+  }, [drawerProgress, cornerProgress]);
   const handleOpenImages = useCallback(() => setActiveView('images'), []);
   const handleOpenLibrary = useCallback(() => setActiveView('library'), []);
   const handleBackToChat = useCallback(() => setActiveView('chat'), []);
+
+  // Hardware Back button returns to chat when on settings page
+  useEffect(() => {
+    if (activeView !== 'settings') return;
+    const onBackPress = () => {
+      handleBackToChat();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [activeView, handleBackToChat]);
 
   // ── Three-Dot Menu Actions ─────────────────────────────────────────────────
 
@@ -371,6 +387,7 @@ export const AppShell: React.FC = () => {
       {/* ── Layer 2: Foreground Main Application Surface (Sitting ABOVE Drawer) ── */}
       <Animated.View
         collapsable={false}
+        pointerEvents={activeView === 'settings' ? 'none' : 'auto'}
         style={[
           styles.mainTransformLayer,
           {
@@ -434,7 +451,15 @@ export const AppShell: React.FC = () => {
               refreshTrigger={drawerRefreshTrigger}
             />
           ) : (
-            <SettingsScreen onBack={handleBackToChat} />
+            <ChatScreen
+              key={chatSessionId}
+              activeLibId={activeLibId}
+              onConversationCreated={handleConversationCreated}
+              onConversationActiveChange={handleConversationActiveChange}
+              onConversationTitleChange={setActiveTitle}
+              onSelectCreateImage={handleSelectCreateImage}
+              isIncognito={isIncognito}
+            />
           )}
 
           {/* Subtle Inactive Overlay & Dismiss Handler on Foreground Card when Drawer is Open */}
@@ -450,6 +475,18 @@ export const AppShell: React.FC = () => {
           )}
         </Animated.View>
       </Animated.View>
+
+      {/* ── Layer 4: Dedicated Full-Screen Settings Page (Edge-to-Edge) ── */}
+      {activeView === 'settings' && (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 100, elevation: 10, backgroundColor: colors.background, flex: 1 },
+          ]}
+        >
+          <SettingsScreen onBack={handleBackToChat} />
+        </View>
+      )}
 
       {/* ── Layer 3: Three-Dot Options Menu Popup ── */}
       <ConversationOptionsMenu

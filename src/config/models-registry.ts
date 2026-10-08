@@ -178,8 +178,10 @@ export const MODEL_REGISTRY: any[] = [
     isPro: true,
     accessTier: "pro",
     costTier: 4,
-    pricing: { input: 0.003, output: 0.015 },
-    providers: [{ provider: "replicate", modelApi: "anthropic/claude-3.7-sonnet" }],
+    providers: [
+      { provider: "openrouter", modelApi: "anthropic/claude-3.7-sonnet" },
+      { provider: "replicate", modelApi: "anthropic/claude-sonnet-5" },
+    ],
   },
   {
     id: 105,
@@ -423,10 +425,6 @@ export const MODEL_REGISTRY: any[] = [
         provider: "openrouter",
         modelApi: "nvidia/nemotron-3.5-lightning:free",
       },
-      {
-        provider: "openrouter",
-        modelApi: "nvidia/nemotron-3-super-120b-a12b:free",
-      },
     ],
   },
   {
@@ -451,12 +449,12 @@ export const MODEL_REGISTRY: any[] = [
         modelApi: "qwen/qwen3.8-27b",
       },
       {
-        provider: "openrouter",
-        modelApi: "nvidia/nemotron-3.5-lightning:free",
-      },
-      {
         provider: "groq",
         modelApi: "openai/gpt-oss-20b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
       },
     ],
   },
@@ -475,7 +473,11 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "groq",
-        modelApi: "llama-3.3-70b-versatile",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3-super-120b-a12b:free",
       },
       {
         provider: "nvidia",
@@ -522,9 +524,6 @@ export const MODEL_REGISTRY: any[] = [
       },
     ],
   },
-  ,
-  ,
-  ,
   {
     id: 53,
     name: "Gemma 4 31B",
@@ -540,7 +539,7 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "openrouter",
-        modelApi: "google/gemma-4-31b-it:free",
+        modelApi: "google/gemma-4-26b-a4b-it:free",
       },
     ],
   },
@@ -559,7 +558,7 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "openrouter",
-        modelApi: "poolside/laguna-m.1:free",
+        modelApi: "poolside/laguna-s-2.1:free",
       },
     ],
   },
@@ -633,11 +632,15 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "groq",
-        modelApi: "compound-beta",
+        modelApi: "openai/gpt-oss-120b",
+      },
+      {
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
       },
       {
         provider: "openrouter",
-        modelApi: "meta-llama/llama-3.3-70b-instruct:free",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
       },
     ],
   },
@@ -696,12 +699,10 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "openrouter",
-        modelApi: "inclusionai/ling-3.0-flash:free",
+        modelApi: "inclusionai/ling-3.0-flash-sante:free",
       },
     ],
   },
-  ,
-  ,
   // ── 🍃 FREE TIER (Lightweight & Compact) ──────────────────────────────────
   {
     id: 10,
@@ -717,8 +718,12 @@ export const MODEL_REGISTRY: any[] = [
     },
     providers: [
       {
-        provider: "nvidia",
-        modelApi: "meta/llama-3.1-8b-instruct",
+        provider: "groq",
+        modelApi: "qwen/qwen3.8-27b",
+      },
+      {
+        provider: "openrouter",
+        modelApi: "nvidia/nemotron-3.5-lightning:free",
       },
     ],
   },
@@ -737,11 +742,15 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "groq",
-        modelApi: "compound-beta-mini",
+        modelApi: "openai/gpt-oss-20b",
+      },
+      {
+        provider: "groq",
+        modelApi: "allam-2-7b",
       },
       {
         provider: "openrouter",
-        modelApi: "meta-llama/llama-3.1-8b-instruct:free",
+        modelApi: "google/gemma-4-26b-a4b-it:free",
       },
     ],
   },
@@ -761,7 +770,11 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "openrouter",
-        modelApi: "nvidia/nemotron-3-nano-30b-a3b:free",
+        modelApi: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      },
+      {
+        provider: "groq",
+        modelApi: "openai/gpt-oss-20b",
       },
     ],
   },
@@ -799,8 +812,8 @@ export const MODEL_REGISTRY: any[] = [
     },
     providers: [
       {
-        provider: "openrouter",
-        modelApi: "nvidia/nemotron-nano-12b-v2-vl:free",
+        provider: "nvidia",
+        modelApi: "meta/llama-3.2-11b-vision-instruct",
       },
     ],
   },
@@ -819,7 +832,11 @@ export const MODEL_REGISTRY: any[] = [
     providers: [
       {
         provider: "openrouter",
-        modelApi: "nvidia/nemotron-nano-9b-v2:free",
+        modelApi: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      },
+      {
+        provider: "groq",
+        modelApi: "openai/gpt-oss-20b",
       },
     ],
   },
@@ -899,7 +916,10 @@ export const MODEL_REGISTRY: any[] = [
     accessTier: "free",
     costTier: 1,
     pricing: { input: 0, output: 0 },
-    providers: [{ provider: "nvidia", modelApi: "meta/llama-3.2-1b-instruct" }],
+    providers: [
+      { provider: "nvidia", modelApi: "meta/llama-3.2-11b-vision-instruct" },
+      { provider: "groq", modelApi: "allam-2-7b" },
+    ],
   },
   {
     id: 111,
@@ -936,7 +956,7 @@ export const MODEL_REGISTRY: any[] = [
     accessTier: "free",
     costTier: 2,
     pricing: { input: 0, output: 0 },
-    providers: [{ provider: "nvidia", modelApi: "minimaxai/minimax-m3" }],
+    providers: [{ provider: "groq", modelApi: "qwen/qwen3.8-27b" }],
   },
   {
     id: 114,
@@ -947,7 +967,7 @@ export const MODEL_REGISTRY: any[] = [
     accessTier: "free",
     costTier: 2,
     pricing: { input: 0, output: 0 },
-    providers: [{ provider: "nvidia", modelApi: "stepfun-ai/step-3.7-flash" }],
+    providers: [{ provider: "groq", modelApi: "openai/gpt-oss-120b" }],
   },
 
   // ── 🤖 REPLICATE FREE TIER (OpenAI lightweight models) ────────────────────

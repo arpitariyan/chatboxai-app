@@ -152,7 +152,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           style={[
             styles.promptBubble,
             {
-              backgroundColor: '#1f1f23',
+              backgroundColor: colors.isDark ? '#1f1f23' : colors.surface2,
               borderColor: colors.line,
             },
           ]}

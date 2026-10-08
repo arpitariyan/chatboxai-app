@@ -90,9 +90,9 @@ export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({
               styles.pill,
               {
                 backgroundColor: isSelected
-                  ? colors.inset
-                  : colors.surface,
-                borderColor: isSelected ? colors.ink3 : colors.line,
+                  ? (colors.isDark ? '#27272a' : colors.surface2)
+                  : (colors.isDark ? '#1c1c1e' : colors.surface),
+                borderColor: isSelected ? (colors.accent || colors.ink) : colors.line,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}

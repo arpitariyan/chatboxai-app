@@ -106,10 +106,32 @@ export async function getCanonicalUserByEmail(
     ]);
 
     if (response.documents && response.documents.length > 0) {
-      const existingUser = response.documents[0] as unknown as UserProfile;
+      let existingUser = response.documents[0] as unknown as UserProfile;
+      const today = new Date().toISOString().split('T')[0];
 
-      // Non-blocking last_login timestamp update
-      if (existingUser.$id) {
+      // On-the-fly daily reset: 5000 free credits every midnight
+      if (existingUser.last_daily_reset !== today && existingUser.$id) {
+        try {
+          const updated = await databases.updateDocument(
+            DB_ID,
+            USERS_COLLECTION_ID,
+            existingUser.$id,
+            {
+              credits: 5000,
+              last_daily_reset: today,
+              last_login: new Date().toISOString(),
+            }
+          );
+          existingUser = updated as unknown as UserProfile;
+        } catch (resetErr: any) {
+          existingUser = {
+            ...existingUser,
+            credits: 5000,
+            last_daily_reset: today,
+          };
+        }
+      } else if (existingUser.$id) {
+        // Non-blocking last_login timestamp update
         databases
           .updateDocument(DB_ID, USERS_COLLECTION_ID, existingUser.$id, {
             last_login: new Date().toISOString(),
@@ -117,6 +139,40 @@ export async function getCanonicalUserByEmail(
           .catch((err) => {
             console.warn('[Appwrite] Non-fatal error updating last_login:', err?.message || err);
           });
+      }
+
+      // On-the-fly subscription expiry check (Credit Preservation Invariant v1):
+      // If subscription_end_date has passed, plan transitions to 'free',
+      // but paid_credits is NEVER zeroed out (preserved until exhausted)!
+      if (
+        existingUser.plan &&
+        existingUser.plan !== 'free' &&
+        existingUser.subscription_end_date &&
+        new Date(existingUser.subscription_end_date) < new Date() &&
+        existingUser.$id
+      ) {
+        try {
+          const updated = await databases.updateDocument(
+            DB_ID,
+            USERS_COLLECTION_ID,
+            existingUser.$id,
+            { plan: 'free' }
+          );
+          existingUser = updated as unknown as UserProfile;
+          console.log(`[userService] Subscription expired for ${normalizedEmail}. Transitioned to free plan; paid_credits (${existingUser.paid_credits}) preserved.`);
+        } catch (planErr: any) {
+          existingUser = { ...existingUser, plan: 'free' };
+        }
+      }
+
+      // Permanent developer/owner account tier enforcement
+      if (normalizedEmail === 'arpitariyanm@gmail.com') {
+        existingUser = {
+          ...existingUser,
+          plan: 'pro',
+          credits: Math.max(5000, existingUser.credits ?? 5000),
+          paid_credits: Math.max(1000, existingUser.paid_credits ?? 1000),
+        };
       }
 
       return existingUser;

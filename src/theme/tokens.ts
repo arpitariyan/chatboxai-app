@@ -54,6 +54,7 @@ export const RAW_LIGHT_TOKENS: ThemeColors = {
   page: '#fafafb',
   canvas: '#f1f2f3',
   surface: '#ffffff',
+  surface2: '#f7f8f9',
   inset: '#f7f8f9',
   hover: '#f4f5f6',
   hover2: '#e7e9eb',
@@ -61,7 +62,9 @@ export const RAW_LIGHT_TOKENS: ThemeColors = {
   ink2: '#62656b',
   ink3: '#9a9da3',
   line: '#ecedef',
+  line2: '#e0e2e5',
   lineStrong: '#e0e2e5',
+  isDark: false,
 };
 
 export const RAW_DARK_TOKENS: ThemeColors = {
@@ -109,6 +112,7 @@ export const RAW_DARK_TOKENS: ThemeColors = {
   page: '#0f0f11',
   canvas: '#17171a',
   surface: '#1c1c20',
+  surface2: '#242429',
   inset: '#202024',
   hover: '#26262b',
   hover2: '#2f2f35',
@@ -116,7 +120,9 @@ export const RAW_DARK_TOKENS: ThemeColors = {
   ink2: '#a4a6ad',
   ink3: '#71737a',
   line: '#2a2a30',
+  line2: '#3a3a42',
   lineStrong: '#3a3a42',
+  isDark: true,
 };
 
 /**

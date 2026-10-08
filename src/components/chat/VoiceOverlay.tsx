@@ -41,13 +41,23 @@ import {
   IconPhoneOff,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '../../theme';
+import { useTranslation } from '@/i18n';
 import { VoiceOrb, VoiceOrbState } from '../voice/VoiceOrb';
 import { VoiceSelectorModal } from '../voice/VoiceSelectorModal';
+import { usePreferencesStore, ORB_COLOR_PRESETS } from '../../stores/usePreferencesStore';
 import { useVoicePreferenceStore } from '../../stores/useVoicePreferenceStore';
 import { useSpeechToText, STTError } from '../../hooks/useSpeechToText';
 import { voiceAiService } from '../../services/voice/voiceAiService';
 import type { VoiceButtonOrigin } from './Composer';
 import { generateCurvedTrajectory } from './voiceTransitionCurve';
+
+const hexToRgba = (hex: string, alpha: number): string => {
+  const clean = (hex || '#00E6C3').replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16) || 0;
+  const g = parseInt(clean.substring(2, 4), 16) || 0;
+  const b = parseInt(clean.substring(4, 6), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Transition timing constants
@@ -67,18 +77,22 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
   buttonOrigin,
 }) => {
   const colors = useThemeColors();
+  const { t } = useTranslation();
+  const isDark = colors.isDark;
   const insets = useSafeAreaInsets();
   const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-  // ── Assistant Voice State ──────────────────────────────────────────────────
+  // ── Assistant Voice & Orb Color State ─────────────────────────────────────
   const selectedVoice = useVoicePreferenceStore((s) => s.getSelectedVoice());
   const selectedVoiceId = useVoicePreferenceStore((s) => s.selectedVoiceId);
+  const orbColor = usePreferencesStore((s) => s.orbColor);
+  const orbPreset = ORB_COLOR_PRESETS[orbColor] || ORB_COLOR_PRESETS.cyan;
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   // ── Voice AI Session States ────────────────────────────────────────────────
   const [voiceState, setVoiceState] = useState<VoiceOrbState>('idle');
   const [isMuted, setIsMuted] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('Tap mic to start talking');
+  const [statusMessage, setStatusMessage] = useState(t('tapMicToStart', 'Tap mic to start talking'));
   const [lastTranscript, setLastTranscript] = useState('');
   const [lastAiResponse, setLastAiResponse] = useState('');
   const [liveAudioLevel, setLiveAudioLevel] = useState(0);
@@ -429,9 +443,9 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
       statusBarTranslucent
       onRequestClose={handleEndCall}
     >
-      {/* ── Layer 0: Animated dark background ── */}
+      {/* ── Layer 0: Animated dark/light background ── */}
       <Animated.View
-        style={[styles.absoluteFill, { backgroundColor: '#090a0f', opacity: bgOpacity }]}
+        style={[styles.absoluteFill, { backgroundColor: isDark ? '#090a0f' : '#f8fafc', opacity: bgOpacity }]}
         pointerEvents="none"
       />
 
@@ -443,6 +457,8 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             style={[
               styles.trailParticle,
               {
+                backgroundColor: hexToRgba(orbPreset.from, 0.28),
+                shadowColor: orbPreset.to,
                 transform: [
                   { translateX: tr.translateX },
                   { translateY: tr.translateY },
@@ -476,6 +492,8 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
           style={[
             styles.orbHalo,
             {
+              backgroundColor: hexToRgba(orbPreset.from, isDark ? 0.14 : 0.08),
+              shadowColor: orbPreset.from,
               opacity: haloOpacity,
               transform: [{ scale: haloScale }],
             },
@@ -487,6 +505,8 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
           state={voiceState}
           size={ORB_SIZE}
           audioLevel={liveAudioLevel}
+          colorFrom={orbPreset.from}
+          colorTo={orbPreset.to}
           onPress={uiReady ? handleOrbPress : undefined}
         />
       </Animated.View>
@@ -504,28 +524,35 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             style={({ pressed }) => [
               styles.voicePill,
               {
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                borderColor: 'rgba(255, 255, 255, 0.14)',
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.surface2,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : colors.line,
                 opacity: pressed ? 0.75 : 1,
               },
             ]}
             accessibilityRole="button"
             accessibilityLabel={`Active Voice: ${selectedVoice.name}. Tap to change voice.`}
           >
-            <View style={styles.voiceIndicatorDot} />
-            <Text style={styles.voicePillLabel}>Voice: </Text>
-            <Text style={styles.voicePillName}>{selectedVoice.name}</Text>
+            <View style={[styles.voiceIndicatorDot, { backgroundColor: orbPreset.from }]} />
+            <Text style={[styles.voicePillLabel, { color: colors.ink3 }]}>Voice: </Text>
+            <Text style={[styles.voicePillName, { color: colors.ink }]}>{selectedVoice.name}</Text>
           </Pressable>
 
           {/* Close button */}
           <Pressable
             onPress={handleEndCall}
             hitSlop={12}
-            style={({ pressed }) => [styles.closeBtn, { opacity: pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [
+              styles.closeBtn,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.surface2,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : colors.line,
+                opacity: pressed ? 0.6 : 1,
+              },
+            ]}
             accessibilityRole="button"
             accessibilityLabel="Close voice call"
           >
-            <IconX size={24} color="#ffffff" strokeWidth={2.2} />
+            <IconX size={24} color={colors.ink} strokeWidth={2.2} />
           </Pressable>
         </View>
 
@@ -535,13 +562,13 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
           <Text
             style={[
               styles.stateLabel,
-              { color: voiceState === 'error' ? '#fb7185' : '#ffffff' },
+              { color: voiceState === 'error' ? '#fb7185' : colors.ink },
             ]}
           >
             {voiceState === 'listening'
-              ? 'Listening...'
+              ? t('listening', 'Listening...')
               : voiceState === 'thinking'
-              ? 'Thinking...'
+              ? t('thinking', 'Thinking...')
               : voiceState === 'speaking'
               ? 'Speaking...'
               : voiceState === 'error'
@@ -555,11 +582,11 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
           {/* Transcript + hint */}
           <View style={styles.subtitleContainer}>
             {lastTranscript ? (
-              <Text style={styles.transcriptText} numberOfLines={2}>
+              <Text style={[styles.transcriptText, { color: colors.ink2 }]} numberOfLines={2}>
                 "{lastTranscript}"
               </Text>
             ) : null}
-            <Text style={styles.hintText}>{statusMessage}</Text>
+            <Text style={[styles.hintText, { color: colors.ink3 }]}>{statusMessage}</Text>
           </View>
         </View>
 
@@ -578,12 +605,14 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
                 backgroundColor: isMuted
                   ? '#dc2626'
                   : voiceState === 'listening'
-                  ? 'rgba(255, 255, 255, 0.2)'
-                  : 'rgba(255, 255, 255, 0.12)',
+                  ? orbPreset.from
+                  : isDark
+                  ? 'rgba(255, 255, 255, 0.12)'
+                  : colors.surface2,
                 borderColor:
                   voiceState === 'listening'
-                    ? '#ffffff'
-                    : 'rgba(255, 255, 255, 0.15)',
+                    ? orbPreset.from
+                    : colors.line,
                 transform: [{ scale: pressed ? 0.94 : 1 }],
               },
             ]}
@@ -593,7 +622,11 @@ export const VoiceOverlay: React.FC<VoiceOverlayProps> = ({
             {isMuted ? (
               <IconMicrophoneOff size={24} color="#ffffff" strokeWidth={2} />
             ) : (
-              <IconMicrophone size={24} color="#ffffff" strokeWidth={2} />
+              <IconMicrophone
+                size={24}
+                color={isMuted || voiceState === 'listening' ? '#ffffff' : colors.ink}
+                strokeWidth={2}
+              />
             )}
           </Pressable>
 

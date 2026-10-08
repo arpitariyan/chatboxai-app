@@ -1,0 +1,42 @@
+[
+  {
+    "input": "hello how are you today",
+    "expectedIntent": "general_chat",
+    "expectedComplexity": "LOW"
+  },
+  {
+    "input": "what is the capital of France?",
+    "expectedIntent": "question_answering",
+    "expectedComplexity": "LOW"
+  },
+  {
+    "input": "Write a TypeScript function to debounce an async search callback with cancellation",
+    "expectedIntent": "coding",
+    "expectedComplexity": "HIGH"
+  },
+  {
+    "input": "TypeError: Cannot read properties of undefined (reading 'map') in React Native render",
+    "expectedIntent": "debugging",
+    "expectedComplexity": "HIGH"
+  },
+  {
+    "input": "Compare PostgreSQL and MongoDB for an offline-first mobile sync architecture",
+    "expectedIntent": "comparison",
+    "expectedComplexity": "HIGH"
+  },
+  {
+    "input": "Translate this email to polite Hindi",
+    "expectedIntent": "translation",
+    "expectedComplexity": "MEDIUM"
+  },
+  {
+    "input": "Summarize these 5 key meeting takeaways in bullet points",
+    "expectedIntent": "summarization",
+    "expectedComplexity": "MEDIUM"
+  },
+  {
+    "input": "Design a complete zero-trust authentication architecture with hardware security modules",
+    "expectedIntent": "planning",
+    "expectedComplexity": "CRITICAL"
+  }
+]

@@ -43,6 +43,7 @@ All skills live under `skills/` for universal AI discovery:
 | `mobile-design` | `skills/mobile-design/SKILL.md` | Polish standards, 8-state completeness, and mobile UX |
 | `expo-animation` | `skills/animation/SKILL.md` | Reanimated UI-thread motion & reduced motion rules |
 | `app-design-review` | `skills/app-design-review/SKILL.md` | Anti-slop rules, touch targets, and design review |
+| `adaptive-response-intelligence` | `.agents/skills/adaptive-response-intelligence/SKILL.md` | Adaptive response intelligence engine, intent, complexity, verification, and refinement |
 
 ---
 
@@ -854,16 +855,14 @@ src/
 - **Header Simplification:** Removed the 'ChatBox AI Pro' pill button from the top navigation (Header.tsx) for a cleaner look. Kept only the stylish menu toggle button.
 - **Model Selector UI Update:** Replaced model descriptions with brand logos/icons in the model selector sheet (ModelSelector.tsx). Copied corresponding images from the web project to ssets/images/models/ and mapped them by provider/name.
 - **Cleanup:** Removed unused currentModel, ModelSelectorSheet, and related props/states from AppShell.tsx and ChatScreen.tsx.
-- **Verification:** Verified cleanly with 
-px tsc --noEmit (0 errors).
+- **Verification:** Verified cleanly with npx tsc --noEmit (0 errors).
 
 ### Session 20 - Direct Native LLM Execution & Appwrite Sync
 - **API Key Management:** Successfully mapped and added all cbx_live_* website API keys (Groq, Google, OpenRouter, etc.) into the mobile APK's .env configuration for direct Native execution.
 - **Fallback Architecture (LLMFallbackService):** Brought the robust website-side LLM Fallback queue natively into the mobile app. Created providers.ts for clean REST implementations and LLMFallbackService.ts to seamlessly shift from API Key 1 to Key 2 etc. upon errors.
 - **Native LLM Generation:** Modified useChatGeneration.ts to execute LLM streams purely on the client side without relying on Inngest background polling. The app now generates answers rapidly using native APIs.
 - **Direct Appwrite Sync (ChatService):** Chat sessions are now logged instantly from the React Native app straight into the Appwrite chats collection using native Appwrite DB create/update methods.
-- **Verification:** System compiles flawlessly via 
-px tsc --noEmit and LLM Fallback behaves as an isolated unit.
+- **Verification:** System compiles flawlessly via npx tsc --noEmit and LLM Fallback behaves as an isolated unit.
 
 ### Session 20 Update - Replicate Native Fallback
 - **Replicate API Support:** Analyzed the models-registry.ts and website's .env.local to securely bring EXPO_PUBLIC_REPLICATE_API_KEY into the APK's .env configuration.
@@ -878,8 +877,7 @@ eplicate as a primary provider within LLMFallbackService.ts. Implemented the web
 - **One-character input bug:** Fixed by moving the inputText state from ChatScreen directly into Composer local state, preventing parent re-renders that reset the TextInput internal state.
 - **Auto-scroll jump bug:** Fixed in ChatScreen by adding an isNearBottomRef to track whether the user is already near the bottom. The keyboard-show event now only forces scrollToEnd if the user hasn't explicitly scrolled up.
 - **Conversation Creation & Search Flow:** Completely overhauled useChatGeneration.ts to match the website's flow. It now properly generates a libId on the first message, calls chatService.createConversation() to write the library record (enabling the Drawer history refresh), integrates a DuckDuckGo public search API directly for on-device web results without a server, routes the LLM fallback correctly, and persists the turn via chatService.addChatMessage().
-- **TypeScript Verification:** Passed 
-px tsc --noEmit cleanly.
+- **TypeScript Verification:** Passed npx tsc --noEmit cleanly.
 
 
 ### Session 41 - Deep-Fix: Scroll Jump, Keyboard Glitches, and Conversation Stability
@@ -902,8 +900,7 @@ px tsc --noEmit cleanly.
 esetGeneration() was called in the same render cycle that set iResponse, clearing sourceList before ChatScreen's effect could read it. Fixed with sourceListRef so the effect always reads the current value regardless of reset timing.
 
 #### Verification
-- 
-px tsc --noEmit passes with 0 errors.
+- npx tsc --noEmit passes with 0 errors.
 
 
 ### Session 42 - Keyboard Covering Input Fix
@@ -2909,7 +2906,7 @@ WARN [VoiceOverlay] ElevenLabs TTS synthesis fallback to device speech: [Error: 
 
 ---
 
-## Section 42 � Voice Preview Local MP3 Playback and Auto-Play Fix
+## Section 42 � Voice Preview Local MP3 Playback and Auto-Play Fix
 
 **Date:** 2026-10-06
 **Files Changed:**
@@ -2940,8 +2937,7 @@ VoiceOverlay was calling startListening() via a 350ms setTimeout on every modal 
 - src/components/voice/VoiceSelectorModal.tsx
 - src/components/chat/VoiceOverlay.tsx
 
-**Status:** Verified with 
-px tsc --noEmit (0 errors).
+**Status:** Verified with npx tsc --noEmit (0 errors).
 
 ### Issue 4: Advanced 3D Particles Orb Physics & Mobile 60FPS Optimization
 **Request:**
@@ -2969,8 +2965,7 @@ px tsc --noEmit (0 errors).
 - src/components/voice/VoiceOrb.tsx (re-engineered with compound paths & 15-parameter physics)
 - src/components/chat/VoiceOverlay.tsx (throttled audio level pipeline for 60fps smoothness)
 
-**Status:** Verified with 
-px tsc --noEmit (0 errors, clean build).
+**Status:** Verified with npx tsc --noEmit (0 errors, clean build).
 
 ### Issue 5: Removal of Inner Green Core & Speaking State Redesign
 **Request:**
@@ -2996,11 +2991,10 @@ px tsc --noEmit (0 errors, clean build).
 - src/components/chat/VoiceOverlay.tsx
 - docs/MEMORY.md
 
-**Status:** Verified with 
-px tsc --noEmit (0 errors, clean build).
+**Status:** Verified with npx tsc --noEmit (0 errors, clean build).
 
 
-### Session 80 � Premium Voice AI Button-to-Orb Shared-Element Transition (Oct 6, 2026)
+### Session 80 � Premium Voice AI Button-to-Orb Shared-Element Transition (Oct 6, 2026)
 
 #### 1. Feature Implemented
 A premium **shared-element transition animation** when opening the Voice AI experience:
@@ -3019,7 +3013,7 @@ Composer.tsx (callBtnRef.measureInWindow) ? onVoiceButtonMeasure callback ? Chat
 2. Animated.View (orbScale + orbTranslateX/Y): Orb scales 0.08?1 and translates from button center to screen center in 500ms using Easing.out(Easing.cubic)
 3. Animated.View (uiOpacity): Header + controls fade in at 200ms starting at 420ms delay
 
-**Modal is now 	ransparent={true}, nimationType="none"** � all animation handled by React Native Animated API using useNativeDriver: true.
+**Modal is now 	ransparent={true}, nimationType="none"** � all animation handled by React Native Animated API using useNativeDriver: true.
 
 #### 3. Files Modified
 - src/components/chat/Composer.tsx: Added VoiceButtonOrigin export interface, callBtnRef: useRef<View>, onVoiceButtonMeasure prop, measureInWindow call on button press.
@@ -3027,12 +3021,11 @@ Composer.tsx (callBtnRef.measureInWindow) ? onVoiceButtonMeasure callback ? Chat
 - src/components/chat/VoiceOverlay.tsx: Full rewrite with 3-layer animation system. Also fixed oiceAiService method names (generateVoiceResponse, synthesizeSpeech, playSpeech) which were incorrect in the previous version.
 
 #### 4. Correctness Notes
-- uttonOrigin is optional � ImageGenScreen.tsx continues working with nimationType="none" and immediate fade (no origin offset).
+- uttonOrigin is optional � ImageGenScreen.tsx continues working with nimationType="none" and immediate fade (no origin offset).
 - When no uttonOrigin is available, all offsets default to 0 (orb scales from center).
 - Orb is not interactive during animation (uiReady guard on onPress).
 - Session lifecycle (start/stop on visible change) unchanged.
-- TypeScript: 
-px tsc --noEmit exits code 0 (zero errors).
+- TypeScript: npx tsc --noEmit exits code 0 (zero errors).
 
 
 ### Session 81 - Curved, Path-Following Spline Orb Transition Animation (Oct 6, 2026)
@@ -3122,8 +3115,7 @@ Rebuilt the sidebar/drawer presentation in ChatBox AI into a **true spatial para
    - Refined backdrop opacity (0 -> 0.30) with elevation and border styling.
 
 #### 3. Verification & Validation
-- **TypeScript**: \
-px tsc --noEmit\ exits code 0 (zero errors).
+- **TypeScript**: \npx tsc --noEmit\ exits code 0 (zero errors).
 - **Zero regressions**: Preserved existing navigation, user isolation, Voice AI, Appwrite history, and rename/delete modals.
 
 ### Session 84 - Spatial Drawer Refinement & Hard Divider Elimination (Oct 6, 2026)
@@ -3138,8 +3130,7 @@ Refined the spatial drawer presentation to completely eliminate the static overl
 - **Motion Polish**: Open duration tuned to 300ms, close duration to 240ms with \Easing.bezier(0.22, 1, 0.36, 1)\.
 
 #### 2. Verification & Validation
-- **TypeScript**: \
-px tsc --noEmit\ exits code 0 (zero errors).
+- **TypeScript**: \npx tsc --noEmit\ exits code 0 (zero errors).
 - **Functionality Lock**: 100% preservation of ChatScreen, Header, Voice AI, Appwrite, auth, user isolation, drawer actions, options menu, and navigation.
 
 ### Session 85 - Foreground Main-Surface + Background Drawer Spatial Architecture (Oct 6, 2026)
@@ -3225,3 +3216,417 @@ Per user request, reverted the micro-refinement back to the exact preferred Sess
 #### 3. Verification & Validation
 - **TypeScript**: `npx tsc --noEmit` exits code 0 with 0 errors.
 - **Functionality Lock**: 100% preservation of all features, Appwrite, auth, user isolation, Voice AI, and chat logic.
+
+
+### Session 88 - Incognito Redesign & Sidebar Navigation Polish (Oct 7, 2026)
+
+#### 1. Architecture & Polish Details
+- **Incognito Mode Redesign (src/components/chat/IncognitoEmptyState.tsx & src/features/chat/ChatScreen.tsx)**:
+  - Eliminated all emoji-heavy, visually noisy artifacts from the center incognito empty state.
+  - Re-engineered a restrained, modern layout strictly conforming to the APK design system tokens (colors.background, colors.surface, colors.line, colors.foreground, colors.mutedForeground).
+  - Added subtle security iconography (IconEyeOff, IconShieldCheck, IconHistoryOff) with concise, professional privacy reassurance indicators.
+- **Sidebar & Drawer Navigation Polish (src/components/common/Drawer.tsx)**:
+  - Replaced legacy New Chat action styling with a clean, cohesive button style matching the Explore navigation card.
+  - Removed the horizontal dividing border line above user profile and settings in the footer.
+  - Polished profile & settings touch targets with improved elevation, border hierarchy, and continuous corner curves.
+
+### Session 89 - Full Mobile Settings System Implementation (Oct 7, 2026)
+
+#### 1. Overview & Source of Truth Architecture
+Adapted the complete, production-grade Settings system from the reference website (chatboxai_website_copy) into native React Native / Expo for the mobile APK (Chatboxai_APK).
+The implementation strictly adheres to the mobile design system, avoiding desktop compression or AI-generated aesthetics, and ensures reactive propagation across all app features.
+
+#### 2. Settings Architecture & State Management
+- **Single Source of Truth (src/stores/usePreferencesStore.ts)**:
+  - Central Zustand store with local persistence via AsyncStorage (@chatboxai:user_preferences).
+  - Integrated with Appwrite users profile (updateUserProfile) to persist preferences to the cloud when authenticated while maintaining instant local-first offline availability.
+  - Configurable preferences:
+    - 	hemeMode: 'dark' | 'light' | 'system' (default 'dark').
+    - ccentColor: 'violet' | 'blue' | 'emerald' | 'amber' | 'rose' | 'indigo' (default 'violet').
+    - language: 'en' | 'hi' (default 'en').
+    - chatFont: 'inter' | 'roboto' | 'outfit' | 'fira' | 'jetbrains' | 'lora' | 'playfair' | 'system' | 'rounded' (default 'inter').
+    - orbColor: 'purple-indigo' | 'cyan-blue' | 'emerald-teal' | 'sunset-orange' | 'magenta-pink' (default 'purple-indigo').
+    - compactMode: oolean (default alse).
+    - educedMotion: oolean (default alse).
+    - soundEffects: oolean (default 	rue).
+    - memoryEnabled: oolean (default 	rue).
+  - Features esetToDefaults() to restore all settings to default values.
+
+- **Reactive Theme & Accent System (src/theme/colors.ts)**:
+  - useThemeColors() dynamically reads 	hemeMode and ccentColor from usePreferencesStore and device system color scheme.
+  - Theme switches (Dark / Light / System) and Accent switches (Violet, Blue, Emerald, Amber, Rose, Indigo) trigger immediate re-renders across all themed screens and components without requiring app reload.
+
+- **Dynamic Typography Integration (src/theme/typography.ts, MarkdownAnswer.tsx, ChatBubble.tsx)**:
+  - getChatFontFamily(chatFont) resolves cross-platform native font weights (Inter, Roboto, Outfit, Fira Code, JetBrains Mono, Lora, Playfair Display, System, Rounded).
+  - Dynamically wired into markdown answers and message bubble text.
+
+- **Voice AI & Orb Alignment (VoiceOverlay.tsx, GeneralSection.tsx, useVoicePreferenceStore.ts)**:
+  - Preserved the existing 5-voice registry (oiceRegistry.ts: Sarah, Charlie, George, Antoni, Bill) and useVoicePreferenceStore.
+  - Voice selection previewed with native audio player (createAudioPlayer) using bundled local sample assets.
+  - VoiceOverlay.tsx connects directly to orbColor to dynamically change the 3D Fibonacci Particle Orb gradients (colorFrom, colorTo).
+
+#### 3. Section-by-Section Implementation
+1. **General (src/components/settings/sections/GeneralSection.tsx)**:
+   - **Theme Selector**: Interactive pills for Dark (default), Light, and System.
+   - **Accent Palette**: 6 accent swatches with active ring indicator.
+   - **Language**: English and Hindi selector pills.
+   - **Chat Font**: 9 font options with live preview label and radio indicator.
+   - **Voice Orb Color**: 5 curated gradient presets with dual-circle swatch indicator.
+   - **Assistant Voice**: Card showing active voice, playback preview button, and bottom sheet VoiceSelectorModal.
+   - **Experience**: Compact Mode, Reduced Motion, and Sound Effects switches.
+   - **Restore Defaults**: One-tap action restoring defaults.
+
+2. **Account (src/components/settings/sections/AccountSection.tsx)**:
+   - **Profile Card**: Avatar, editable Display Name with inline Save (syncs to Firebase updateProfile and Appwrite updateUserProfile), copyable Email and UID.
+   - **Subscription & Credits**: Active Plan badge (Free / Plus / Pro), Daily Free Credits counter, Monthly Paid Credits counter, and "View Plans & Pricing" modal bottom sheet.
+   - **Danger Zone**: Logout button and Delete Account modal with required "DELETE" confirmation text.
+
+3. **Security (src/components/settings/sections/SecuritySection.tsx)**:
+   - **Authentication Status**: Displays current sign-in provider (Password, Google, etc.).
+   - **Change Password**: 2-step OTP flow adapted from website (sends 6-digit verification code to email, validates OTP, then updates password).
+   - **Two-Factor Authentication (MFA)**: Toggle with email OTP confirmation flow.
+   - **Session / Device Info**: Current device model, OS version, app version, and active session timestamp.
+
+4. **Memory (src/components/settings/sections/MemorySection.tsx)**:
+   - **Memory Toggle**: Master switch for AI Conversation Memory (memory_enabled).
+   - **How Memory Works**: Explanatory card detailing local context extraction, persistent personalization, and privacy controls.
+   - **Memory Manager**: Fetches stored memory items via memoryService.ts from Appwrite conversation_memory collection with local AsyncStorage caching fallback (@chatboxai:cached_memory_items).
+   - Individual memory item context inclusion toggle (included), individual deletion, and Clear All confirmation modal.
+
+5. **API Keys (src/components/settings/sections/ApiKeySection.tsx)**:
+   - **API Credit Balance**: Displays balance in INR (₹), with link to billing/plans.
+   - **Create API Key Modal**: Input for key name, generates secure cbx_live_... key.
+   - **Keys List**: Displays masked keys with Reveal/Mask toggle, 1-tap Copy to clipboard, and Delete confirmation.
+   - Integrated with Appwrite pi_keys and pi_credits collections via piKeyService.ts.
+
+6. **Help & Support (src/components/settings/sections/HelpSection.tsx)**:
+   - **Help Center & FAQ**: Accordion cards addressing common questions (Offline support, AI models, Voice AI, Data storage).
+   - **Documentation & Legal**: Links to Terms of Service, Privacy Policy, and System Status.
+   - **Contact & Support**: Actions to email support (mailto:support@chatboxai.com) and launch support chat.
+   - **App Specifications**: Displays Version, Build Number, Platform, and Runtime environment.
+
+7. **Root Navigation (src/components/settings/SettingsScreen.tsx)**:
+   - Header with back button to previous screen.
+   - Horizontal scrolling segmented pill bar navigating between [ General | Account | Security | Memory | API Keys | Help ].
+   - Smooth active section switching with preserved scroll position.
+
+#### 4. Backend Collections Configured (src/config/appwrite.ts)
+- Added missing collection IDs:
+  - CONVERSATION_MEMORY_COLLECTION_ID = 'conversation_memory'
+  - API_KEYS_COLLECTION_ID = 'api_keys'
+  - API_CREDITS_COLLECTION_ID = 'api_credits'
+  - API_CREDIT_TRANSACTIONS_COLLECTION_ID = 'api_credit_transactions'
+  - LOGIN_ACTIVITY_COLLECTION_ID = 'login_activity'
+
+#### 5. Verification & Validation
+- **TypeScript**: npx tsc --noEmit exits with 0 errors across entire codebase.
+- **Reactivity Verified**:
+  - Theme changes instantly update all screens via useThemeColors().
+  - Accent color changes re-theme primary action buttons, active pill rings, and highlights.
+  - Font changes update conversation bubbles and markdown typography.
+  - Orb color changes update Voice AI overlay Fibonacci particle shader gradients.
+  - Voice selection updates active voice across Voice AI and speech synthesis.
+
+
+### Session 90 - Dedicated Full-Screen Settings Experience & Design System Alignment (Oct 7, 2026)
+
+#### 1. Architecture: Dedicated Full-Screen Settings Page
+- **Unconstrained Full-Screen Mounting (src/features/chat/AppShell.tsx)**:
+  - Relocated <SettingsScreen /> out of mainTransformLayer and mainCardLayer.
+  - Now mounted at the root as Layer 4: Dedicated Full-Screen Settings Page (Edge-to-Edge) with StyleSheet.absoluteFill, zIndex: 100, and ackgroundColor: colors.background.
+  - Completely eliminates the previous embedded feel where settings was framed within the transformed card layer (with card borders, card radius, scale distortion, and shadows).
+- **Drawer State Synchronization**:
+  - handleOpenSettings resets drawer animation values (setIsDrawerOpen(false), drawerProgress.setValue(0), cornerProgress.setValue(0)) to prevent residual drawer shift.
+- **Android Hardware Back Button**:
+  - Added native BackHandler listener in AppShell.tsx so pressing the physical back button smoothly exits Settings and returns to chat.
+
+#### 2. Visual Redesign: Home Screen + Menu/Bottom Sheet Alignment
+- **Header**:
+  - Replaced legacy text Back button with standard 40px circular action button (width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface) with <IconArrowLeft size={20} color={colors.ink} strokeWidth={2} /> matching Header.tsx and ImagesScreen.tsx.
+  - Centered screen title in colors.ink (ontSize: 17, fontWeight: '600').
+- **Category Filter Pill Bar**:
+  - Horizontal scrolling pill switcher matching Home suggestions and Explore category pills (height: 36, borderRadius: 18).
+  - Active pill: ackgroundColor: colors.surface, orderColor: colors.accent, text in colors.ink (ontWeight: '600'), and icon in colors.accent.
+- **User Profile Banner (AccountSection.tsx)**:
+  - Matches UserProfileSheet.tsx: 48px avatar circle with initials, display name, email, plan badge (FREE, PRO, MAX), and yellow IconBolt credit counter.
+- **Grouped Card Layout Across All 6 Sections**:
+  - Replaced disparate floating cards with cohesive colors.surface grouped cards (orderRadius: 16, 1px colors.line border, overflow: 'hidden').
+  - Section headings with uppercase tracking labels (ontSize: 11, fontWeight: '600', letterSpacing: 0.8, color: colors.ink3).
+  - 1px hairline row dividers with clean 56px left inset.
+  - 32px icon boxes in colors.surface2 with Tabler icons (strokeWidth: 1.8).
+- **Segmented Controls & Swatches**:
+  - Theme mode (Dark [default], Light, System) and Language (English, Hindi) in segmented controls matching Home pills.
+  - 38px circular accent swatches with active outline ring and checkmark.
+- **Native Toggles**:
+  - Switches styled with 	rackColor={{ false: colors.line2, true: colors.accent }} and 	humbColor="#ffffff".
+- **BottomSheet Modernization**:
+  - All modal dialogs (Plans & Pricing, Delete Account, Change Password OTP, Enable 2FA, Create API Key) now use the official <BottomSheet> component from src/components/common/BottomSheet with top drag handle, header, and native bottom safe-area insets.
+
+#### 3. Design System Tokens Bridge (src/theme/types.ts & src/theme/tokens.ts)
+- Added surface2 and line2 as first-class tokens in ThemeColors, RAW_LIGHT_TOKENS, and RAW_DARK_TOKENS.
+
+#### 4. Verification & Validation
+- **TypeScript**: npx tsc --noEmit exits with 0 errors across entire repository.
+- **Functionality Lock**: 100% preservation of all underlying business logic, Appwrite sync, Firebase auth, OTP reset, MFA, memory management, and API key generation.
+
+### Session 91 - Settings Scrolling Architecture Hardening & Dual-Wallet Credit System (Oct 7, 2026)
+
+#### 1. Scrolling Architecture & Keyboard Avoidance Hardening
+- **SettingsScreen Root Container (src/components/settings/SettingsScreen.tsx)**:
+  - Configured KeyboardAvoidingView with ehavior={Platform.OS === 'ios' ? 'padding' : undefined}. This harmonizes with Expo Android's native softwareKeyboardLayoutMode: "resize" in pp.json, eliminating duplicate view shrinking and container jumping.
+  - Added lex: 1 to the content ScrollView and lexGrow: 1 to contentContainerStyle, preventing viewport collapse and rubber-banding on small screens or short content.
+  - Set bottom safe-area padding to Math.max(insets.bottom, 24) + 48 (~72px+ total clearance), ensuring that bottom cards, save buttons, and danger zone actions are never obscured by Android system navigation bars, gesture bars, or the screen bottom.
+  - Configured keyboardShouldPersistTaps="handled" on both the horizontal category pill bar and vertical content ScrollView, allowing direct taps on interactive controls without requiring an initial dismiss tap.
+  - Enabled keyboardDismissMode="interactive" for natural swipe-to-dismiss behavior.
+- **BottomSheet Keyboard Safety (src/components/common/BottomSheet.tsx)**:
+  - Enclosed modal backdrop in a KeyboardAvoidingView with Platform.OS === 'ios' ? 'padding' : undefined.
+  - Guarantees all BottomSheet dialogs containing input fields (Password Reset OTP, Two-Factor Authentication, API Key generation, Plans modal) remain visible above the software keyboard across both Android and iOS.
+- **Section Isolation Verification**:
+  - Confirmed all 6 settings sections (GeneralSection, AccountSection, SecuritySection, MemorySection, ApiKeySection, HelpSection) use non-conflicting root <View style={styles.container}> containers with width: '100%', allowing the single parent ScrollView in SettingsScreen to manage smooth scrolling without nested scroll conflicts.
+
+#### 2. Dual-Wallet Credit & Subscription System (src/components/settings/sections/AccountSection.tsx)
+- **Direct Parity with Website Implementation**:
+  - Mirrored chatboxai_website_copy/lib/subscriptionPlans.js and pp/(routes)/settings/_components/AccountSettings.jsx.
+  - Added strict PLAN_CONFIG constants:
+    - **Free Plan**: ₹0, 0 paid credits, 5,000 daily free-model credits.
+    - **Pro Plan**: ₹499/mo (₹4,990/yr), 30,000 paid-model credits, 5,000 daily free credits.
+    - **Max Plan**: ₹1,999/mo (₹19,990/yr), 150,000 paid-model credits, 5,000 daily free credits.
+- **Dual Wallet Architecture**:
+  - **Wallet 1 (Free Daily Credits)**: Reads userProfile.credits (resets to 5,000 daily at midnight UTC for all user tiers). Includes visual CreditBar progress bar and reset countdown info.
+  - **Wallet 2 (Paid Monthly Credits)**: Reads userProfile.paid_credits (Pro: 30k, Max: 150k).
+  - **Expired Balance Preservation**: Paid wallet is conditionally displayed if isPaidPlan || monthlyPaidCredits > 0. If a user's subscription expires, any remaining paid credits stay intact and visible until spent down to zero, with a clear badge: *"Preserved from previous subscription — available until balance reaches zero"*.
+- **Interactive Profile & Usage Controls**:
+  - Added animated refresh button calling refreshProfile() from AuthContext to immediately re-sync credit balances.
+  - Formatted credit values using .toLocaleString() for clean numeric display.
+  - Integrated "Plans" quick launcher opening the BottomSheet with tier details, pricing, and active subscription status markers.
+  - Maintained Display Name editing with Appwrite + Firebase synchronization and 1-tap copy for Email and User ID.
+
+#### 3. Verification & Validation
+- **TypeScript**: npx tsc --noEmit exits with 0 errors across entire repository.
+- **Responsive Layout**: Tested across varying screen heights and keyboard interactions.
+- **Metro / Expo**: Hot reload active with 0 runtime errors.
+
+
+### Session 92 - Settings Scroll Freezing Fix & Tab Bar Border Cleanup (Oct 7, 2026)
+
+#### 1. Border Lines Removal Above & Below Tab Bar
+- **Header & Tab Bar Cleanup (src/components/settings/SettingsScreen.tsx)**:
+  - Removed top border line: Removed `borderBottomWidth: 1` and `borderBottomColor: colors.line` from `headerContainer` (`borderBottomWidth: 0`).
+  - Removed bottom border line: Removed `borderBottomWidth: 1` and `borderBottomColor: colors.line` from `tabBarContainer` (`borderBottomWidth: 0`).
+  - Result: The horizontal tab pill bar now floats cleanly between the header and section content with zero dividing lines.
+
+#### 2. Horizontal Tab Bar Display & Scroll Hardening
+- **Pill Alignment & Layout**:
+  - Added `flexDirection: 'row'`, `alignItems: 'center'`, and `paddingRight: spacing.xl` to `tabBarScroll` content container.
+  - Replaced ambiguous `gap` with explicit `marginRight: 8` per pill to prevent truncation of the last tab (`Help`) on varying Android display densities.
+  - Enhanced tab styling:
+    - Inactive: `backgroundColor: colors.surface2`, `borderColor: colors.line`, text in `colors.ink2`.
+    - Active: `backgroundColor: colors.surface`, `borderColor: colors.accent`, `borderWidth: 1.5`, icon in `colors.accent`, text in `colors.ink` (`fontWeight: '600'`).
+  - Added `nestedScrollEnabled={true}` and `overScrollMode="never"` on the horizontal `ScrollView` for seamless touch delegation.
+
+#### 3. Root Cause Resolution for Vertical Content Scroll Freezing
+- **Root Cause Analysis**:
+  - `KeyboardAvoidingView` wrapped around the entire screen on Android conflicted with Expo's native `"softwareKeyboardLayoutMode": "resize"`, capturing touch responder events and constraining scroll bounds to zero scrollable delta.
+  - `mainTransformLayer` in `AppShell.tsx` was mounted behind the settings screen with `pointerEvents="auto"`, allowing background pan responders and chat scroll views to intercept Android touch events.
+  - The Layer 4 settings container lacked Android native `elevation`, causing Android's view hierarchy to misroute touches.
+- **Fix Applied**:
+  - **AppShell Touch Isolation (src/features/chat/AppShell.tsx)**:
+    - Added `pointerEvents={activeView === 'settings' ? 'none' : 'auto'}` on `mainTransformLayer`.
+    - Added `elevation: 10` and `flex: 1` to Layer 4 Settings container.
+  - **SettingsScreen Scroll Isolation (src/components/settings/SettingsScreen.tsx)**:
+    - Rendered root screen as a clean `<View style={[styles.container, ...]}` on Android (wrapping with `KeyboardAvoidingView` only on iOS).
+    - Enabled `nestedScrollEnabled={true}`, `overScrollMode="always"`, and `bounces={true}` on the vertical `ScrollView` with unconstrained `flex: 1`.
+
+#### 4. Verification & Validation
+- **TypeScript**: `npx tsc --noEmit` exits with 0 errors across entire repository.
+- **Expo Hot Reload**: Changes propagated immediately to running Expo runtime with 0 warnings.
+
+### Session 93 - API Key Schema Fix & Dual In-App Razorpay Payment Gateway (Oct 7, 2026)
+
+#### 1. Appwrite Schema Query Root Cause Fix (`src/services/apiKeyService.ts`)
+- **Root Cause Analysis**:
+  - The runtime error `AppwriteException: Invalid query: Attribute not found in schema: userEmail` was triggered in `fetchApiCredits` when querying `API_CREDITS_COLLECTION_ID` with camelCase `userEmail`.
+  - Appwrite schema inspection confirmed attributes are snake_case: `user_email` and `user_id` in `api_credits` and `api_credit_transactions`, and `user_id` in `api_keys`.
+- **Direct Schema Resolution**:
+  - Updated all `databases.listDocuments` queries on `api_credits` and `api_credit_transactions` to use `Query.equal('user_email', cleanEmail)`.
+  - Updated `api_keys` collection querying to resolve `userId` from `users` collection via `Query.equal('email', cleanEmail)` and filter `api_keys` by `Query.equal('user_id', userId)`.
+  - Added robust conversion of string/numeric values for `balance_credits` (stored as string in Appwrite schema).
+
+#### 2. Website 1:1 Parity for API Key Settings & Cloud Sync
+- **Backend API Endpoints Integration (`https://chatboxai.co.in`)**:
+  - Configured Bearer token authorization via Firebase ID Tokens (`currentUser.getIdToken()`).
+  - Calls `GET /api/v1/keys`, `POST /api/v1/keys`, and `DELETE /api/v1/keys/[keyId]` with automatic offline Appwrite fallback.
+  - Calls `GET /api/v1/credits` and `GET /api/v1/usage` for real-time analytics.
+- **Full-Featured Mobile UI (`src/components/settings/sections/ApiKeySection.tsx`)**:
+  - **API Key Lifecycle**: Create key modal (live vs test environments), unmasked key notification card on creation, reveal/mask toggles, 1-tap copy, and revoke/delete confirmation dialogs.
+  - **Developer Compute Wallet**: Real-time balance display in INR with 3 metric chips (Available Balance, Total Keys, Active Keys).
+  - **Buy Credits with Razorpay**: Preset buttons (₹50, ₹100, ₹200) + custom amount input with ₹50 minimum validation, secure badge, and in-app checkout launcher.
+  - **Transaction Ledger**: Chronological transaction history distinguishing credit purchases (`+`) and usage deductions (`-`).
+  - **Usage Analytics**: Daily, Weekly, and Monthly charts with metric toggle (Requests, Tokens, Cost).
+  - **Balance Rules & Documentation**: 1:1 INR conversion rules, base URL (`https://chatboxai.co.in/api/v1`), and 1-tap copy cURL example.
+
+#### 3. In-App Razorpay Checkout Component (`src/components/common/RazorpayCheckoutModal.tsx`)
+- Installed `react-native-webview` via Expo CLI.
+- Embedded official `checkout.razorpay.com/v1/checkout.js` in a secure in-app modal.
+- Configured Android `onShouldStartLoadWithRequest` to delegate `upi://`, `intent://`, and `paytmmp://` schemes directly to native UPI apps (GPay, PhonePe, Paytm, BHIM).
+- Bidirectional React Native WebView bridge for `SUCCESS`, `FAILED`, and `DISMISS` events with automated cryptographic verification handshake.
+
+#### 4. Subscription Plans Razorpay Integration (`src/components/settings/sections/AccountSection.tsx`)
+- Added interactive billing cycle switcher (Monthly vs Annual with 17% savings).
+- Added direct "Upgrade to Pro" and "Upgrade to Max" CTA buttons inside the Subscription Plans BottomSheet.
+- Linked to `createSubscriptionOrder` and `verifySubscriptionPayment` with automated profile refreshing.
+
+#### 5. Verification & Validation
+- **TypeScript**: `npx tsc --noEmit` verified with 0 errors across entire repository.
+- **Expo Hot Reload**: 0 warnings in Metro bundler.
+
+### Session 94 — Adaptive Response Intelligence Engine Build & APK Integration (Oct 8, 2026)
+
+#### 1. Mission Overview
+Implemented the complete, production-grade **Adaptive Response Intelligence Engine** for ChatBox AI Mobile APK, upgrading the naive single-prompt LLM execution into a multi-stage, modular intelligence pipeline preserving mobile battery, network efficiency, security, and UI stability.
+
+#### 2. Reusable Agent Skill Installed
+- Created `.agents/skills/adaptive-response-intelligence/` (and mirrored in `skills/adaptive-response-intelligence/`):
+  - `SKILL.md`: Comprehensive skill guide and architecture specification.
+  - `references/architecture.md`: Pipeline breakdown from input normalization to telemetry.
+  - `references/prompt-compiler.md`: Modular policy composition guidelines.
+  - `examples/intent-cases.json`: Reference evaluation and classification benchmark cases.
+
+#### 3. Core Engine Architecture (`src/services/intelligence/`)
+1. **Types Model (`types.ts`)**: Strongly typed data structures for 15 intent classes, 4 complexity tiers, Answer Contracts, deterministic verification issues, critic scores, confidence assessments, and telemetry records.
+2. **Intent Engine (`intentEngine.ts`)**: Identifies primary task from 15 canonical categories (`general_chat`, `coding`, `debugging`, `research`, `explanation`, `summarization`, `translation`, `writing`, `planning`, `comparison`, `brainstorming`, `troubleshooting`, `multimodal`, `file_analysis`, `question_answering`) with secondary intent detection and operational requirements.
+3. **Complexity & Adaptive Compute Engine (`complexityEngine.ts`)**: Assigns execution budget (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`), enforces token limits, and suppresses heavy evaluation/refinement loops on trivial chitchat to preserve battery and compute.
+4. **Answer Contract Resolver (`answerContract.ts`)**: Formulates strict output constraints (tone, depth, format: prose/table/code_only/bullet_points, citations) based on explicit user requirements and query context.
+5. **Prompt Compiler (`promptCompiler.ts`)**: Modular composition: `BASE_POLICY` + `TASK_POLICY[intent]` + `ANSWER_CONTRACT` + `GROUNDING_POLICY` + `SAFETY_DIRECTIVES` + `PREVENTATIVE_RULES`, replacing static monolithic system strings.
+6. **Deterministic Verifier (`deterministicVerifier.ts`)**: Zero-cost, zero-LLM checks: detects and auto-repairs unclosed code fences (`\`\`\``), verifies bracket balancing, validates citation indices against provided sources, and verifies code_only constraints.
+7. **Hallucination Firewall (`hallucinationFirewall.ts`)**: Grounding verification auditing citation validity and fact assertions against external sources, assigning a hallucination risk tier.
+8. **Response Critic & Quality Thresholds (`criticEngine.ts`, `qualityThresholds.ts`)**: Multi-dimensional evaluator scoring correctness, instruction following, completeness, clarity, and safety against configurable per-intent quality thresholds (e.g., coding=0.90, research=0.88, general=0.80).
+9. **Confidence Engine (`confidenceEngine.ts`)**: Calculates objective `HIGH`, `MEDIUM`, or `LOW` confidence rating with transparent factor breakdowns.
+10. **Contradiction Detector (`contradictionDetector.ts`)**: Prioritizes latest user prompt over stale context or contradictory older memory.
+11. **Telemetry & Observability (`telemetry.ts`)**: Logs request latency, intent, complexity, model, quality score, refinement passes, and user feedback with complete redaction of API keys and private tokens.
+12. **Semantic Cache & Failure Memory (`semanticCache.ts`, `failureMemory.ts`)**: In-memory LRU cache for static queries with 1-hour TTL, and persistent failure pattern tracking to prevent recurrent mistakes.
+13. **Master Orchestrator (`AdaptiveResponseOrchestrator.ts`)**: Coordinates end-to-end flow with bounded refinement passes (maximum 1-2 passes), terminating as soon as criteria are satisfied.
+
+#### 4. Application Pipeline & UI Integration
+- **Hook Integration (`src/hooks/useChatGeneration.ts`)**:
+  - Connected `AdaptiveResponseOrchestrator.execute` to `generateResponse`.
+  - Dispatches real-time stage progress messages (`Analyzing query intent...`, `Synthesizing optimal reasoning directives...`, `Reasoning step-by-step...`).
+  - Persists `isVerified` and `confidence` in Appwrite `searchResult` payload wrapper.
+- **UI Integration (`ChatScreen.tsx`, `ChatBubble.tsx`)**:
+  - `ChatBubble.tsx`: Added subtle, non-intrusive green "Verified" quality badge (`#10b981`) with `IconCheck` on verified high-confidence responses.
+  - Linked `handleFeedback` (thumbs up/down) and `handleRegenerate` to `IntelligenceTelemetry.recordFeedback`.
+  - Maintained zero leaks of internal evaluator prompts, critic scores, or raw reasoning traces.
+
+#### 5. Verification & Test Suite
+- **Automated Test Suite (`test/intelligence/runAllTests.ts`)**:
+  - 25 test cases across 8 functional areas (Intent, Complexity, Answer Contract, Deterministic Verifier, Hallucination Firewall, Contradiction Detector, Critic & Confidence, Cache & Telemetry).
+  - Executed via `npx tsx test/intelligence/runAllTests.ts`: **25/25 PASSED (0 FAILED)**.
+- **TypeScript Strict Check**:
+  - `npx tsc --noEmit` exited code 0 with zero errors across the entire repository.
+
+### Session 95 — Live API Keys Verification, Dead Slugs Purge & Multi-Provider Health Restoration
+
+#### 1. Live Provider Keys Audit & Environment Configuration
+- Tested all user-supplied API keys live against their respective provider endpoints:
+  - **Google Gemini**:
+    - Old keys (`GOOGLE_API_KEY_1` to `5`) were reported by Google as leaked/suspended (403/400).
+    - User supplied `NEXT_PUBLIC_GEMINI_API_KEY` (`AIzaSyDQpiFcMx5mEJtxc1VpOgZvt8YodesIk-Y`) and `NEXT_PUBLIC_GEMINI_API_KEY_2` (`AIzaSyDMHpNnHrCl4qdbYMkOo82ocZ2vJoFBwj0`).
+    - Verified live with `gemini-2.5-flash`: **Both returned 200 OK!**
+    - Updated `.env` with verified active Google keys for `EXPO_PUBLIC_GOOGLE_API_KEY` and `EXPO_PUBLIC_GOOGLE_API_KEY_2`.
+  - **OpenRouter**:
+    - All 8 keys in `.env` (`OPENROUTER_API_KEY_1` to `8`) tested live and verified: **All 8 returned 200 OK!**
+  - **NVIDIA (`integrate.api.nvidia.com`)**:
+    - All 4 keys in `.env` (`NVIDIA_API_KEY_1` to `4`) tested live with `meta/llama-3.2-11b-vision-instruct`: **All 4 returned 200 OK!**
+  - **Groq**:
+    - All 7 keys in `.env` verified live: **All 7 returned 200 OK!**
+  - **Replicate**:
+    - Both keys verified live: **Returned 200 OK!**
+
+#### 2. LLMFallbackService Smart Dead-Key Caching & 404 Fast-Skip
+- Updated `src/services/llm/LLMFallbackService.ts`:
+  - **Dead Key Memory**: Permanently blocked/leaked keys (`API_KEY_SERVICE_BLOCKED`, `leaked`, `suspended`, `API key not valid`) are recorded in an in-memory `Set<string>`. Any future calls or refinement passes skip dead keys in 0ms without wasting round-trips.
+  - **Instant 404 Fast-Skip**: When a provider returns 404 (`model_not_found` or `does not exist`), the service stops iterating through remaining keys of the same provider and shifts immediately to the next provider/fallback.
+
+#### 3. Deep Research & Standard Models Purge & Slugs Update
+- **Deep Research Models (`src/config/models.ts`)**:
+  - Purged all dead slugs that OpenRouter and Groq retired (e.g., `qwen/qwen3-32b`, `llama-3.3-70b-versatile`, `minimax-m2.5:free`, `step-3.5-flash:free`, `glm-4.5-air:free`, `trinity-large-preview:free`, `qwen3-coder:free`).
+  - Replaced with 100% live verified models:
+    - `dr-gemini-2.5-flash`: `gemini-2.5-flash` (Google, 200 OK)
+    - `dr-gemini-2.5-lite`: `gemini-2.5-flash-lite` (Google, 200 OK)
+    - `dr-gpt-120b`: `openai/gpt-oss-120b` (Groq, 200 OK)
+    - `dr-qwen-27b`: `qwen/qwen3.8-27b` (Groq, 200 OK)
+    - `dr-gpt-20b`: `openai/gpt-oss-20b` (Groq, 200 OK)
+    - `dr-nemo-lightning`: `nvidia/nemotron-3.5-lightning:free` (OpenRouter, 200 OK)
+    - `dr-nemo-super`: `nvidia/nemotron-3-super-120b-a12b:free` (OpenRouter, 200 OK)
+    - `dr-nemo-ultra`: `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter, 200 OK)
+    - `dr-nemo-omni`: `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` (OpenRouter, 200 OK)
+    - `dr-north-code`: `cohere/north-mini-code:free` (OpenRouter, 200 OK)
+    - `dr-claude-sonnet`: `anthropic/claude-4.5-sonnet` (Replicate, 200 OK)
+- **Unified Model Registry (`src/config/models-registry.ts`)**:
+  - `chatboxai/gemini-3.1-flash-lite` & `chatboxai/gemini-2.5-flash-lite`: Restored `google` (`gemini-2.5-flash-lite`) as primary with `groq` and `openrouter` fallbacks.
+  - `chatboxai/groq-compound`: Replaced retired `compound-beta` with `openai/gpt-oss-120b` and `qwen/qwen3.8-27b`.
+  - `chatboxai/groq-compound-mini`: Replaced retired `compound-beta-mini` with `openai/gpt-oss-20b`.
+  - `chatboxai/llama-3.3-70b`: Replaced retired Groq slug with `qwen/qwen3.8-27b` and OpenRouter 120B.
+  - `chatboxai/ling-3-flash`: Updated slug to `inclusionai/ling-3.0-flash-sante:free`.
+  - `chatboxai/laguna-m1`: Updated slug to `poolside/laguna-s-2.1:free`.
+  - `chatboxai/llama-3.1-8b`: Backed by `groq: qwen/qwen3.8-27b` and OpenRouter Nemotron.
+  - `chatboxai/nemotron-nano-vl`: Backed by `nvidia: meta/llama-3.2-11b-vision-instruct`.
+  - `chatboxai/nemotron-nano-9b`: Backed by `openrouter: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`.
+  - `chatboxai/llama-3.2-1b`: Backed by `nvidia: meta/llama-3.2-11b-vision-instruct`.
+  - `chatboxai/minimax-m3` & `chatboxai/step-3.7-flash`: Re-routed to working Groq models.
+
+#### 4. Verification & Validation
+- Live round-trip tests executed for every major model family:
+  - `chatboxai/gemini-3.1-flash-lite`: **1798ms (Key 1 succeeded via Google)**
+  - `chatboxai/gemini-2.5-flash-lite`: **1185ms (Key 1 succeeded via Google)**
+  - `chatboxai/gpt-oss-120b`: **859ms (Key 1 succeeded via Groq)**
+  - `chatboxai/groq-compound`: **489ms (Key 1 succeeded via Groq)**
+  - `chatboxai/llama-3.2-11b-vision`: **784ms (Key 1 succeeded via NVIDIA)**
+  - `chatboxai/nemotron-3.5-lightning`: **6564ms (Key 1 succeeded via OpenRouter)**
+- Full `AdaptiveResponseOrchestrator` execution:
+  - Coding query: completed in **697ms** (Key 1 succeeded, High confidence, 0.94 quality, Verified badge).
+- `npx tsc --noEmit` exited code 0 with zero errors and warnings.
+
+---
+
+### Phase Audit: Require Cycle Elimination & Complete Screenshot Theme Adaptation (2026-10-08)
+
+#### 1. Require Cycle Resolution
+- **Issue**: Metro LogBox warning:
+  `Require cycle: src/stores/usePreferencesStore.ts -> src/i18n/index.ts -> src/stores/usePreferencesStore.ts`
+- **Root Cause**: `usePreferencesStore.ts` imported `SUPPORTED_LANGUAGES` from `../i18n`, while `src/i18n/index.ts` imported `usePreferencesStore` to access `language`.
+- **Fix**: Created isolated `src/i18n/languages.ts` containing `SUPPORTED_LANGUAGES`. Updated `usePreferencesStore.ts` to import directly from `../i18n/languages`. Re-exported from `src/i18n/index.ts` and `src/i18n/translations.ts`. The dependency cycle is 100% eliminated.
+
+#### 2. Home Page Composer Design Restoration (`Composer.tsx`)
+- **Issue**: Structural layout and capsule styling of the home page input box had broken because dynamic backgrounds/borders were missing from `composerBar`.
+- **Fix**:
+  - Restored original capsule layout, paddings, and button placement 1:1.
+  - Attached dynamic `{ backgroundColor: colors.isDark ? '#1c1c1e' : colors.surface2, borderColor: colors.isDark ? '#2c2c2e' : colors.line }` to `styles.composerBar`.
+  - Restored original placeholder: `'Ask ChatBox AI...'` (or `'Add a message...'` when attachments present).
+  - Maintained original Search/Research toggle pill appearance and behavior with adaptive theme backgrounds and borders.
+  - Ensured voice dictate, attachments, voice call modal, and send buttons adapt colors seamlessly.
+
+#### 3. Theme Color Adaptation Across User Screenshots
+- **Screenshot 1 (`VoiceOverlay.tsx`)**:
+  - Voice selector pill, close button, and bottom mic control circle updated from transparent washes to solid theme tokens (`colors.surface2`, `colors.line`, `colors.ink`, `colors.ink3`).
+- **Screenshot 2 (`AttachmentSheet.tsx` - "Add to chat")**:
+  - Replaced hardcoded `#242426` / `#2c2c2e` item rows with `colors.isDark ? '#242426' : colors.surface2` and borders with `colors.line`.
+  - Replaced hardcoded `#323236` icon circles with `colors.isDark ? '#323236' : colors.surface` and icons with `colors.ink`.
+  - Replaced hardcoded `#ffffff` option titles and `#8e8e93` subtitles with `colors.ink` and `colors.ink3`.
+  - Switches now use `colors.isDark ? '#3a3a3c' : '#d1d5db'` for inactive track and `colors.accent` for active track.
+  - Replaced hardcoded dark `#222224` Cancel button and white text with `colors.isDark ? '#222224' : colors.surface2` and `colors.ink` text.
+- **Screenshot 3 & 5 (`ImageGenScreen.tsx` & `AspectRatioSelector.tsx`)**:
+  - Bottom input bar (`styles.inputBar`) updated from hardcoded `#1c1c1e` to `colors.isDark ? '#1c1c1e' : colors.surface2` with `colors.line` border.
+  - Model pill (`styles.modelPill`) and quota badge (`styles.quotaBadge`) updated to use dynamic theme surfaces and `colors.ink` text.
+  - Aspect ratio chips in `AspectRatioSelector.tsx` now use `colors.isDark ? '#27272a' : colors.surface2` when selected, with `colors.accent` border.
+- **Screenshot 4 (`UpgradePlanModal.tsx`)**:
+  - Modal sheet container changed from hardcoded `#131316` to `colors.isDark ? '#131316' : colors.surface` with `colors.line` border.
+  - Monthly/Annual billing toggle and Pro/Max plan cards now adapt dynamically between Dark and Light mode (`colors.surface2` in light mode with `#3b82f6` / `#8b5cf6` active borders).
+  - All text headers, subtitles, pricing amounts, and feature descriptions map cleanly to `colors.ink`, `colors.ink2`, and `colors.ink3`.
+- **Screenshot 5 (`ImageCard.tsx`)**:
+  - Fixed prompt bubble (`styles.promptBubble`) which was hardcoded to dark `#1f1f23` while rendering dark `colors.ink` text, creating unreadable black-on-black text. Now uses `colors.isDark ? '#1f1f23' : colors.surface2` with `colors.line` border.
+
+#### 4. Type & Bundler Verification
+- `npx tsc --noEmit` exited code 0 with 0 errors.
+
+

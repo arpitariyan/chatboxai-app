@@ -11,6 +11,8 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { IconCopy, IconCheck, IconTable, IconArrowsLeftRight } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius } from '@/theme';
+import { getChatFontFamily } from '@/theme/typography';
+import { usePreferencesStore } from '@/stores/usePreferencesStore';
 import { SvglIcon, getDomainFromUrl } from './SvglIcon';
 
 interface MarkdownAnswerProps {
@@ -151,6 +153,8 @@ interface TableBlockProps {
 
 const TableBlock: React.FC<TableBlockProps> = React.memo(({ headers, rows, alignments = [] }) => {
   const colors = useThemeColors();
+  const chatFont = usePreferencesStore((s) => s.chatFont);
+  const chatFontFamily = getChatFontFamily(chatFont);
   const [copied, setCopied] = useState(false);
 
   // Determine column count (use headers if present, else max row width)
@@ -323,11 +327,11 @@ const TableBlock: React.FC<TableBlockProps> = React.memo(({ headers, rows, align
                     <Text
                       style={[
                         styles.tableHeaderText,
-                        { color: colors.ink },
+                        { color: colors.ink, fontFamily: chatFontFamily },
                         getTextAlignStyle(align),
                       ]}
                     >
-                      {renderInline(h, colors)}
+                      {renderInline(h, colors, { fontFamily: chatFontFamily })}
                     </Text>
                   </View>
                 );
@@ -364,11 +368,11 @@ const TableBlock: React.FC<TableBlockProps> = React.memo(({ headers, rows, align
                     <Text
                       style={[
                         styles.tableCellText,
-                        { color: colors.ink },
+                        { color: colors.ink, fontFamily: chatFontFamily },
                         getTextAlignStyle(align),
                       ]}
                     >
-                      {renderInline(cell, colors)}
+                      {renderInline(cell, colors, { fontFamily: chatFontFamily })}
                     </Text>
                   </View>
                 );
@@ -544,6 +548,9 @@ function renderInline(text: string, colors: any, baseStyle?: any) {
 
 export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ content, onLongPress }) => {
   const colors = useThemeColors();
+  const chatFont = usePreferencesStore((s) => s.chatFont);
+  const chatFontFamily = getChatFontFamily(chatFont);
+  const resolvedBodyTextStyle = useMemo(() => [styles.bodyText, { fontFamily: chatFontFamily }], [chatFontFamily]);
 
   // 1. Clean content: Strip <think>...</think>, <tool_call>...</tool_call>, and canva design blocks
   const cleanText = useMemo(() => {
@@ -802,8 +809,8 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ conte
                   idx === 0 && { marginTop: 0 },
                 ]}
               >
-                <Text style={[styles.headingBase, hStyle, { color: colors.ink }]}>
-                  {renderInline(block.text || '', colors, [styles.headingBase, hStyle])}
+                <Text style={[styles.headingBase, hStyle, { color: colors.ink, fontFamily: chatFontFamily }]}>
+                  {renderInline(block.text || '', colors, [styles.headingBase, hStyle, { fontFamily: chatFontFamily }])}
                 </Text>
               </View>
             );
@@ -834,8 +841,8 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ conte
                 key={`bq-${idx}`}
                 style={[styles.blockquote, { borderLeftColor: colors.lineStrong }]}
               >
-                <Text style={[styles.blockquoteText, { color: colors.ink2 }]}>
-                  {renderInline(block.text || '', colors, styles.blockquoteText)}
+                <Text style={[styles.blockquoteText, { color: colors.ink2, fontFamily: chatFontFamily }]}>
+                  {renderInline(block.text || '', colors, [styles.blockquoteText, { fontFamily: chatFontFamily }])}
                 </Text>
               </View>
             );
@@ -850,8 +857,8 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ conte
                 ]}
               >
                 <Text style={[styles.bulletDot, { color: colors.ink3 }]}>•</Text>
-                <Text style={[styles.bodyText, { color: colors.ink, flex: 1, paddingLeft: 6 }]}>
-                  {renderInline(block.text || '', colors, styles.bodyText)}
+                <Text style={[resolvedBodyTextStyle, { color: colors.ink, flex: 1, paddingLeft: 6 }]}>
+                  {renderInline(block.text || '', colors, resolvedBodyTextStyle)}
                 </Text>
               </View>
             );
@@ -868,8 +875,8 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ conte
                 <Text style={[styles.numberPrefix, { color: colors.ink3 }]}>
                   {block.prefix}
                 </Text>
-                <Text style={[styles.bodyText, { color: colors.ink, flex: 1, paddingLeft: 6 }]}>
-                  {renderInline(block.text || '', colors, styles.bodyText)}
+                <Text style={[resolvedBodyTextStyle, { color: colors.ink, flex: 1, paddingLeft: 6 }]}>
+                  {renderInline(block.text || '', colors, resolvedBodyTextStyle)}
                 </Text>
               </View>
             );
@@ -888,13 +895,13 @@ export const MarkdownAnswer: React.FC<MarkdownAnswerProps> = React.memo(({ conte
               <View key={`p-${idx}`} style={styles.paragraphWrapper}>
                 {onLongPress ? (
                   <Pressable onLongPress={onLongPress} delayLongPress={500}>
-                    <Text style={[styles.bodyText, { color: colors.ink }]}>
-                      {renderInline(block.text || '', colors, styles.bodyText)}
+                    <Text style={[resolvedBodyTextStyle, { color: colors.ink }]}>
+                      {renderInline(block.text || '', colors, resolvedBodyTextStyle)}
                     </Text>
                   </Pressable>
                 ) : (
-                  <Text style={[styles.bodyText, { color: colors.ink }]}>
-                    {renderInline(block.text || '', colors, styles.bodyText)}
+                  <Text style={[resolvedBodyTextStyle, { color: colors.ink }]}>
+                    {renderInline(block.text || '', colors, resolvedBodyTextStyle)}
                   </Text>
                 )}
               </View>

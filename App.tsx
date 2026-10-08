@@ -6,7 +6,6 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { AuthContainer } from '@/features/auth';
 import { AppShell } from '@/features/chat';
 import { StartupVideoScreen } from '@/components/common/StartupVideoScreen';
-import { getColors } from '@/theme';
 
 // Ignore non-fatal API key fallback and Expo Go media library warnings from showing up in the LogBox UI
 LogBox.ignoreLogs([
@@ -20,14 +19,21 @@ LogBox.ignoreLogs([
   'On iOS `VideoPlayer.replace` loads the asset data synchronously',
 ]);
 
+import { useColorScheme } from 'react-native';
+import { useThemeColors } from '@/theme';
+import { usePreferencesStore } from '@/stores/usePreferencesStore';
+
 function MainAppContent() {
-  const colors = getColors('dark', 'violet');
+  const colors = useThemeColors();
+  const themeMode = usePreferencesStore((s) => s.themeMode);
+  const systemScheme = useColorScheme();
+  const isDark = themeMode === 'system' ? systemScheme !== 'light' : themeMode !== 'light';
   const { currentUser, loading } = useAuth();
   const [hasStartupCompleted, setHasStartupCompleted] = useState<boolean>(false);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Main application tree: renders AuthContainer or AppShell */}
       {currentUser ? (

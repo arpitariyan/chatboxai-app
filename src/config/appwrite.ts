@@ -23,12 +23,25 @@ export const USAGE_LOGS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_USAGE_LOGS_COLLECTION_ID || 'usage_logs';
 export const SUBSCRIPTIONS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_SUBSCRIPTIONS_COLLECTION_ID || 'subscriptions';
+export const CONVERSATION_MEMORY_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_CONVERSATION_MEMORY_COLLECTION_ID || 'conversation_memory';
+export const API_KEYS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_API_KEYS_COLLECTION_ID || 'api_keys';
+export const API_CREDITS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_API_CREDITS_COLLECTION_ID || 'api_credits';
+export const API_CREDIT_TRANSACTIONS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_API_CREDIT_TRANSACTIONS_COLLECTION_ID || 'api_credit_transactions';
+export const LOGIN_ACTIVITY_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_LOGIN_ACTIVITY_COLLECTION_ID || 'login_activity';
 export const STORAGE_BUCKET_ID =
   process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
 export const APPWRITE_API_KEY =
   process.env.EXPO_PUBLIC_APPWRITE_API_KEY ||
   process.env.APPWRITE_API_KEY ||
   '';
+export const WEB_API_URL =
+  process.env.EXPO_PUBLIC_WEB_API_URL ||
+  'https://chatboxai.co.in';
 
 const client = new Client()
   .setEndpoint(APPWRITE_ENDPOINT)

@@ -66,7 +66,7 @@ import {
 } from '@/config/imageModels';
 import { ImageCard } from '@/components/image/ImageCard';
 import { AspectRatioSelector } from '@/components/image/AspectRatioSelector';
-import { ImageModelSelectorSheet } from '@/components/image/ImageModelSelectorSheet';
+import { ImageModelSelectorSheet, getImageModelLogo } from '@/components/image/ImageModelSelectorSheet';
 import { ImageSourceSheet } from '@/components/image/ImageSourceSheet';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
@@ -75,8 +75,12 @@ import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useThemeColors, typography, radius, spacing } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFadeGradientConfig } from '@/utils/gradientFade';
+import { checkDailyImageQuota, ImageQuotaResult } from '@/services/creditEngine';
+import { UpgradePlanModal } from '@/components/common/UpgradePlanModal';
+import { normalizePlan } from '@/config/subscriptionPlans';
 
-const logoImg = require('../../../assets/images/logo.png');
+const darkLogo = require('../../../assets/images/logo.png');
+const lightLogo = require('../../../assets/images/Chatboxai_logo_main.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KeyboardWrapper — exact mirror of ChatScreen's approach.
@@ -174,6 +178,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   onConversationTitleChange,
 }) => {
   const colors = useThemeColors();
+  const logoImg = colors.isDark ? darkLogo : lightLogo;
   const insets = useSafeAreaInsets();
   const { currentUser, userProfile } = useAuth();
   const inputRef = useRef<TextInput>(null);
@@ -199,6 +204,25 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
   const [isModelSheetOpen, setIsModelSheetOpen] = useState<boolean>(false);
   const [isSourceSheetOpen, setIsSourceSheetOpen] = useState<boolean>(false);
   const [isVoiceOpen, setIsVoiceOpen] = useState<boolean>(false);
+  const activeLogoInfo = useMemo(() => getImageModelLogo(selectedModel), [selectedModel]);
+
+  // ── Plan & Daily Image Quota ──────────────────────────────────────────────
+  const userPlan = normalizePlan(userProfile?.plan);
+  const [quotaInfo, setQuotaInfo] = useState<ImageQuotaResult | null>(null);
+  const [upgradeModalVisible, setUpgradeModalVisible] = useState<boolean>(false);
+
+  const loadQuota = useCallback(async () => {
+    try {
+      const q = await checkDailyImageQuota(userProfile);
+      setQuotaInfo(q);
+    } catch {
+      // non-fatal
+    }
+  }, [userProfile]);
+
+  useEffect(() => {
+    loadQuota();
+  }, [loadQuota]);
 
   // ── Speech-to-Text hook ───────────────────────────────────────────────────
   const {
@@ -489,6 +513,14 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         return;
       }
 
+      // Check daily image quota (10/day for Free plan, unlimited for Pro/Max)
+      const currentQuota = await checkDailyImageQuota(userProfile);
+      setQuotaInfo(currentQuota);
+      if (!currentQuota.canGenerate) {
+        setUpgradeModalVisible(true);
+        return;
+      }
+
       const refsToUse = overrideRefImages !== undefined ? overrideRefImages : referenceImages;
       const isImg2Img = refsToUse.length > 0;
 
@@ -614,6 +646,8 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
           switchToTextToImageModel();
           onConversationCreated?.(currentLibId, cleanPrompt);
           onConversationTitleChange?.(cleanPrompt);
+          // Refresh daily quota
+          checkDailyImageQuota(userProfile).then(setQuotaInfo).catch(() => {});
         } else {
           throw new Error('Image generation failed.');
         }
@@ -768,17 +802,29 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
             onPress={() => setIsModelSheetOpen(true)}
             style={({ pressed }) => [
               styles.modelPill,
-              { opacity: pressed ? 0.7 : 1 },
+              {
+                backgroundColor: colors.isDark ? '#1c1c1e' : colors.surface2,
+                borderColor: colors.isDark ? '#2c2c2e' : colors.line,
+                opacity: pressed ? 0.7 : 1,
+              },
             ]}
             hitSlop={4}
           >
+            <RNImage
+              source={activeLogoInfo.source}
+              style={[
+                styles.modelPillIcon,
+                activeLogoInfo.isChatGPT && { tintColor: colors.ink },
+              ]}
+              resizeMode="contain"
+            />
             <Text
-              style={styles.modelPillText}
+              style={[styles.modelPillText, { color: colors.ink }]}
               numberOfLines={1}
             >
               {selectedModel.name}
             </Text>
-            <IconChevronDown size={14} color="#8e8e93" />
+            <IconChevronDown size={13} color={colors.ink3} />
           </Pressable>
 
           <View style={styles.ratioWrapper}>
@@ -789,6 +835,33 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
               disabled={isGenerating}
             />
           </View>
+
+          {/* Quota Indicator */}
+          {userPlan === 'free' ? (
+            <Pressable
+              style={[
+                styles.quotaBadge,
+                {
+                  backgroundColor: colors.isDark ? '#202024' : colors.surface2,
+                  borderColor: colors.isDark ? '#2e2e34' : colors.line,
+                },
+                quotaInfo && !quotaInfo.canGenerate && styles.quotaBadgeExhausted,
+              ]}
+              onPress={() => setUpgradeModalVisible(true)}
+            >
+              <Text style={[styles.quotaBadgeText, { color: colors.ink2 }]}>
+                {quotaInfo
+                  ? quotaInfo.canGenerate
+                    ? `${quotaInfo.remaining}/10 left`
+                    : 'Limit reached'
+                  : '10/day'}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.quotaBadgePro}>
+              <Text style={styles.quotaBadgeProText}>✨ Unlimited</Text>
+            </View>
+          )}
         </View>
 
         {/* Reference images multi-strip */}
@@ -872,7 +945,15 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
         )}
 
         {/* Input bar */}
-        <View style={styles.inputBar}>
+        <View
+          style={[
+            styles.inputBar,
+            {
+              backgroundColor: colors.isDark ? '#1c1c1e' : colors.surface2,
+              borderColor: colors.isDark ? '#2c2c2e' : colors.line,
+            },
+          ]}
+        >
           {isListening || isTranscribing ? (
             <VoiceWaveformBar
               isListening={isListening}
@@ -901,13 +982,13 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                 {referenceImages.length > 0 ? (
                   <IconWand size={18} color="#000000" strokeWidth={2.2} />
                 ) : (
-                  <IconPlus size={22} color="#8e8e93" />
+                  <IconPlus size={22} color={colors.ink2} />
                 )}
               </Pressable>
 
               <TextInput
                 ref={inputRef}
-                style={[styles.input, { color: '#ffffff' }]}
+                style={[styles.input, { color: colors.ink }]}
                 placeholder={
                   referenceImages.length > 0
                     ? referenceImages.length === 1
@@ -915,7 +996,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                       : `Describe changes across ${referenceImages.length} images...`
                     : 'Generate Image'
                 }
-                placeholderTextColor="#8e8e93"
+                placeholderTextColor={colors.ink3}
                 value={promptText}
                 onChangeText={setPromptText}
                 multiline
@@ -935,7 +1016,7 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                   ]}
                   accessibilityLabel="Dictate prompt with voice"
                 >
-                  <IconMicrophone size={20} color="#8e8e93" />
+                  <IconMicrophone size={20} color={colors.ink2} />
                 </Pressable>
 
                 <Pressable
@@ -947,7 +1028,9 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
                     {
                       backgroundColor: promptText.trim()
                         ? colors.accent
-                        : '#2c2c2e',
+                        : colors.isDark
+                          ? '#2c2c2e'
+                          : colors.line,
                       opacity: pressed
                         ? 0.8
                         : promptText.trim()
@@ -1002,6 +1085,17 @@ export const ImageGenScreen: React.FC<ImageGenScreenProps> = ({
       <VoiceOverlay
         visible={isVoiceOpen}
         onClose={() => setIsVoiceOpen(false)}
+      />
+
+      {/* Plan upgrade modal */}
+      <UpgradePlanModal
+        visible={upgradeModalVisible}
+        onClose={() => setUpgradeModalVisible(false)}
+        targetFeatureName="Unlimited Image Generation"
+        recommendedPlan="pro"
+        onSuccess={() => {
+          checkDailyImageQuota(userProfile).then(setQuotaInfo).catch(() => {});
+        }}
       />
     </KeyboardWrapper>
   );
@@ -1086,25 +1180,68 @@ const styles = StyleSheet.create({
   modelPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: radius.full,
     backgroundColor: '#1c1c1e',
     borderWidth: 1,
     borderColor: '#2c2c2e',
     gap: 4,
-    minHeight: 30,
-    maxWidth: 160,
+    minHeight: 28,
+    maxWidth: 175,
+  },
+  modelPillIcon: {
+    width: 15,
+    height: 15,
+    borderRadius: 3.5,
+    marginRight: 1,
+  },
+  chatgptIconTint: {
+    tintColor: '#ffffff',
   },
   modelPillText: {
-    color: '#8e8e93',
+    color: '#ffffff',
     fontSize: typography.fontSize.xs,
     fontWeight: '500',
-    marginRight: 2,
+    flexShrink: 1,
   },
   ratioWrapper: {
     flex: 1,
     alignItems: 'flex-end',
+  },
+  quotaBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    borderRadius: radius.full,
+    backgroundColor: '#202024',
+    borderWidth: 1,
+    borderColor: '#2e2e34',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quotaBadgeExhausted: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  quotaBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+  quotaBadgePro: {
+    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quotaBadgeProText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#60a5fa',
   },
   referenceStripContainer: {
     paddingVertical: spacing.xs,

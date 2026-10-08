@@ -331,6 +331,27 @@ export async function callOpenAICompat(
     });
   }
 
+  // If OpenRouter returns 402 because requested tokens exceed affordable balance, retry with affordable tokens
+  if (!response.ok && response.status === 402 && providerLabel.includes('openrouter')) {
+    const errText = await response.text();
+    const match = errText.match(/afford (\d+)/);
+    const affordableTokens = match ? parseInt(match[1], 10) : 512;
+    if (affordableTokens > 100 && payload.max_tokens > affordableTokens) {
+      console.warn(`[ChatboxAI] [${providerLabel}] 402 credit limit, auto-retrying with affordable max_tokens (${payload.max_tokens} -> ${affordableTokens})...`);
+      payload.max_tokens = Math.max(128, affordableTokens - 50);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      throw new Error(`[${providerLabel}] API error: 402 ${errText}`);
+    }
+  }
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`[${providerLabel}] API error: ${response.status} ${errorText}`);
@@ -349,6 +370,151 @@ export async function callOpenAICompat(
       prompt_tokens: data.usage?.prompt_tokens ?? 0,
       completion_tokens: data.usage?.completion_tokens ?? 0,
       total_tokens: data.usage?.total_tokens ?? 0,
+    },
+  };
+}
+
+export async function callReplicateProvider(
+  modelApi: string,
+  messages: LLMMessage[],
+  options: LLMOptions,
+  apiKey: string
+): Promise<LLMResponse> {
+  const url = `https://api.replicate.com/v1/models/${modelApi}/predictions`;
+
+  // 1. Build prompt and system prompt
+  const effortSuffix = getEffortSystemSuffix(options.effortLevel);
+  const thinkingSuffix = getThinkingModeSuffix(
+    options.thinkingMode,
+    options.queryComplexity || 'MODERATE',
+    options.effortLevel || 'Low'
+  );
+  const existingSystem = messages.find(m => m.role === 'system');
+  const systemBase = options.system || (existingSystem ? String(existingSystem.content) : '');
+  const systemPrompt = (systemBase + effortSuffix + thinkingSuffix).trim();
+
+  const nonSystem = messages.filter(m => m.role !== 'system');
+  let prompt = '';
+  let imageUrl: string | undefined = undefined;
+
+  if (nonSystem.length === 1 && nonSystem[0].role === 'user') {
+    const c = nonSystem[0].content;
+    if (typeof c === 'string') {
+      prompt = c;
+    } else if (Array.isArray(c)) {
+      const texts: string[] = [];
+      for (const part of c) {
+        if (part.type === 'text') texts.push(part.text);
+        if (part.type === 'image_url' && !imageUrl) imageUrl = part.image_url.url;
+      }
+      prompt = texts.join('\n');
+    }
+  } else {
+    const turns: string[] = [];
+    for (const m of nonSystem) {
+      const role = m.role === 'user' ? 'User' : 'Assistant';
+      const c = m.content;
+      let text = '';
+      if (typeof c === 'string') {
+        text = c;
+      } else if (Array.isArray(c)) {
+        const parts: string[] = [];
+        for (const p of c) {
+          if (p.type === 'text') parts.push(p.text);
+          if (p.type === 'image_url' && !imageUrl) imageUrl = p.image_url.url;
+        }
+        text = parts.join('\n');
+      }
+      turns.push(`${role}: ${text}`);
+    }
+    if (nonSystem[nonSystem.length - 1]?.role === 'user') {
+      turns.push('Assistant:');
+    }
+    prompt = turns.join('\n\n');
+  }
+
+  const modelParams = resolveModelParameters(modelApi, options);
+  // Replicate Anthropic/OpenAI schema requires integer max_tokens >= 1024
+  const resolvedMaxTokens = Math.max(1024, modelParams.max_tokens);
+
+  const inputPayload: Record<string, any> = {
+    prompt,
+  };
+
+  if (systemPrompt) {
+    inputPayload.system_prompt = systemPrompt;
+  }
+
+  // Model-specific parameter naming on Replicate
+  if (modelApi.startsWith('openai/')) {
+    inputPayload.max_completion_tokens = resolvedMaxTokens;
+  } else {
+    inputPayload.max_tokens = resolvedMaxTokens;
+  }
+
+  if (imageUrl) {
+    inputPayload.image = imageUrl;
+  }
+
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'wait=60',
+    },
+    body: JSON.stringify({ input: inputPayload }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`[replicate] API error: ${response.status} ${errorText}`);
+  }
+
+  let data = await response.json();
+
+  // If status is starting or processing (long generation > 60s), poll urls.get
+  let attempts = 0;
+  while (
+    (data.status === 'starting' || data.status === 'processing') &&
+    data.urls?.get &&
+    attempts < 40
+  ) {
+    await new Promise(r => setTimeout(r, 1500));
+    const pollRes = await fetch(data.urls.get, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (pollRes.ok) {
+      data = await pollRes.json();
+    }
+    attempts++;
+  }
+
+  if (data.status === 'failed' || data.status === 'canceled') {
+    throw new Error(data.error || `[replicate] Prediction ${data.status}`);
+  }
+
+  let textContent = '';
+  if (Array.isArray(data.output)) {
+    textContent = data.output.join('');
+  } else if (typeof data.output === 'string') {
+    textContent = data.output;
+  }
+
+  const promptTokens = Math.ceil(prompt.length / 4);
+  const completionTokens = Math.ceil(textContent.length / 4);
+
+  return {
+    provider: 'replicate',
+    choices: [{
+      message: { role: 'assistant', content: textContent },
+      finish_reason: 'stop',
+      index: 0,
+    }],
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
     },
   };
 }

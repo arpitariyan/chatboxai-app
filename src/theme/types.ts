@@ -61,6 +61,7 @@ export interface ThemeColors {
   page: string;
   canvas: string;
   surface: string;
+  surface2: string;
   inset: string;
   hover: string;
   hover2: string;
@@ -68,7 +69,9 @@ export interface ThemeColors {
   ink2: string;
   ink3: string;
   line: string;
+  line2: string;
   lineStrong: string;
+  isDark: boolean;
 }
 
 export interface ThemeSpacing {

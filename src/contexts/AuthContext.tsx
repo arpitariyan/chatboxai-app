@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import {
@@ -28,6 +28,7 @@ import {
   sendSignupOtp,
   verifySignupOtp,
 } from '@/services/otpService';
+import { usePreferencesStore } from '@/stores/usePreferencesStore';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -45,7 +46,7 @@ interface AuthContextType {
   requestPasswordResetOtp: (email: string) => Promise<{ success: boolean; devOtp?: string }>;
   confirmPasswordResetOtp: (email: string, otp: string, newPassword?: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<UserProfile | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,10 +70,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Sync profile from Appwrite database whenever Firebase user changes
-  const fetchAndSyncProfile = async (user: User | null) => {
+  const fetchAndSyncProfile = async (user: User | null): Promise<UserProfile | null> => {
     if (!user || !user.email) {
       setUserProfile(null);
-      return;
+      return null;
     }
     try {
       const profile = await getCanonicalUserByEmail(
@@ -81,10 +82,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         true
       );
       setUserProfile(profile);
+      if (profile) {
+        usePreferencesStore.getState().syncFromUserProfile(profile);
+      }
+      return profile || null;
     } catch (err: any) {
       console.warn('[AuthProvider] Failed to sync Appwrite profile:', err?.message || err);
+      return null;
     }
   };
+
+  // Automatically re-sync profile and active subscription from database whenever the app returns to foreground
+  // (e.g. after the user completes payment on chatboxai.co.in in the browser)
+  useEffect(() => {
+    let lastSyncTimestamp = 0;
+    const subscription = AppState.addEventListener('change', async (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        const now = Date.now();
+        // Throttle auto-sync to at most once every 2 seconds
+        if (now - lastSyncTimestamp > 2000) {
+          lastSyncTimestamp = now;
+          const user = auth.currentUser || currentUser;
+          if (user) {
+            console.log('[AuthProvider] App resumed to active state: auto-syncing subscription and profile...');
+            await fetchAndSyncProfile(user);
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -351,10 +381,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const refreshProfile = async () => {
-    if (currentUser) {
-      await fetchAndSyncProfile(currentUser);
+  const refreshProfile = async (): Promise<UserProfile | null> => {
+    const user = auth.currentUser || currentUser;
+    if (user) {
+      return await fetchAndSyncProfile(user);
     }
+    return null;
   };
 
   return (

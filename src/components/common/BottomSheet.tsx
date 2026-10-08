@@ -1,11 +1,12 @@
-import React from 'react';
+﻿import React from 'react';
 import {
   StyleSheet,
   Text,
   View,
   Modal,
   Pressable,
-  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconX } from '@tabler/icons-react-native';
@@ -37,7 +38,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = React.memo(({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onClose}
@@ -72,7 +73,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = React.memo(({
           {/* Sheet Body Content */}
           <View style={styles.content}>{children}</View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 });

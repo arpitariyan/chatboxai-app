@@ -84,12 +84,12 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = React.memo(({
     const errToRgb = hexToRgb(ERROR_COLOR_TO);
 
     return {
-      // 4 Tone Buckets from Shadow Teal to Bright Cyan
+      // 4 Tone Buckets from Shadow Hue to Bright Highlight
       tones: [
-        rgba(mixRgb(fromRgb, toRgb, 1.0), 0.98), // Bucket 0: Highlight Cyan
-        rgba(mixRgb(fromRgb, toRgb, 0.72), 0.90), // Bucket 1: Bright Emerald
-        rgba(mixRgb(fromRgb, toRgb, 0.40), 0.72), // Bucket 2: Medium Emerald
-        rgba(mixRgb(fromRgb, [0, 50, 44], 0.6), 0.44), // Bucket 3: Deep Teal
+        rgba(mixRgb(fromRgb, toRgb, 1.0), 0.98), // Bucket 0: Highlight
+        rgba(mixRgb(fromRgb, toRgb, 0.72), 0.90), // Bucket 1: Bright Hue
+        rgba(mixRgb(fromRgb, toRgb, 0.40), 0.72), // Bucket 2: Medium Hue
+        rgba(mixRgb(fromRgb, [0, 0, 0], 0.65), 0.44), // Bucket 3: Deep Ambient Shadow
       ],
       // Error Tones
       errorTones: [
