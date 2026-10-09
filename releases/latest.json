@@ -13,8 +13,8 @@
     "Direct in-app auto-update installer with cryptographic SHA-256 verification"
   ],
   "apkUrl": "https://github.com/arpitariyan/chatboxai-app/releases/download/v1.0.1/chatboxai-v1.0.1.apk",
-  "sha256": "9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca72",
-  "size": 32500000,
+  "sha256": "b6a1fad8e70ebb40d658e947f21dff9ff5077647d06b70471ca71c91a091d168",
+  "size": 95316626,
   "releaseId": "v1.0.1",
-  "publishedAt": "2026-10-09T08:00:00.000Z"
+  "publishedAt": "2026-10-09T09:48:11.458Z"
 }
