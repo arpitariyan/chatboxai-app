@@ -17,7 +17,7 @@ const isDev = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : false;
 
 export const apiClient = axios.create({
   baseURL: resolveBackendBaseUrl(),
-  timeout: 8000, // Fast 8s timeout prevents network hangs & UI freezes
+  timeout: 20000, // 20s timeout ensures reliability on mobile networks & server cold-starts
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',

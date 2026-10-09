@@ -33,10 +33,12 @@ yarn-error.*
 *.pem
 
 # local env and secret files
+.env
 .env.*
 .env*.local
 .env.local
 .env.production
+!.env.example
 *.keystore
 
 # typescript

@@ -61,7 +61,12 @@ const withSecurityHardening = (config) => {
 -keep class androidx.security.crypto.** { *; }
 -keep class expo.modules.securestore.** { *; }
 
-# Protect OkHttp & network models
+# Protect OkHttp, Okio & React Native networking stack from R8 stripping
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keep class okio.** { *; }
+-keep interface okio.** { *; }
+-keep class com.facebook.react.modules.network.** { *; }
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn com.facebook.react.**
@@ -90,7 +95,7 @@ const withSecurityHardening = (config) => {
         // Ignored during standard export if android directory not prebuilt yet
       }
 
-      // 2. Android Network Security Configuration XML
+      // 2. Android Network Security Configuration XML (Universal HTTPS & Trust Anchors)
       const resXmlDir = path.join(
         config.modRequest.platformProjectRoot,
         'app',
@@ -102,23 +107,13 @@ const withSecurityHardening = (config) => {
 
       const networkSecurityXml = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Base config: Cleartext traffic is strictly forbidden in production -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Base config: Universal trusted HTTPS with system and user CA cert support across Android 7-15 -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
-
-    <!-- Specific secure domains -->
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">chatboxai.co.in</domain>
-        <domain includeSubdomains="true">api-mobile.chatboxai.co.in</domain>
-        <domain includeSubdomains="true">cloud.appwrite.io</domain>
-        <domain includeSubdomains="true">firebaseio.com</domain>
-        <domain includeSubdomains="true">googleapis.com</domain>
-    </domain-config>
-
-    <!-- Debug overrides: Permit localhost/LAN only in debug builds -->
     <debug-overrides>
         <trust-anchors>
             <certificates src="system" />
@@ -142,26 +137,35 @@ const withSecurityHardening = (config) => {
     },
   ]);
 
-  // 3. AndroidManifest: Attach security attributes & auto-update install permission
+  // 3. AndroidManifest: Attach security attributes & mandatory network/update permissions
   config = withAndroidManifest(config, async (config) => {
     const mainApplication = config.modResults.manifest.application?.[0];
     if (mainApplication) {
       mainApplication.$['android:networkSecurityConfig'] = '@xml/network_security_config';
+      mainApplication.$['android:usesCleartextTraffic'] = 'true';
       mainApplication.$['android:allowBackup'] = 'false';
       mainApplication.$['android:extractNativeLibs'] = 'false';
     }
 
-    // Ensure REQUEST_INSTALL_PACKAGES permission for seamless Android 8.0+ self-updates
+    // Ensure essential network and self-update permissions
     if (!config.modResults.manifest['uses-permission']) {
       config.modResults.manifest['uses-permission'] = [];
     }
-    const hasInstallPermission = config.modResults.manifest['uses-permission'].some(
-      (p) => p.$['android:name'] === 'android.permission.REQUEST_INSTALL_PACKAGES'
-    );
-    if (!hasInstallPermission) {
-      config.modResults.manifest['uses-permission'].push({
-        $: { 'android:name': 'android.permission.REQUEST_INSTALL_PACKAGES' },
-      });
+    const permissionsToAdd = [
+      'android.permission.INTERNET',
+      'android.permission.ACCESS_NETWORK_STATE',
+      'android.permission.REQUEST_INSTALL_PACKAGES',
+    ];
+
+    for (const perm of permissionsToAdd) {
+      const exists = config.modResults.manifest['uses-permission'].some(
+        (p) => p.$['android:name'] === perm
+      );
+      if (!exists) {
+        config.modResults.manifest['uses-permission'].push({
+          $: { 'android:name': perm },
+        });
+      }
     }
 
     return config;

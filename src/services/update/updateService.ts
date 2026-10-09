@@ -229,22 +229,51 @@ class UpdateService {
         const res = await downloadResumable.downloadAsync();
         this.activeDownload = null;
 
-        if (!res || !res.uri) {
-          throw new Error('Download did not return a valid file URI.');
+        if (!res || !res.uri || (res.status && res.status !== 200)) {
+          const exists = await FileSystem.getInfoAsync(targetFile).then((i) => i.exists).catch(() => false);
+          if (exists) {
+            await FileSystem.deleteAsync(targetFile, { idempotent: true });
+          }
+          throw new Error(
+            res?.status === 404
+              ? 'APK package not found on server (404). Please ensure repository is public.'
+              : `Download failed with HTTP ${res?.status || 'error'}`
+          );
         }
       } catch (dlErr: any) {
         this.activeDownload = null;
-        console.error('[UpdateService] Download failed:', dlErr);
-        // Fallback to browser download if in-app download failed
-        await Linking.openURL(manifest.apkUrl);
-        return false;
+        console.error('[UpdateService] Download failed:', dlErr?.message || dlErr);
+        const exists = await FileSystem.getInfoAsync(targetFile).then((i) => i.exists).catch(() => false);
+        if (exists) {
+          await FileSystem.deleteAsync(targetFile, { idempotent: true });
+        }
+        throw dlErr;
       }
     }
 
-    // 4. Verify Integrity (File exists and has expected size/content)
+    // 4. Verify Integrity (File exists, minimum APK size > 5MB, and APK ZIP magic header)
     const finalInfo = await FileSystem.getInfoAsync(targetFile);
-    if (!finalInfo.exists || finalInfo.size === 0) {
-      throw new Error('Downloaded APK file is corrupt or zero bytes.');
+    if (!finalInfo.exists || !finalInfo.size || finalInfo.size < 5 * 1024 * 1024) {
+      if (finalInfo.exists) {
+        await FileSystem.deleteAsync(targetFile, { idempotent: true });
+      }
+      throw new Error('Downloaded APK is incomplete or invalid (size less than 5 MB).');
+    }
+
+    // Verify APK ZIP signature (Starts with PK\x03\x04 -> Base64 'UEsD')
+    try {
+      const header = await FileSystem.readAsStringAsync(targetFile, {
+        encoding: FileSystem.EncodingType.Base64,
+        length: 8,
+      });
+      if (header && !header.startsWith('UEsD')) {
+        await FileSystem.deleteAsync(targetFile, { idempotent: true });
+        throw new Error('Downloaded file is not a valid Android APK archive.');
+      }
+    } catch (headErr: any) {
+      if (headErr?.message?.includes('not a valid Android APK')) {
+        throw headErr;
+      }
     }
 
     // 5. Launch Android System Package Installer
@@ -253,7 +282,7 @@ class UpdateService {
 
       await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
         data: contentUri,
-        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        flags: 1 | 268435456, // FLAG_GRANT_READ_URI_PERMISSION | FLAG_ACTIVITY_NEW_TASK
         type: 'application/vnd.android.package-archive',
       });
       return true;
