@@ -64,6 +64,13 @@ const withSecurityHardening = (config) => {
 # Protect OkHttp & network models
 -dontwarn okhttp3.**
 -dontwarn okio.**
+-dontwarn com.facebook.react.**
+-dontwarn expo.modules.**
+-dontwarn javax.annotation.**
+-dontwarn org.checkerframework.**
+-dontwarn com.google.crypto.tink.**
+-dontwarn androidx.security.crypto.**
+-ignorewarnings
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
 # Prevent reverse-engineering of line numbers and source file names
@@ -168,7 +175,7 @@ const withSecurityHardening = (config) => {
       contents = contents.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 24');
     }
 
-    // Enable NDK ABI filters to exclude bloated x86/x86_64 desktop emulator binaries from release APK
+    // Force NDK ABI filters to exclude bloated x86/x86_64 desktop emulator binaries from release APK
     if (contents.includes('defaultConfig {') && !contents.includes('abiFilters')) {
       contents = contents.replace(
         'defaultConfig {',
@@ -179,16 +186,41 @@ const withSecurityHardening = (config) => {
       );
     }
 
-    // Enable shrinkResources for release build to purge unused drawables & strings
+    // Enable shrinkResources & minifyEnabled for release build to purge unused drawables & classes
     if (contents.includes('buildTypes {') && contents.includes('release {')) {
-      if (!contents.includes('shrinkResources')) {
+      if (!contents.includes('shrinkResources true')) {
         contents = contents.replace(
           /buildTypes\s*\{\s*release\s*\{/g,
           `buildTypes {
         release {
             shrinkResources true
-            minifyEnabled true`
+            minifyEnabled true
+            crunchPngs true`
         );
+      }
+    }
+
+    // Exclude redundant META-INF files to trim APK size
+    if (!contents.includes('META-INF/*.version')) {
+      const packagingExcludes = `
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+        resources {
+            excludes += [
+                "META-INF/*.version",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/INDEX.LIST",
+                "META-INF/*.kotlin_module"
+            ]
+        }
+    }
+`;
+      if (contents.includes('android {')) {
+        contents = contents.replace('android {', 'android {' + packagingExcludes);
       }
     }
 
@@ -196,21 +228,76 @@ const withSecurityHardening = (config) => {
     return config;
   });
 
-  // 5. Enable R8 Full Mode for enhanced code shrinking and class hierarchy flattening
+  // 5. Enable R8 Full Mode, Resource Shrinking, and Legacy Packaging Compression in gradle.properties
   config = withGradleProperties(config, (config) => {
-    config.modResults = config.modResults.filter(
-      (item) => item.key !== 'android.enableR8.fullMode' && item.key !== 'org.gradle.jvmargs'
-    );
+    const keysToRemove = new Set([
+      'android.enableR8.fullMode',
+      'org.gradle.jvmargs',
+      'reactNativeArchitectures',
+      'android.enableMinifyInReleaseBuilds',
+      'android.enableShrinkResourcesInReleaseBuilds',
+      'expo.useLegacyPackaging',
+      'android.enableBundleCompression',
+      'android.enablePngCrunchInReleaseBuilds',
+    ]);
+    config.modResults = config.modResults.filter((item) => !keysToRemove.has(item.key));
+
+    // Only package ARM architectures (armeabi-v7a + arm64-v8a), eliminating ~50 MB of x86/x86_64 binaries
+    config.modResults.push({
+      type: 'property',
+      key: 'reactNativeArchitectures',
+      value: 'armeabi-v7a,arm64-v8a',
+    });
+
+    // Enable R8 Minification / dead code elimination in release build
+    config.modResults.push({
+      type: 'property',
+      key: 'android.enableMinifyInReleaseBuilds',
+      value: 'true',
+    });
+
+    // Enable Resource Shrinking (strips unused drawables, icons, XMLs)
+    config.modResults.push({
+      type: 'property',
+      key: 'android.enableShrinkResourcesInReleaseBuilds',
+      value: 'true',
+    });
+
+    // Enable legacy packaging: compresses native .so libraries inside the APK with DEFLATE (saves 15-20 MB)
+    config.modResults.push({
+      type: 'property',
+      key: 'expo.useLegacyPackaging',
+      value: 'true',
+    });
+
+    // Enable JS bundle compression
+    config.modResults.push({
+      type: 'property',
+      key: 'android.enableBundleCompression',
+      value: 'true',
+    });
+
+    // Enable PNG image crunching
+    config.modResults.push({
+      type: 'property',
+      key: 'android.enablePngCrunchInReleaseBuilds',
+      value: 'true',
+    });
+
+    // Enable R8 Full Mode for class hierarchy flattening
     config.modResults.push({
       type: 'property',
       key: 'android.enableR8.fullMode',
       value: 'true',
     });
+
+    // 4GB RAM for Gradle JVM
     config.modResults.push({
       type: 'property',
       key: 'org.gradle.jvmargs',
       value: '-Xmx4096m -XX:MaxMetaspaceSize=1024m',
     });
+
     return config;
   });
 

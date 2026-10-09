@@ -90,9 +90,9 @@ jobs:
       - name: 9. Build Standalone Compressed Release APK
         working-directory: android
         run: |
-          echo "Building optimized release APK with R8 Full Mode & ABI Filtering..."
+          echo "Building optimized release APK with R8 Full Mode, Resource Shrinking & ARM ABI Filtering..."
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m" -PreactNativeArchitectures=armeabi-v7a,arm64-v8a -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Pexpo.useLegacyPackaging=true -Pandroid.enableBundleCompression=true
 
       - name: 10. Locate and Verify Generated APK
         id: apk_info

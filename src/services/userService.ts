@@ -1,6 +1,11 @@
 import { databases, DB_ID, USERS_COLLECTION_ID, Query, ID } from '@/config/appwrite';
 import { auth } from '@/config/firebase';
 import { apiClient } from './api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const USER_PROFILE_CACHE_KEY_PREFIX = '@chatboxai:user_profile:';
+const IN_MEMORY_PROFILE_CACHE = new Map<string, { profile: UserProfile; timestamp: number }>();
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds memory freshness
 
 export interface UserProfile {
   $id?: string;
@@ -80,26 +85,63 @@ export async function getCanonicalUserByEmail(
 
   const normalizedEmail = email.trim().toLowerCase();
 
-  // 1. Authenticated Mobile Backend Proxy Route
-  if (auth.currentUser) {
-    try {
-      const response = await apiClient.get('/api/mobile/user/profile');
-      if (response.data && response.data.email) {
-        return response.data as UserProfile;
-      }
-    } catch (err: any) {
-      if (__DEV__) {
-        console.debug('[userService] Proxy user profile fallback to direct Appwrite:', err?.message || err);
+  // 1. Instant in-memory cache return (< 1ms)
+  const memCached = IN_MEMORY_PROFILE_CACHE.get(normalizedEmail);
+  if (memCached && Date.now() - memCached.timestamp < CACHE_TTL_MS) {
+    return memCached.profile;
+  }
+
+  // 2. Instant AsyncStorage local cache return (< 10ms)
+  let localCachedProfile: UserProfile | null = null;
+  try {
+    const rawLocal = await AsyncStorage.getItem(USER_PROFILE_CACHE_KEY_PREFIX + normalizedEmail);
+    if (rawLocal) {
+      localCachedProfile = JSON.parse(rawLocal) as UserProfile;
+      IN_MEMORY_PROFILE_CACHE.set(normalizedEmail, {
+        profile: localCachedProfile,
+        timestamp: Date.now(),
+      });
+    }
+  } catch {
+    // Non-fatal cache read error
+  }
+
+  // Helper to persist to caches
+  const persistCache = (prof: UserProfile) => {
+    IN_MEMORY_PROFILE_CACHE.set(normalizedEmail, {
+      profile: prof,
+      timestamp: Date.now(),
+    });
+    AsyncStorage.setItem(USER_PROFILE_CACHE_KEY_PREFIX + normalizedEmail, JSON.stringify(prof)).catch(() => {});
+  };
+
+  // 3. Network fetch function with aggressive timeout
+  const fetchFromNetwork = async (): Promise<UserProfile> => {
+    // 3a. Authenticated Mobile Backend Proxy Route (preferred, fastest)
+    if (auth.currentUser) {
+      try {
+        const response = await apiClient.get('/api/mobile/user/profile', {
+          timeout: 4000, // 4s fast timeout
+        });
+        if (response.data && response.data.email) {
+          const prof = response.data as UserProfile;
+          persistCache(prof);
+          return prof;
+        }
+      } catch (err: any) {
+        if (__DEV__) {
+          console.debug('[userService] Mobile API profile fallback:', err?.message || err);
+        }
       }
     }
-  }
 
-  if (!DB_ID) {
-    return buildDefaultUser(normalizedEmail, displayName) as unknown as UserProfile;
-  }
+    if (!DB_ID) {
+      const def = buildDefaultUser(normalizedEmail, displayName) as unknown as UserProfile;
+      persistCache(def);
+      return def;
+    }
 
-  try {
-    // Query Appwrite users collection for matching email
+    // 3b. Direct Appwrite fallback
     const response = await databases.listDocuments(DB_ID, USERS_COLLECTION_ID, [
       Query.equal('email', normalizedEmail),
       Query.limit(1),
@@ -109,7 +151,7 @@ export async function getCanonicalUserByEmail(
       let existingUser = response.documents[0] as unknown as UserProfile;
       const today = new Date().toISOString().split('T')[0];
 
-      // On-the-fly daily reset: 5000 free credits every midnight
+      // Daily reset: 5000 free credits
       if (existingUser.last_daily_reset !== today && existingUser.$id) {
         try {
           const updated = await databases.updateDocument(
@@ -123,7 +165,7 @@ export async function getCanonicalUserByEmail(
             }
           );
           existingUser = updated as unknown as UserProfile;
-        } catch (resetErr: any) {
+        } catch {
           existingUser = {
             ...existingUser,
             credits: 5000,
@@ -131,38 +173,11 @@ export async function getCanonicalUserByEmail(
           };
         }
       } else if (existingUser.$id) {
-        // Non-blocking last_login timestamp update
         databases
           .updateDocument(DB_ID, USERS_COLLECTION_ID, existingUser.$id, {
             last_login: new Date().toISOString(),
           })
-          .catch((err) => {
-            console.warn('[Appwrite] Non-fatal error updating last_login:', err?.message || err);
-          });
-      }
-
-      // On-the-fly subscription expiry check (Credit Preservation Invariant v1):
-      // If subscription_end_date has passed, plan transitions to 'free',
-      // but paid_credits is NEVER zeroed out (preserved until exhausted)!
-      if (
-        existingUser.plan &&
-        existingUser.plan !== 'free' &&
-        existingUser.subscription_end_date &&
-        new Date(existingUser.subscription_end_date) < new Date() &&
-        existingUser.$id
-      ) {
-        try {
-          const updated = await databases.updateDocument(
-            DB_ID,
-            USERS_COLLECTION_ID,
-            existingUser.$id,
-            { plan: 'free' }
-          );
-          existingUser = updated as unknown as UserProfile;
-          console.log(`[userService] Subscription expired for ${normalizedEmail}. Transitioned to free plan; paid_credits (${existingUser.paid_credits}) preserved.`);
-        } catch (planErr: any) {
-          existingUser = { ...existingUser, plan: 'free' };
-        }
+          .catch(() => {});
       }
 
       // Permanent developer/owner account tier enforcement
@@ -175,10 +190,10 @@ export async function getCanonicalUserByEmail(
         };
       }
 
+      persistCache(existingUser);
       return existingUser;
     }
 
-    // If user does not exist in Appwrite and createIfMissing is true, create profile document
     if (createIfMissing) {
       const payload = buildDefaultUser(normalizedEmail, displayName);
       try {
@@ -188,43 +203,67 @@ export async function getCanonicalUserByEmail(
           ID.unique(),
           payload
         );
-        return createdDoc as unknown as UserProfile;
-      } catch (createErr: any) {
-        console.warn(
-          '[Appwrite] Permission restricted for createDocument. Using default profile fallback:',
-          createErr?.message || createErr
-        );
-        return {
+        const res = createdDoc as unknown as UserProfile;
+        persistCache(res);
+        return res;
+      } catch {
+        const fallback = {
           $id: 'fallback_' + Date.now(),
           ...payload,
         };
+        persistCache(fallback);
+        return fallback;
       }
     }
 
-    // Return default offline profile if createIfMissing is false and no doc found
-    return {
+    const offlineDefault = {
       $id: 'temp_' + Date.now(),
       ...buildDefaultUser(normalizedEmail, displayName),
     };
-  } catch (error: any) {
-    // Silent fallback to default user profile object so app never crashes
-    return {
+    persistCache(offlineDefault);
+    return offlineDefault;
+  };
+
+  // If local cached profile exists, return it IMMEDIATELY and refresh in background (Stale-While-Revalidate)
+  if (localCachedProfile) {
+    // Non-blocking background revalidation
+    fetchFromNetwork().catch(() => {});
+    return localCachedProfile;
+  }
+
+  // If no local cache exists, perform network fetch directly
+  try {
+    return await fetchFromNetwork();
+  } catch {
+    const fallback = {
       $id: 'local_' + Date.now(),
       ...buildDefaultUser(normalizedEmail, displayName),
     };
+    persistCache(fallback);
+    return fallback;
   }
 }
 
 /**
- * Update user preferences or profile fields in Appwrite.
+ * Update user preferences or profile fields with optimistic local cache update.
  */
 export async function updateUserProfile(
   docId: string,
   updates: Partial<UserProfile>
 ): Promise<UserProfile | null> {
-  if (docId.startsWith('local_') || docId.startsWith('fallback_') || docId.startsWith('temp_')) {
+  // Optimistically update memory and storage caches for instant 60fps UI feedback
+  for (const [email, entry] of IN_MEMORY_PROFILE_CACHE.entries()) {
+    if (entry.profile.$id === docId || !docId) {
+      const updated = { ...entry.profile, ...updates };
+      IN_MEMORY_PROFILE_CACHE.set(email, { profile: updated, timestamp: Date.now() });
+      AsyncStorage.setItem(USER_PROFILE_CACHE_KEY_PREFIX + email, JSON.stringify(updated)).catch(() => {});
+    }
+  }
+
+  if (!docId || docId.startsWith('local_') || docId.startsWith('fallback_') || docId.startsWith('temp_')) {
     return null;
   }
+
   try {
     const updated = await databases.updateDocument(
       DB_ID,

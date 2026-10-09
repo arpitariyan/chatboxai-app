@@ -13,6 +13,7 @@ import {
 import { auth } from '@/config/firebase';
 import { apiClient } from './api/client';
 import { assertNoBinaryPayload } from '../utils/attachments';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface ConversationItem {
   libId: string;
@@ -101,11 +102,15 @@ interface CacheEntry<T> {
 
 const CONVERSATIONS_CACHE = new Map<string, CacheEntry<ConversationItem[]>>();
 const CONVERSATIONS_IN_FLIGHT = new Map<string, Promise<ConversationItem[]>>();
-const CONVERSATION_CACHE_TTL_MS = 25 * 1000; // 25 seconds cache
+const CONVERSATION_CACHE_TTL_MS = 30 * 1000; // 30 seconds memory freshness
+const CONVERSATIONS_STORAGE_PREFIX = '@chatboxai:conversations:';
+const CHATS_STORAGE_PREFIX = '@chatboxai:chats:';
 
 export function clearConversationsCache(userEmail?: string) {
   if (userEmail) {
-    CONVERSATIONS_CACHE.delete(userEmail.trim().toLowerCase());
+    const key = userEmail.trim().toLowerCase();
+    CONVERSATIONS_CACHE.delete(key);
+    AsyncStorage.removeItem(CONVERSATIONS_STORAGE_PREFIX + key).catch(() => {});
   } else {
     CONVERSATIONS_CACHE.clear();
   }
@@ -118,16 +123,14 @@ export function clearConversationsCache(userEmail?: string) {
 export const chatService = {
   /**
    * Fetch conversation threads ONLY for the currently logged-in user email
-   * Mirrors chatboxai_website_copy /api/library/history:
-   * Queries library (search), image_generation, and website_projects in parallel,
-   * strictly filtering every document on userEmail === normalizedEmail with Query.orderDesc('$createdAt').
+   * Provides instant local cache rendering (0ms) + background revalidation
    */
   async fetchUserConversations(userEmail: string, forceRefresh = false): Promise<ConversationItem[]> {
     if (!userEmail) return [];
 
     const normalizedEmail = userEmail.trim().toLowerCase();
 
-    // 1. In-memory TTL cache lookup
+    // 1. Instant In-memory TTL cache lookup (< 1ms)
     if (!forceRefresh) {
       const cached = CONVERSATIONS_CACHE.get(normalizedEmail);
       if (cached && Date.now() - cached.timestamp < CONVERSATION_CACHE_TTL_MS) {
@@ -135,7 +138,26 @@ export const chatService = {
       }
     }
 
-    // 2. In-flight request deduplication
+    // 2. Instant AsyncStorage local cache lookup (< 10ms)
+    if (!forceRefresh) {
+      try {
+        const rawLocal = await AsyncStorage.getItem(CONVERSATIONS_STORAGE_PREFIX + normalizedEmail);
+        if (rawLocal) {
+          const localItems = JSON.parse(rawLocal) as ConversationItem[];
+          CONVERSATIONS_CACHE.set(normalizedEmail, { data: localItems, timestamp: Date.now() });
+          // Non-blocking background revalidation to fetch fresh changes
+          chatService._performFetchUserConversations(normalizedEmail).then((fresh) => {
+            CONVERSATIONS_CACHE.set(normalizedEmail, { data: fresh, timestamp: Date.now() });
+            AsyncStorage.setItem(CONVERSATIONS_STORAGE_PREFIX + normalizedEmail, JSON.stringify(fresh)).catch(() => {});
+          }).catch(() => {});
+          return localItems;
+        }
+      } catch {
+        // Non-fatal cache read error
+      }
+    }
+
+    // 3. In-flight request deduplication
     if (CONVERSATIONS_IN_FLIGHT.has(normalizedEmail)) {
       return CONVERSATIONS_IN_FLIGHT.get(normalizedEmail)!;
     }
@@ -144,6 +166,7 @@ export const chatService = {
       try {
         const result = await chatService._performFetchUserConversations(normalizedEmail);
         CONVERSATIONS_CACHE.set(normalizedEmail, { data: result, timestamp: Date.now() });
+        AsyncStorage.setItem(CONVERSATIONS_STORAGE_PREFIX + normalizedEmail, JSON.stringify(result)).catch(() => {});
         return result;
       } finally {
         CONVERSATIONS_IN_FLIGHT.delete(normalizedEmail);
@@ -156,10 +179,12 @@ export const chatService = {
 
   async _performFetchUserConversations(normalizedEmail: string): Promise<ConversationItem[]> {
 
-    // 1. Authenticated Mobile Backend Proxy Route
+    // 1. Authenticated Mobile Backend Proxy Route (preferred, fastest with 4s timeout)
     if (auth.currentUser) {
       try {
-        const response = await apiClient.get('/api/mobile/conversations');
+        const response = await apiClient.get('/api/mobile/conversations', {
+          timeout: 4000, // Fast 4s timeout prevents UI hang
+        });
         if (response.data && Array.isArray(response.data.documents)) {
           return response.data.documents.map((doc: any) => {
             const rawTitle = doc.searchInput || 'Untitled';
@@ -366,11 +391,37 @@ export const chatService = {
 
     const normalizedEmail = userEmail.trim().toLowerCase();
 
-    // 1. Authenticated Mobile Backend Proxy Route
+    // 1. Instant local cache lookup (< 10ms)
+    try {
+      const rawLocal = await AsyncStorage.getItem(CHATS_STORAGE_PREFIX + libId);
+      if (rawLocal) {
+        const cachedChats = JSON.parse(rawLocal) as ChatMessageRecord[];
+        // Non-blocking background sync
+        chatService._fetchFreshConversationChats(libId, normalizedEmail).then((fresh) => {
+          if (fresh.length > 0) {
+            AsyncStorage.setItem(CHATS_STORAGE_PREFIX + libId, JSON.stringify(fresh)).catch(() => {});
+          }
+        }).catch(() => {});
+        return cachedChats;
+      }
+    } catch {
+      // Non-fatal cache read error
+    }
+
+    const fresh = await chatService._fetchFreshConversationChats(libId, normalizedEmail);
+    if (fresh.length > 0) {
+      AsyncStorage.setItem(CHATS_STORAGE_PREFIX + libId, JSON.stringify(fresh)).catch(() => {});
+    }
+    return fresh;
+  },
+
+  async _fetchFreshConversationChats(libId: string, normalizedEmail: string): Promise<ChatMessageRecord[]> {
+    // 1. Authenticated Mobile Backend Proxy Route (preferred, fastest with 4s timeout)
     if (auth.currentUser) {
       try {
         const response = await apiClient.get(
-          `/api/mobile/conversations/${encodeURIComponent(libId)}/chats`
+          `/api/mobile/conversations/${encodeURIComponent(libId)}/chats`,
+          { timeout: 4000 } // Fast 4s timeout
         );
         if (response.data && Array.isArray(response.data.documents)) {
           return response.data.documents.map((doc: any) => ({
@@ -389,7 +440,9 @@ export const chatService = {
           }));
         }
       } catch (err: any) {
-        console.log('[chatService] Proxy fetchConversationChats failed, falling back:', err?.message || err);
+        if (__DEV__) {
+          console.debug('[chatService] Proxy fetchConversationChats fallback:', err?.message || err);
+        }
       }
     }
 
@@ -664,14 +717,29 @@ export const chatService = {
         DEFAULT_PERMISSIONS
       );
 
-      return {
+      const record: ChatMessageRecord = {
         id: created.$id,
         libId: created.libId,
         userSearchInput: created.userSearchInput,
         aiResp: created.aiResp,
         searchResult: created.searchResult,
         createdAt: created.created_at || created.$createdAt,
+        analyzedFilesCount: params.analyzedFilesCount,
+        processedFiles: params.processedFiles,
+        isThinkingMode: params.isThinkingMode,
+        analysisType: params.analysisType,
       };
+
+      // Optimistically append to local storage cache for instant retrieval
+      AsyncStorage.getItem(CHATS_STORAGE_PREFIX + params.libId).then((existingRaw) => {
+        const list: ChatMessageRecord[] = existingRaw ? JSON.parse(existingRaw) : [];
+        if (!list.some((m) => m.id === record.id)) {
+          list.push(record);
+          AsyncStorage.setItem(CHATS_STORAGE_PREFIX + params.libId, JSON.stringify(list)).catch(() => {});
+        }
+      }).catch(() => {});
+
+      return record;
     } catch (error: any) {
       console.error('[chatService] Error adding chat message:', error?.message || error);
       return null;
