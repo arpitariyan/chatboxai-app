@@ -84,9 +84,12 @@ Humne application ko 2GB RAM wale low-end aur budget Android phones ke liye ultr
 3. **APK Size Compression (~25–35 MB):**
    * Default builds 90 MB ki hoti thi kyunki usme computer emulators ke x86 binaries shamil the.
    * Humne ARM ABI Filtering (`armeabi-v7a`, `arm64-v8a`) lagayi hai jisse sirf real Android phones ke liye build banti hai — **65% APK size kam ho gaya hai!**
-4. **R8 Full Mode & Dead Code Elimination:**
-   * Google ka R8 optimizer sabhi unused code aur heavy libraries ko strip kar deta hai.
-5. **256MB+ Large Heap & Hardware Acceleration:**
+4. **ProGuard Module Preservation & Native Reflection Safety:**
+   * Unused code strip hota hai lekin `expo.modules.audio`, `expo.modules.imagepicker`, `expo.modules.medialibrary`, `okhttp3` aur `okio` ke liye ProGuard Keep rules set hain taaki microphone, camera aur file upload reflection break na ho.
+   * Aggressive R8 class repackaging band rakhi gayi hai taaki physical devices par mic allow hone ke baad bhi audio module turant react kare.
+5. **CI/CD Auto-Injected Production Secrets:**
+   * GitHub Actions me build shuru hone se pehle automatic `.env` inject hota hai jisse release APK me `api-mobile.chatboxai.co.in`, Appwrite endpoints, Groq Whisper keys, aur multimodal AI keys statically compile ho jate hain.
+6. **256MB+ Large Heap & Hardware Acceleration:**
    * Android Manifest me `"largeHeap": true` aur `"hardwareAccelerated": true` enable kiya hai, jisse 2GB RAM phones par bhi 60 FPS smooth scrolling milti hai aur Out-Of-Memory (OOM) crash nahi hota.
 
 ---

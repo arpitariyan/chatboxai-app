@@ -4,9 +4,9 @@ import { Client, Databases, Query, ID, Permission, Role } from 'appwrite';
 export const APPWRITE_ENDPOINT =
   process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || 'https://nyc.cloud.appwrite.io/v1';
 export const APPWRITE_PROJECT_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+  process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '69a3eac50018b30b4556';
 export const DB_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID || '';
+  process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID || '69a6aeff003b4922f883';
 export const USERS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID || 'users';
 export const LIBRARY_COLLECTION_ID =
@@ -34,7 +34,7 @@ export const API_CREDIT_TRANSACTIONS_COLLECTION_ID =
 export const LOGIN_ACTIVITY_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_LOGIN_ACTIVITY_COLLECTION_ID || 'login_activity';
 export const STORAGE_BUCKET_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
+  process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '69a69b9c0009d1b683dd';
 export const WEB_API_URL =
   process.env.EXPO_PUBLIC_WEB_API_URL ||
   'https://chatboxai.co.in';

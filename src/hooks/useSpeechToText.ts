@@ -25,27 +25,36 @@ function getSafeAudioModule(): ExpoAudioModuleType | null {
   _hasAttemptedAudioLoad = true;
 
   try {
-    const nativeExpoAudio = requireOptionalNativeModule('ExpoAudio');
-    if (nativeExpoAudio) {
-      _cachedAudioModule = require('expo-audio');
-      return _cachedAudioModule;
-    }
-  } catch (e) {
-    console.warn('[useSpeechToText] Native ExpoAudio module check failed:', e);
-  }
-
-  // Fallback: attempt requiring directly in case of Web or environment differences
-  try {
     _cachedAudioModule = require('expo-audio');
     return _cachedAudioModule;
-  } catch {
+  } catch (e) {
+    try {
+      const nativeExpoAudio = requireOptionalNativeModule('ExpoAudio');
+      if (nativeExpoAudio) {
+        _cachedAudioModule = require('expo-audio');
+        return _cachedAudioModule;
+      }
+    } catch {
+      // ignore
+    }
+    console.warn('[useSpeechToText] Native ExpoAudio module load failed:', e);
     _cachedAudioModule = null;
     return null;
   }
 }
 
-// ── Groq API key rotation ────────────────────────────────────────────────────
-const GROQ_KEYS = [
+// ── Groq API key rotation with reliable production fallbacks ─────────────────
+const FALLBACK_GROQ_KEYS = [
+  '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',
+  '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',
+  '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',
+  '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',
+  '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',
+  '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',
+  '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',
+];
+
+const ENV_GROQ_KEYS = [
   process.env.EXPO_PUBLIC_GROQ_API_KEY,
   process.env.EXPO_PUBLIC_GROQ_API_KEY_2,
   process.env.EXPO_PUBLIC_GROQ_API_KEY_3,
@@ -54,6 +63,8 @@ const GROQ_KEYS = [
   process.env.EXPO_PUBLIC_GROQ_API_KEY_6,
   process.env.EXPO_PUBLIC_GROQ_API_KEY_7,
 ].filter(Boolean) as string[];
+
+const GROQ_KEYS = ENV_GROQ_KEYS.length > 0 ? ENV_GROQ_KEYS : FALLBACK_GROQ_KEYS;
 
 let _groqKeyIndex = 0;
 const getNextGroqKey = (): string => {
@@ -256,7 +267,7 @@ export function useSpeechToText({
       // Restore audio session
       const audio = getSafeAudioModule();
       if (audio) {
-        await audio.setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+        await audio.setAudioModeAsync({ allowsRecording: false }).catch(() => { });
       }
 
       if (!uri) {
@@ -268,7 +279,7 @@ export function useSpeechToText({
       const text = await transcribeAudio(uri);
 
       // Clean up temp audio file
-      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => { });
 
       if (!text) {
         onError?.('NO_SPEECH', 'No speech detected. Please try again.');
@@ -304,16 +315,16 @@ export function useSpeechToText({
       if (recorderRef.current) {
         const rec = recorderRef.current;
         recorderRef.current = null;
-        await rec.stop().catch(() => {});
+        await rec.stop().catch(() => { });
         const uri = rec.uri;
         if (uri) {
-          FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+          FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => { });
         }
       }
 
       const audio = getSafeAudioModule();
       if (audio) {
-        await audio.setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+        await audio.setAudioModeAsync({ allowsRecording: false }).catch(() => { });
       }
     } catch (e) {
       console.warn('[useSpeechToText] Cancel error:', e);

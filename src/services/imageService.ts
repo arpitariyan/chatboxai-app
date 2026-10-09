@@ -31,9 +31,9 @@ const MOBILE_API_BASE_URL =
 const APPWRITE_PUBLIC_ENDPOINT =
   process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || 'https://nyc.cloud.appwrite.io/v1';
 const APPWRITE_PUBLIC_PROJECT_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+  process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '69a3eac50018b30b4556';
 const APPWRITE_PUBLIC_BUCKET_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
+  process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '69a69b9c0009d1b683dd';
 
 /**
  * Safely probes whether an Expo native module is registered in the current runtime

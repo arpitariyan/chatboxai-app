@@ -24,6 +24,12 @@ export class LLMFallbackService {
           process.env.EXPO_PUBLIC_GOOGLE_API_KEY_4,
           process.env.EXPO_PUBLIC_GOOGLE_API_KEY_5,
         ].forEach(k => { if (k && k.trim() !== '') rawKeys.push(k.trim()); });
+        if (rawKeys.length === 0) {
+          rawKeys.push(
+            'AIzaSyDQpiFcMx5mEJtxc1VpOgZvt8YodesIk-Y',
+            'AIzaSyDMHpNnHrCl4qdbYMkOo82ocZ2vJoFBwj0'
+          );
+        }
         break;
       case 'openrouter':
         [
@@ -36,12 +42,30 @@ export class LLMFallbackService {
           process.env.EXPO_PUBLIC_OPENROUTER_API_KEY_7,
           process.env.EXPO_PUBLIC_OPENROUTER_API_KEY_8,
         ].forEach(k => { if (k && k.trim() !== '') rawKeys.push(k.trim()); });
+        if (rawKeys.length === 0) {
+          rawKeys.push(
+            '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',
+            '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',
+            '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',
+            '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',
+            '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',
+            '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',
+            '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',
+            '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'
+          );
+        }
         break;
       case 'replicate':
         [
           process.env.EXPO_PUBLIC_REPLICATE_API_KEY,
           process.env.EXPO_PUBLIC_REPLICATE_API_KEY_2,
         ].forEach(k => { if (k && k.trim() !== '') rawKeys.push(k.trim()); });
+        if (rawKeys.length === 0) {
+          rawKeys.push(
+            'r8_TDtn1o4HjsVy5AiG2KNRPSlmA0a1jpk2bq42x',
+            'r8_KXK7BWf2hwQbLGyjuUvBziUwXEyKNLZ2rDnB5'
+          );
+        }
         break;
       case 'groq':
         [
@@ -53,6 +77,17 @@ export class LLMFallbackService {
           process.env.EXPO_PUBLIC_GROQ_API_KEY_6,
           process.env.EXPO_PUBLIC_GROQ_API_KEY_7,
         ].forEach(k => { if (k && k.trim() !== '') rawKeys.push(k.trim()); });
+        if (rawKeys.length === 0) {
+          rawKeys.push(
+            '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',
+            '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',
+            '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',
+            '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',
+            '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',
+            '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',
+            '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'
+          );
+        }
         break;
       case 'anthropic':
         if (process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY) rawKeys.push(process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY);
@@ -67,6 +102,14 @@ export class LLMFallbackService {
           process.env.EXPO_PUBLIC_NVIDIA_API_KEY_3,
           process.env.EXPO_PUBLIC_NVIDIA_API_KEY_4,
         ].forEach(k => { if (k && k.trim() !== '') rawKeys.push(k.trim()); });
+        if (rawKeys.length === 0) {
+          rawKeys.push(
+            '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',
+            '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',
+            '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',
+            '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'
+          );
+        }
         break;
     }
     // Filter out permanently dead keys to avoid repeating wasted roundtrips

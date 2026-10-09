@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LLMFallbackService } from '../services/llm/LLMFallbackService';
 import { LLMMessage, LLMContentPart } from '../services/llm/providers';
 import { toStoredAttachment, serializeAttachmentsForDb, toMobileFileViewUrl } from '../utils/attachments';
@@ -411,24 +413,46 @@ export const useChatGeneration = ({
 
           for (const batch of uploadBatches) {
             const batchPromises = batch.map(async (attachment) => {
-              const formData = new FormData();
-              formData.append('file', {
-                uri: attachment.uri,
-                name: attachment.name || `file_${Date.now()}.bin`,
-                type: attachment.mimeType || 'application/octet-stream',
-              } as any);
-
               const uploadUrl = toMobileUploadUrl();
-              const uploadRes = await require('axios').default.post(uploadUrl, formData, {
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Accept': 'application/json',
-                },
-                timeout: 60000,
-              });
+              let data: any = null;
 
-              const data = uploadRes.data;
-              if (!data.success || !data.fileId) throw new Error(data.error || 'Failed to upload file');
+              if (Platform.OS !== 'web' && typeof FileSystem?.uploadAsync === 'function' && (attachment.uri.startsWith('file://') || attachment.uri.startsWith('content://'))) {
+                try {
+                  const uploadRes = await FileSystem.uploadAsync(uploadUrl, attachment.uri, {
+                    httpMethod: 'POST',
+                    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+                    fieldName: 'file',
+                    headers: {
+                      'Authorization': `Bearer ${token}`,
+                      'Accept': 'application/json',
+                    },
+                  });
+                  data = JSON.parse(uploadRes.body);
+                } catch (fsErr) {
+                  console.warn('FileSystem.uploadAsync failed, falling back to fetch FormData:', fsErr);
+                }
+              }
+
+              if (!data) {
+                const formData = new FormData();
+                formData.append('file', {
+                  uri: attachment.uri,
+                  name: attachment.name || `file_${Date.now()}.bin`,
+                  type: attachment.mimeType || 'application/octet-stream',
+                } as any);
+
+                const fetchRes = await fetch(uploadUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/json',
+                  },
+                  body: formData,
+                });
+                data = await fetchRes.json();
+              }
+
+              if (!data?.success || !data?.fileId) throw new Error(data?.error || 'Failed to upload file');
 
               const mobileFileUrl = toMobileFileUrl(data.fileId);
 

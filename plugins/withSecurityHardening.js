@@ -8,14 +8,14 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Custom Expo Config Plugin for Comprehensive Android Security & Hardening:
- * 1. Generates custom ProGuard/R8 obfuscation rules with aggressive class repackaging and log stripping
- * 2. Creates Android Network Security Configuration (enforcing HTTPS, blocking cleartext in production)
- * 3. Configures AndroidManifest security attributes (allowBackup="false", extractNativeLibs="false")
- * 4. Enables R8 Full Mode in gradle.properties for maximum compiler-level code shrinking and obfuscation
+ * Custom Expo Config Plugin for Production Android Security & Stability:
+ * 1. Configures ProGuard rules preserving all Expo native modules (Audio, MediaLibrary, ImagePicker)
+ * 2. Establishes Universal HTTPS Network Security Configuration
+ * 3. Enforces essential permissions (INTERNET, ACCESS_NETWORK_STATE, RECORD_AUDIO, CAMERA)
+ * 4. Optimizes native ARM architectures (armeabi-v7a, arm64-v8a) and DEFLATE packaging without breaking reflection
  */
 const withSecurityHardening = (config) => {
-  // 1. ProGuard Rules for R8 code shrinking, obfuscation, and log stripping
+  // 1. ProGuard Rules for Production Release (Safe preservation of Expo & React Native reflection)
   config = withDangerousMod(config, [
     'android',
     async (config) => {
@@ -27,18 +27,8 @@ const withSecurityHardening = (config) => {
 
       const securityProguardRules = `
 # -------------------------------------------------------------
-# ChatBox AI APK — Production R8 / ProGuard Hardening Rules
+# ChatBox AI APK — Production ProGuard & Module Preservation Rules
 # -------------------------------------------------------------
-
-# Enable aggressive class and member obfuscation into a single flat package
--repackageclasses 'com.chatboxai.app.o'
--allowaccessmodification
-
-# Optimization settings
--optimizationpasses 5
--dontusemixedcaseclassnames
--dontskipnonpubliclibraryclasses
--verbose
 
 # Strip debugging logs from bytecode in production
 -assumenosideeffects class android.util.Log {
@@ -48,25 +38,38 @@ const withSecurityHardening = (config) => {
     public static int i(...);
 }
 
-# Protect React Native and Hermes internals
+# Preserve React Native and Hermes internals
 -keep class com.facebook.react.** { *; }
+-keep interface com.facebook.react.** { *; }
 -keep class com.facebook.hermes.** { *; }
 -keep class com.facebook.jni.** { *; }
+-keep class com.facebook.react.modules.network.** { *; }
 
-# Protect Expo modules and reflection
+# Preserve ALL Expo modules, Kotlin reflection & autolinking
 -keep class expo.modules.** { *; }
+-keep interface expo.modules.** { *; }
 -keep class * extends expo.modules.core.BasePackage { *; }
+-keep class * extends expo.modules.kotlin.modules.Module { *; }
+-keep class * extends expo.modules.core.interfaces.Package { *; }
+-keep class * extends expo.modules.core.interfaces.InternalModule { *; }
+-keepclassmembers class expo.modules.** { *; }
+
+# Preserve Expo Audio, MediaLibrary, ImagePicker, Sharing
+-keep class expo.modules.audio.** { *; }
+-keep class expo.modules.medialibrary.** { *; }
+-keep class expo.modules.imagepicker.** { *; }
+-keep class expo.modules.sharing.** { *; }
 
 # Protect cryptographic providers and SecureStore
 -keep class androidx.security.crypto.** { *; }
 -keep class expo.modules.securestore.** { *; }
+-keep class com.google.crypto.tink.** { *; }
 
-# Protect OkHttp, Okio & React Native networking stack from R8 stripping
+# Protect OkHttp, Okio & networking stack
 -keep class okhttp3.** { *; }
 -keep interface okhttp3.** { *; }
 -keep class okio.** { *; }
 -keep interface okio.** { *; }
--keep class com.facebook.react.modules.network.** { *; }
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn com.facebook.react.**
@@ -78,7 +81,7 @@ const withSecurityHardening = (config) => {
 -ignorewarnings
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
-# Prevent reverse-engineering of line numbers and source file names
+# Prevent reverse-engineering of line numbers
 -renamesourcefileattribute SourceFile
 -keepattributes SourceFile,LineNumberTable
 `;
@@ -88,14 +91,14 @@ const withSecurityHardening = (config) => {
         if (fs.existsSync(proguardPath)) {
           existing = fs.readFileSync(proguardPath, 'utf8');
         }
-        if (!existing.includes('ChatBox AI APK — Production R8')) {
+        if (!existing.includes('ChatBox AI APK — Production ProGuard')) {
           fs.writeFileSync(proguardPath, existing + '\n' + securityProguardRules, 'utf8');
         }
       } catch (err) {
         // Ignored during standard export if android directory not prebuilt yet
       }
 
-      // 2. Android Network Security Configuration XML (Universal HTTPS & Trust Anchors)
+      // 2. Android Network Security Configuration XML (Universal Trusted HTTPS)
       const resXmlDir = path.join(
         config.modRequest.platformProjectRoot,
         'app',
@@ -137,7 +140,7 @@ const withSecurityHardening = (config) => {
     },
   ]);
 
-  // 3. AndroidManifest: Attach security attributes & mandatory network/update permissions
+  // 3. AndroidManifest: Attach security attributes & mandatory permissions
   config = withAndroidManifest(config, async (config) => {
     const mainApplication = config.modResults.manifest.application?.[0];
     if (mainApplication) {
@@ -147,13 +150,19 @@ const withSecurityHardening = (config) => {
       mainApplication.$['android:extractNativeLibs'] = 'false';
     }
 
-    // Ensure essential network and self-update permissions
+    // Ensure essential network, audio, camera and self-update permissions
     if (!config.modResults.manifest['uses-permission']) {
       config.modResults.manifest['uses-permission'] = [];
     }
     const permissionsToAdd = [
       'android.permission.INTERNET',
       'android.permission.ACCESS_NETWORK_STATE',
+      'android.permission.RECORD_AUDIO',
+      'android.permission.MODIFY_AUDIO_SETTINGS',
+      'android.permission.CAMERA',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.READ_MEDIA_IMAGES',
       'android.permission.REQUEST_INSTALL_PACKAGES',
     ];
 
@@ -171,7 +180,7 @@ const withSecurityHardening = (config) => {
     return config;
   });
 
-  // 4. Force minSdkVersion = 24 (Android 7.0+) baseline compatibility & aggressive APK size optimization
+  // 4. Force minSdkVersion = 24 (Android 7.0+) baseline compatibility & ABI Filtering
   config = withAppBuildGradle(config, (config) => {
     let contents = config.modResults.contents;
     if (contents.includes('minSdkVersion')) {
@@ -190,21 +199,7 @@ const withSecurityHardening = (config) => {
       );
     }
 
-    // Enable shrinkResources & minifyEnabled for release build to purge unused drawables & classes
-    if (contents.includes('buildTypes {') && contents.includes('release {')) {
-      if (!contents.includes('shrinkResources true')) {
-        contents = contents.replace(
-          /buildTypes\s*\{\s*release\s*\{/g,
-          `buildTypes {
-        release {
-            shrinkResources true
-            minifyEnabled true
-            crunchPngs true`
-        );
-      }
-    }
-
-    // Exclude redundant META-INF files to trim APK size
+    // Safe packaging exclusions (do NOT exclude kotlin_module which breaks expo-audio)
     if (!contents.includes('META-INF/*.version')) {
       const packagingExcludes = `
     packagingOptions {
@@ -217,8 +212,7 @@ const withSecurityHardening = (config) => {
                 "META-INF/DEPENDENCIES",
                 "META-INF/LICENSE*",
                 "META-INF/NOTICE*",
-                "META-INF/INDEX.LIST",
-                "META-INF/*.kotlin_module"
+                "META-INF/INDEX.LIST"
             ]
         }
     }
@@ -232,7 +226,7 @@ const withSecurityHardening = (config) => {
     return config;
   });
 
-  // 5. Enable R8 Full Mode, Resource Shrinking, and Legacy Packaging Compression in gradle.properties
+  // 5. Gradle Properties: ARM architectures & DEFLATE packaging (Safe settings)
   config = withGradleProperties(config, (config) => {
     const keysToRemove = new Set([
       'android.enableR8.fullMode',
@@ -246,25 +240,18 @@ const withSecurityHardening = (config) => {
     ]);
     config.modResults = config.modResults.filter((item) => !keysToRemove.has(item.key));
 
-    // Only package ARM architectures (armeabi-v7a + arm64-v8a), eliminating ~50 MB of x86/x86_64 binaries
+    // Only package ARM architectures (armeabi-v7a + arm64-v8a)
     config.modResults.push({
       type: 'property',
       key: 'reactNativeArchitectures',
       value: 'armeabi-v7a,arm64-v8a',
     });
 
-    // Enable R8 Minification / dead code elimination in release build
+    // Disable R8 fullMode to prevent reflection stripping on Expo native modules
     config.modResults.push({
       type: 'property',
-      key: 'android.enableMinifyInReleaseBuilds',
-      value: 'true',
-    });
-
-    // Enable Resource Shrinking (strips unused drawables, icons, XMLs)
-    config.modResults.push({
-      type: 'property',
-      key: 'android.enableShrinkResourcesInReleaseBuilds',
-      value: 'true',
+      key: 'android.enableR8.fullMode',
+      value: 'false',
     });
 
     // Enable legacy packaging: compresses native .so libraries inside the APK with DEFLATE (saves 15-20 MB)
@@ -274,24 +261,10 @@ const withSecurityHardening = (config) => {
       value: 'true',
     });
 
-    // Enable JS bundle compression
-    config.modResults.push({
-      type: 'property',
-      key: 'android.enableBundleCompression',
-      value: 'true',
-    });
-
     // Enable PNG image crunching
     config.modResults.push({
       type: 'property',
       key: 'android.enablePngCrunchInReleaseBuilds',
-      value: 'true',
-    });
-
-    // Enable R8 Full Mode for class hierarchy flattening
-    config.modResults.push({
-      type: 'property',
-      key: 'android.enableR8.fullMode',
       value: 'true',
     });
 
