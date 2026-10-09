@@ -1,8 +1,8 @@
 {
   "platform": "android",
   "channel": "production",
-  "latestVersion": "1.0.1",
-  "latestVersionCode": 2,
+  "latestVersion": "1.0.2",
+  "latestVersionCode": 3,
   "minimumSupportedVersionCode": 1,
   "mandatory": false,
   "releaseNotes": [
@@ -12,9 +12,9 @@
     "Enhanced security: R8 full-mode obfuscation & AES-256 encrypted storage",
     "Direct in-app auto-update installer with cryptographic SHA-256 verification"
   ],
-  "apkUrl": "https://github.com/arpitariyan/chatboxai-app/releases/download/v1.0.1/chatboxai-v1.0.1.apk",
-  "sha256": "b6a1fad8e70ebb40d658e947f21dff9ff5077647d06b70471ca71c91a091d168",
-  "size": 95316626,
+  "apkUrl": "https://github.com/arpitariyan/chatboxai-app/releases/download/v1.0.2/chatboxai-v1.0.2.apk",
+  "sha256": "30357d5d52154196c2649383e73e4c399a2bea412695e49162004978708d530d",
+  "size": 44139095,
   "releaseId": "v1.0.1",
-  "publishedAt": "2026-10-09T09:48:11.458Z"
+  "publishedAt": "2026-10-09T10:44:22.095Z"
 }
