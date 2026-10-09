@@ -26,6 +26,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "READ_MEDIA_IMAGES",
@@ -45,6 +46,13 @@
         {
           "photosPermission": "Allow ChatBox AI to save generated images to your photo gallery.",
           "savePhotosPermission": "Allow ChatBox AI to save generated images to your photo gallery."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ChatBox AI to access your photos to attach images to conversations.",
+          "cameraPermission": "Allow ChatBox AI to capture photos using your camera."
         }
       ],
       [
