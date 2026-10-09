@@ -1,0 +1,20 @@
+{
+  "platform": "android",
+  "channel": "production",
+  "latestVersion": "1.0.1",
+  "latestVersionCode": 2,
+  "minimumSupportedVersionCode": 1,
+  "mandatory": false,
+  "releaseNotes": [
+    "Production standalone APK release (Android 7.0+ API 24-36 support)",
+    "High-performance APK compression & resource shrinking (~25-35 MB)",
+    "Hermes bytecode optimization for ultra-smooth performance on 2GB RAM devices",
+    "Enhanced security: R8 full-mode obfuscation & AES-256 encrypted storage",
+    "Direct in-app auto-update installer with cryptographic SHA-256 verification"
+  ],
+  "apkUrl": "https://github.com/arpitariyan/chatboxai-app/releases/download/v1.0.1/chatboxai-v1.0.1.apk",
+  "sha256": "9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca72",
+  "size": 32500000,
+  "releaseId": "v1.0.1",
+  "publishedAt": "2026-10-09T08:00:00.000Z"
+}

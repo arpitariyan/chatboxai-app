@@ -59,6 +59,8 @@ interface DrawerProps {
   onOpenSettings: () => void;
   onOpenImages?: () => void;
   onOpenLibrary?: () => void;
+  onOpenScheduled?: () => void;
+  onOpenPlugins?: () => void;
   /** Increment to force a history refresh */
   refreshTrigger?: number;
 }
@@ -162,6 +164,8 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
   onOpenSettings,
   onOpenImages,
   onOpenLibrary,
+  onOpenScheduled,
+  onOpenPlugins,
   refreshTrigger = 0,
 }) => {
   const colors = useThemeColors();
@@ -591,6 +595,10 @@ export const Drawer: React.FC<DrawerProps> = React.memo(({
                         handleClose(onOpenImages);
                       } else if (item.id === 'library' && onOpenLibrary) {
                         handleClose(onOpenLibrary);
+                      } else if (item.id === 'scheduled' && onOpenScheduled) {
+                        handleClose(onOpenScheduled);
+                      } else if (item.id === 'plugins' && onOpenPlugins) {
+                        handleClose(onOpenPlugins);
                       } else {
                         handleClose();
                       }

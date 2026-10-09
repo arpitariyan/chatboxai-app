@@ -17,6 +17,7 @@ import {
   Pressable,
   Linking,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import {
   IconHelpCircle,
@@ -26,11 +27,18 @@ import {
   IconExternalLink,
   IconInfoCircle,
   IconChevronRight,
+  IconRefresh,
+  IconDownload,
 } from '@tabler/icons-react-native';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
+import { useAppUpdate } from '@/hooks/useAppUpdate';
+import { updateService } from '@/services/update/updateService';
 
 export const HelpSection: React.FC = () => {
   const colors = useThemeColors();
+  const appUpdate = useAppUpdate();
+  const currentApp = updateService.getCurrentAppVersion();
+  const [hasManuallyChecked, setHasManuallyChecked] = React.useState(false);
 
   const handleOpenUrl = async (url: string) => {
     try {
@@ -149,16 +157,54 @@ export const HelpSection: React.FC = () => {
       </Text>
 
       <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+        {/* Check for Updates Action */}
+        <Pressable
+          onPress={async () => {
+            setHasManuallyChecked(true);
+            await appUpdate.checkForUpdates(true);
+          }}
+          disabled={appUpdate.status === 'checking' || appUpdate.status === 'downloading'}
+          style={({ pressed }) => [
+            styles.actionRow,
+            pressed && { backgroundColor: colors.hover },
+          ]}
+        >
+          <View style={[styles.iconBox, { backgroundColor: colors.surface2 }]}>
+            <IconRefresh size={18} color={colors.accent || colors.ink} strokeWidth={1.8} />
+          </View>
+          <View style={styles.rowTextCol}>
+            <Text style={[styles.rowTitle, { color: colors.ink }]}>Check for Updates</Text>
+            <Text style={[styles.rowSubtitle, { color: colors.ink3 }]}>
+              {appUpdate.status === 'checking'
+                ? 'Checking update server...'
+                : appUpdate.updateInfo?.hasUpdate
+                ? `Update v${appUpdate.updateInfo.latestVersion} available!`
+                : hasManuallyChecked
+                ? 'ChatBox AI is up to date'
+                : 'Tap to check for new APK releases'}
+            </Text>
+          </View>
+          {appUpdate.status === 'checking' ? (
+            <ActivityIndicator size="small" color={colors.accent || '#a78bfa'} />
+          ) : appUpdate.updateInfo?.hasUpdate ? (
+            <IconDownload size={16} color={colors.accent || '#a78bfa'} strokeWidth={2} />
+          ) : (
+            <IconChevronRight size={16} color={colors.ink3} strokeWidth={1.8} />
+          )}
+        </Pressable>
+
+        <View style={[styles.divider, { backgroundColor: colors.line, marginLeft: 16 }]} />
+
         <View style={styles.specRow}>
           <Text style={[styles.specLabel, { color: colors.ink3 }]}>Version</Text>
-          <Text style={[styles.specValue, { color: colors.ink }]}>1.0.0 (Release APK)</Text>
+          <Text style={[styles.specValue, { color: colors.ink }]}>v{currentApp.version}</Text>
         </View>
 
         <View style={[styles.divider, { backgroundColor: colors.line, marginLeft: 16 }]} />
 
         <View style={styles.specRow}>
-          <Text style={[styles.specLabel, { color: colors.ink3 }]}>Build Number</Text>
-          <Text style={[styles.specValue, { color: colors.ink }]}>42</Text>
+          <Text style={[styles.specLabel, { color: colors.ink3 }]}>Version Code</Text>
+          <Text style={[styles.specValue, { color: colors.ink }]}>{currentApp.versionCode}</Text>
         </View>
 
         <View style={[styles.divider, { backgroundColor: colors.line, marginLeft: 16 }]} />
@@ -166,7 +212,7 @@ export const HelpSection: React.FC = () => {
         <View style={styles.specRow}>
           <Text style={[styles.specLabel, { color: colors.ink3 }]}>Target Environment</Text>
           <Text style={[styles.specValue, { color: colors.ink }]}>
-            {Platform.OS === 'android' ? 'Android Native' : Platform.OS === 'ios' ? 'iOS Native' : 'Mobile'}
+            Android 7.0+ (API 24-36) Release APK
           </Text>
         </View>
       </View>

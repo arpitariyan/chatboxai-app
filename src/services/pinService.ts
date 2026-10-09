@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage } from './security/SecureStorageService';
 
 type PinListener = (pinnedIds: string[]) => void;
 
@@ -23,8 +23,7 @@ class PinService {
     }
 
     try {
-      const stored = await AsyncStorage.getItem(key);
-      const ids: string[] = stored ? JSON.parse(stored) : [];
+      const ids = await secureStorage.getEncryptedJson<string[]>(key, []);
       this.cache.set(key, ids);
       return ids;
     } catch (err) {
@@ -64,7 +63,7 @@ class PinService {
 
     this.cache.set(key, updated);
     try {
-      await AsyncStorage.setItem(key, JSON.stringify(updated));
+      await secureStorage.setEncryptedJson(key, updated);
     } catch (err) {
       console.warn('[PinService] Error writing pinned IDs:', err);
     }
@@ -87,7 +86,7 @@ class PinService {
     this.cache.set(key, updated);
 
     try {
-      await AsyncStorage.setItem(key, JSON.stringify(updated));
+      await secureStorage.setEncryptedJson(key, updated);
     } catch (err) {
       console.warn('[PinService] Error unpinning conversation:', err);
     }

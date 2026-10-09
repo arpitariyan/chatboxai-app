@@ -45,6 +45,12 @@ function canonicalizeUrl(url = ''): string {
 }
 
 function getTavilyKeys(): string[] {
+  // In production APK releases, never expose or use client-side Tavily keys
+  const isDev = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : false;
+  if (!isDev) {
+    return [];
+  }
+
   return [
     process.env.EXPO_PUBLIC_TAVILY_API_KEY,
     process.env.EXPO_PUBLIC_TAVILY_API_KEY_2,

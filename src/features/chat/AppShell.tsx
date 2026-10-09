@@ -8,6 +8,8 @@ import { SettingsScreen } from '@/components/settings/SettingsScreen';
 import { ImageGenScreen } from '@/features/image/ImageGenScreen';
 import { ImagesScreen } from '@/features/image/ImagesScreen';
 import { LibraryScreen } from '@/features/library/LibraryScreen';
+import { PluginsScreen } from '@/features/plugins/PluginsScreen';
+import { ScheduledScreen } from '@/features/scheduled/ScheduledScreen';
 import { useThemeColors } from '@/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { pinService } from '@/services/pinService';
@@ -20,7 +22,7 @@ export const AppShell: React.FC = () => {
   const { currentUser } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
 
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen' | 'images' | 'library'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'image-gen' | 'images' | 'library' | 'plugins' | 'scheduled'>('chat');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   // Master animation progress for synchronized drawer slide and main-screen spatial depth (0 → 1)
   const drawerProgress = useRef(new Animated.Value(0)).current;
@@ -272,11 +274,13 @@ export const AppShell: React.FC = () => {
   }, [drawerProgress, cornerProgress]);
   const handleOpenImages = useCallback(() => setActiveView('images'), []);
   const handleOpenLibrary = useCallback(() => setActiveView('library'), []);
+  const handleOpenScheduled = useCallback(() => setActiveView('scheduled'), []);
+  const handleOpenPlugins = useCallback(() => setActiveView('plugins'), []);
   const handleBackToChat = useCallback(() => setActiveView('chat'), []);
 
-  // Hardware Back button returns to chat when on settings page
+  // Hardware Back button returns to chat when on sub-screens
   useEffect(() => {
-    if (activeView !== 'settings') return;
+    if (activeView === 'chat') return;
     const onBackPress = () => {
       handleBackToChat();
       return true;
@@ -380,6 +384,8 @@ export const AppShell: React.FC = () => {
           onOpenSettings={handleOpenSettings}
           onOpenImages={handleOpenImages}
           onOpenLibrary={handleOpenLibrary}
+          onOpenScheduled={handleOpenScheduled}
+          onOpenPlugins={handleOpenPlugins}
           refreshTrigger={drawerRefreshTrigger}
         />
       </View>
@@ -410,7 +416,7 @@ export const AppShell: React.FC = () => {
           ]}
         >
           {/* Top Header */}
-          {activeView !== 'settings' && activeView !== 'images' && activeView !== 'library' && (
+          {activeView !== 'settings' && activeView !== 'images' && activeView !== 'library' && activeView !== 'plugins' && activeView !== 'scheduled' && (
             <Header
               onOpenDrawer={handleOpenDrawer}
               onNewChat={handleNewChat}
@@ -450,6 +456,10 @@ export const AppShell: React.FC = () => {
               onSelectConversation={handleSelectChatHistory}
               refreshTrigger={drawerRefreshTrigger}
             />
+          ) : activeView === 'plugins' ? (
+            <PluginsScreen onBack={handleBackToChat} />
+          ) : activeView === 'scheduled' ? (
+            <ScheduledScreen onBack={handleBackToChat} />
           ) : (
             <ChatScreen
               key={chatSessionId}

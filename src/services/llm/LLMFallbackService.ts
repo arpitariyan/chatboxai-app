@@ -1,5 +1,6 @@
 import { LLMMessage, LLMOptions, LLMResponse, callGoogleProvider, callOpenAICompat, callReplicateProvider } from './providers';
 import { MODEL_REGISTRY } from '../../config/models-registry';
+import { apiClient } from '../api/client';
 
 // ── Auto-select fallback chain (Prioritizing high-context, verified working models) ───────
 const AUTO_CHAIN = [
@@ -172,7 +173,39 @@ export class LLMFallbackService {
     throw lastError;
   }
 
-  public static async routeRequest(publicId: string, messages: LLMMessage[], options: LLMOptions = {}): Promise<LLMResponse & { resolvedModel: any }> {
+  public static async routeRequest(publicId: string, messages: LLMMessage[], options: LLMOptions = {}): Promise<LLMResponse & { resolvedModel: any; thinkingContent?: string }> {
+    // 1. Primary: Dedicated Secure Server-Side Proxy (Zero Provider Keys In APK)
+    try {
+      const serverRes = await apiClient.post('/api/mobile/chat/generate', {
+        modelId: publicId || 'auto',
+        messages,
+        options,
+      });
+
+      if (serverRes.data?.success && serverRes.data.aiResponse) {
+        return {
+          provider: serverRes.data.resolvedModel?.provider || 'server',
+          choices: [
+            {
+              message: { role: 'assistant', content: serverRes.data.aiResponse },
+              finish_reason: 'STOP',
+              index: 0,
+            },
+          ],
+          usage: serverRes.data.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          resolvedModel: serverRes.data.resolvedModel || { publicId, provider: 'server', modelApi: publicId },
+          thinkingContent: serverRes.data.thinkingContent,
+        };
+      }
+    } catch (serverErr: any) {
+      const isDev = typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : false;
+      // In production release builds, do not fall back to local exposed keys; throw clean error
+      if (!isDev) {
+        throw new Error(serverErr.response?.data?.error || serverErr.message || 'AI service temporarily unavailable.');
+      }
+      console.warn('[LLMFallbackService] Secure server proxy unreachable, using local dev fallback:', serverErr.message);
+    }
+
     // ── Auto: try the priority fallback chain
     if (!publicId || publicId === 'auto') {
       for (const fallbackId of AUTO_CHAIN) {

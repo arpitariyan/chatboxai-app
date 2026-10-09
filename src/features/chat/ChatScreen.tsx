@@ -26,6 +26,8 @@ import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
 import { Composer } from '@/components/chat/Composer';
 import type { VoiceButtonOrigin } from '@/components/chat/Composer';
 import { SuggestionCards } from '@/components/chat/SuggestionCards';
+import { UpdateBannerCard } from '@/components/update/UpdateBannerCard';
+import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { AddMenuSheet } from '@/components/chat/AttachmentSheet';
 import { VoiceOverlay } from '@/components/chat/VoiceOverlay';
 import { DeepResearchLimitSheet } from '@/components/chat/DeepResearchLimitSheet';
@@ -888,6 +890,7 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
   onClearAttachment,
   isIncognito = false,
 }: ContentProps) => {
+  const appUpdate = useAppUpdate();
   const logoImg = colors.isDark ? darkLogo : lightLogo;
   const thinkingMode = useModelStore((s) => s.thinkingMode);
   const isResearchMode = useResearchStore((s) => s.isResearchMode);
@@ -958,6 +961,21 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
                     onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
                   />
                 </View>
+                {!appUpdate.isDismissed && appUpdate.updateInfo?.hasUpdate && (
+                  <View style={{ width: '100%', marginTop: spacing.sm }}>
+                    <UpdateBannerCard
+                      status={appUpdate.status}
+                      updateInfo={appUpdate.updateInfo}
+                      downloadProgress={appUpdate.downloadProgress}
+                      writtenBytes={appUpdate.writtenBytes}
+                      totalBytes={appUpdate.totalBytes}
+                      isMandatory={appUpdate.isMandatory}
+                      errorMessage={appUpdate.errorMessage}
+                      onUpdatePress={appUpdate.startUpdate}
+                      onDismissPress={appUpdate.dismissUpdate}
+                    />
+                  </View>
+                )}
               </Pressable>
             ) : (
               /* Normal New Chat greeting */
@@ -974,11 +992,41 @@ const ConversationContent: React.FC<ContentProps> = React.memo(({
                     onSelectSuggestion={(prompt) => handleSendMessage(prompt, 'chat')}
                   />
                 </View>
+                {!appUpdate.isDismissed && appUpdate.updateInfo?.hasUpdate && (
+                  <View style={{ width: '100%', marginTop: spacing.sm }}>
+                    <UpdateBannerCard
+                      status={appUpdate.status}
+                      updateInfo={appUpdate.updateInfo}
+                      downloadProgress={appUpdate.downloadProgress}
+                      writtenBytes={appUpdate.writtenBytes}
+                      totalBytes={appUpdate.totalBytes}
+                      isMandatory={appUpdate.isMandatory}
+                      errorMessage={appUpdate.errorMessage}
+                      onUpdatePress={appUpdate.startUpdate}
+                      onDismissPress={appUpdate.dismissUpdate}
+                    />
+                  </View>
+                )}
               </Pressable>
             )
           ) : (
             /* Thread */
             <View style={styles.threadContainer}>
+              {appUpdate.isMandatory && appUpdate.updateInfo?.hasUpdate && (
+                <View style={{ width: '100%', marginBottom: spacing.sm }}>
+                  <UpdateBannerCard
+                    status={appUpdate.status}
+                    updateInfo={appUpdate.updateInfo}
+                    downloadProgress={appUpdate.downloadProgress}
+                    writtenBytes={appUpdate.writtenBytes}
+                    totalBytes={appUpdate.totalBytes}
+                    isMandatory={appUpdate.isMandatory}
+                    errorMessage={appUpdate.errorMessage}
+                    onUpdatePress={appUpdate.startUpdate}
+                    onDismissPress={appUpdate.dismissUpdate}
+                  />
+                </View>
+              )}
               {isIncognito && (
                 <View
                   style={[

@@ -7,11 +7,13 @@
     "orientation": "portrait",
     "icon": "./assets/Main-logo.png",
     "userInterfaceStyle": "dark",
+    "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "package": "com.chatboxai.app",
+      "versionCode": 1,
       "usesCleartextTraffic": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
@@ -25,7 +27,8 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "READ_MEDIA_IMAGES",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "REQUEST_INSTALL_PACKAGES"
       ]
     },
     "web": {
@@ -48,7 +51,9 @@
           "microphonePermission": "Allow ChatBox AI to record your voice for speech-to-text."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-secure-store",
+      "./plugins/withSecurityHardening"
     ]
   }
 }

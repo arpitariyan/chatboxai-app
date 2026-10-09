@@ -21,5 +21,10 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     : require('metro-resolver').resolve(context, moduleName, platform);
 };
 
+config.transformer = {
+  ...config.transformer,
+  minifierPath: require.resolve('./plugins/metro-obfuscator'),
+};
+
 module.exports = config;
 

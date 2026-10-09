@@ -1,0 +1,176 @@
+name: Release Production Android APK
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'src/**'
+      - 'app.json'
+      - 'package.json'
+      - 'plugins/**'
+      - 'assets/**'
+      - '.github/workflows/release-apk.yml'
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'New Version (leave blank to auto-bump patch version)'
+        required: false
+        default: ''
+      release_notes:
+        description: 'Release Notes summary'
+        required: false
+        default: 'Production standalone Android APK release with performance and security optimizations.'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release:
+    name: Build, Verify & Publish Production APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 2. Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 4. Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 5. Install Dependencies
+        run: |
+          npm ci || npm install --legacy-peer-deps
+
+      - name: 6. Automated Quality Gate - TypeScript Verification
+        run: |
+          echo "Running strict TypeScript compiler validation..."
+          npx tsc --noEmit
+
+      - name: 7. Synchronize Version & Increment VersionCode
+        id: version_step
+        run: |
+          if [ -n "${{ github.event.inputs.release_version }}" ]; then
+            node scripts/bump-version.js "${{ github.event.inputs.release_version }}"
+          else
+            node scripts/bump-version.js
+          fi
+          
+          VERSION=$(node -p "require('./app.json').expo.version")
+          VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          echo "NEW_VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "NEW_VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "Prepared release v$VERSION (code: $VERSION_CODE)"
+
+      - name: 8. Setup Expo Prebuild for Android
+        run: |
+          echo "Generating native Android project with custom security & optimization plugins..."
+          npx expo prebuild --platform android --clean --no-install
+
+      - name: 9. Build Standalone Compressed Release APK
+        working-directory: android
+        run: |
+          echo "Building optimized release APK with R8 Full Mode & ABI Filtering..."
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+
+      - name: 10. Locate and Verify Generated APK
+        id: apk_info
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Error: Release APK was not found!"
+            exit 1
+          fi
+
+          VERSION="${{ steps.version_step.outputs.NEW_VERSION }}"
+          DEST_APK="chatboxai-v${VERSION}.apk"
+          cp "$APK_PATH" "$DEST_APK"
+
+          SHA256=$(sha256sum "$DEST_APK" | cut -d ' ' -f 1)
+          SIZE=$(stat -c%s "$DEST_APK" || wc -c < "$DEST_APK")
+
+          echo "APK_FILE=$DEST_APK" >> $GITHUB_OUTPUT
+          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SIZE=$SIZE" >> $GITHUB_OUTPUT
+
+          echo "=========================================================="
+          echo "Generated APK: $DEST_APK"
+          echo "Size (bytes): $SIZE ($((SIZE / 1024 / 1024)) MB)"
+          echo "SHA-256: $SHA256"
+          echo "=========================================================="
+
+      - name: 11. Update Release Manifest
+        run: |
+          node -e "
+            const fs = require('fs');
+            const relPath = './releases/latest.json';
+            const manifest = JSON.parse(fs.readFileSync(relPath, 'utf8'));
+            manifest.latestVersion = '${{ steps.version_step.outputs.NEW_VERSION }}';
+            manifest.latestVersionCode = Number('${{ steps.version_step.outputs.NEW_VERSION_CODE }}');
+            manifest.sha256 = '${{ steps.apk_info.outputs.SHA256 }}';
+            manifest.size = Number('${{ steps.apk_info.outputs.SIZE }}');
+            manifest.apkUrl = 'https://github.com/${{ github.repository }}/releases/download/v${{ steps.version_step.outputs.NEW_VERSION }}/${{ steps.apk_info.outputs.APK_FILE }}';
+            manifest.publishedAt = new Date().toISOString();
+            fs.writeFileSync(relPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
+            const serverRelPath = './src/server/config/releases.json';
+            if (fs.existsSync(serverRelPath)) {
+              fs.writeFileSync(serverRelPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+            }
+          "
+
+      - name: 12. Create GitHub Release & Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version_step.outputs.NEW_VERSION }}"
+          name: "ChatBox AI Mobile v${{ steps.version_step.outputs.NEW_VERSION }}"
+          body: |
+            ## 🚀 ChatBox AI Mobile v${{ steps.version_step.outputs.NEW_VERSION }} (Build ${{ steps.version_step.outputs.NEW_VERSION_CODE }})
+
+            ### 📦 Release Specifications
+            - **Platform:** Standalone Android APK (Direct distribution)
+            - **Android Baseline:** Android 7.0+ (API 24 to API 36 supported)
+            - **Package Identity:** `com.chatboxai.app`
+            - **Optimizations:** R8 Full Mode, Hermes bytecode compilation, Resource shrinking, ARM ABI filtering (~25-35 MB)
+            - **SHA-256 Checksum:** `${{ steps.apk_info.outputs.SHA256 }}`
+            - **File Size:** `${{ steps.apk_info.outputs.SIZE }} bytes`
+
+            ### ✨ Release Notes
+            - ${{ github.event.inputs.release_notes || 'Production release with full APK compression, security hardening, and in-app auto-update.' }}
+
+            ---
+            *Direct download link below. Existing app installations will automatically detect this update and display the Home Screen banner.*
+          files: |
+            ${{ steps.apk_info.outputs.APK_FILE }}
+            releases/latest.json
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 13. Commit Synchronized Manifest Back to Main
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add app.json package.json releases/latest.json src/server/config/releases.json
+          git commit -m "chore(release): publish v${{ steps.version_step.outputs.NEW_VERSION }} (code ${{ steps.version_step.outputs.NEW_VERSION_CODE }}) [skip ci]" || echo "No changes to commit"
+          git push origin main

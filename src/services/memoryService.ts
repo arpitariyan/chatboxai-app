@@ -8,7 +8,7 @@
  */
 
 import { databases, DB_ID, CONVERSATION_MEMORY_COLLECTION_ID, Query, ID } from '@/config/appwrite';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage } from './security/SecureStorageService';
 
 const MEMORY_CACHE_PREFIX = '@chatboxai:cached_memories_';
 
@@ -88,7 +88,7 @@ export async function fetchUserMemories(
       });
 
       if (offset === 0) {
-        AsyncStorage.setItem(cacheKey, JSON.stringify(parsed)).catch(() => {});
+        secureStorage.setEncryptedJson(cacheKey, parsed).catch(() => {});
       }
 
       return {
@@ -100,11 +100,10 @@ export async function fetchUserMemories(
     console.warn('[memoryService] Appwrite fetch error, falling back to local cache:', err?.message || err);
   }
 
-  // Fallback to local cached memories
+  // Fallback to AES-256 encrypted local cached memories
   try {
-    const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) {
-      const list: ConversationMemoryItem[] = JSON.parse(cached);
+    const list = await secureStorage.getEncryptedJson<ConversationMemoryItem[]>(cacheKey, []);
+    if (list.length > 0) {
       return {
         total: list.length,
         memories: list.slice(offset, offset + limit),
@@ -168,7 +167,7 @@ export async function clearAllUserMemories(userEmail: string): Promise<boolean> 
 
   // Clear local cache immediately
   try {
-    await AsyncStorage.removeItem(cacheKey);
+    await secureStorage.removeItem(cacheKey);
   } catch {}
 
   try {

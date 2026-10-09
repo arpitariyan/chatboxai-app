@@ -21,7 +21,7 @@ import {
   ID,
   WEB_API_URL,
 } from '@/config/appwrite';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage } from './security/SecureStorageService';
 
 const API_KEYS_CACHE_PREFIX = '@chatboxai:cached_api_keys_';
 const API_CREDITS_CACHE_PREFIX = '@chatboxai:cached_api_credits_';
@@ -147,7 +147,7 @@ export async function fetchApiKeys(
             rate_limit_rpm: k.rate_limit_rpm,
             rate_limit_tpm: k.rate_limit_tpm,
           }));
-          AsyncStorage.setItem(cacheKey, JSON.stringify(items)).catch(() => {});
+          secureStorage.setEncryptedJson(cacheKey, items).catch(() => {});
           return items;
         }
       }
@@ -184,7 +184,7 @@ export async function fetchApiKeys(
           rate_limit_tpm: doc.rate_limit_tpm,
         }));
 
-        AsyncStorage.setItem(cacheKey, JSON.stringify(items)).catch(() => {});
+        secureStorage.setEncryptedJson(cacheKey, items).catch(() => {});
         return items;
       }
     }
@@ -192,13 +192,8 @@ export async function fetchApiKeys(
     console.warn('[apiKeyService] Appwrite fetch error, using local storage:', err?.message || err);
   }
 
-  // 3. Fallback to AsyncStorage Cache
-  try {
-    const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) return JSON.parse(cached);
-  } catch {}
-
-  return [];
+  // 3. Fallback to AES-256 Encrypted Cache
+  return await secureStorage.getEncryptedJson<ApiKeyItem[]>(cacheKey, []);
 }
 
 /**
@@ -245,10 +240,9 @@ export async function createApiKey(
 
         // Cache update
         try {
-          const existing = await AsyncStorage.getItem(cacheKey);
-          const list: ApiKeyItem[] = existing ? JSON.parse(existing) : [];
+          const list = await secureStorage.getEncryptedJson<ApiKeyItem[]>(cacheKey, []);
           list.unshift(item);
-          await AsyncStorage.setItem(cacheKey, JSON.stringify(list));
+          await secureStorage.setEncryptedJson(cacheKey, list);
         } catch {}
 
         return { key: data.key, item };
@@ -303,10 +297,9 @@ export async function createApiKey(
 
   // Update local cache
   try {
-    const existing = await AsyncStorage.getItem(cacheKey);
-    const list: ApiKeyItem[] = existing ? JSON.parse(existing) : [];
+    const list = await secureStorage.getEncryptedJson<ApiKeyItem[]>(cacheKey, []);
     list.unshift(item);
-    await AsyncStorage.setItem(cacheKey, JSON.stringify(list));
+    await secureStorage.setEncryptedJson(cacheKey, list);
   } catch {}
 
   return { key: randomSecret, item };
@@ -349,12 +342,9 @@ export async function deleteApiKey(
   // 3. Update local cache
   const cacheKey = `${API_KEYS_CACHE_PREFIX}${cleanEmail}`;
   try {
-    const existing = await AsyncStorage.getItem(cacheKey);
-    if (existing) {
-      const list: ApiKeyItem[] = JSON.parse(existing);
-      const filtered = list.filter((k) => k.key_id !== keyId);
-      await AsyncStorage.setItem(cacheKey, JSON.stringify(filtered));
-    }
+    const list = await secureStorage.getEncryptedJson<ApiKeyItem[]>(cacheKey, []);
+    const filtered = list.filter((k) => k.key_id !== keyId);
+    await secureStorage.setEncryptedJson(cacheKey, filtered);
   } catch {}
 
   return true;
@@ -397,7 +387,7 @@ export async function fetchApiCredits(
               }))
             : [],
         };
-        AsyncStorage.setItem(cacheKey, JSON.stringify(creditsData)).catch(() => {});
+        secureStorage.setEncryptedJson(cacheKey, creditsData).catch(() => {});
         return creditsData;
       }
     } catch {
@@ -449,20 +439,15 @@ export async function fetchApiCredits(
       } catch {}
 
       const result: ApiCreditsData = { balance, transactions };
-      AsyncStorage.setItem(cacheKey, JSON.stringify(result)).catch(() => {});
+      secureStorage.setEncryptedJson(cacheKey, result).catch(() => {});
       return result;
     }
   } catch (err: any) {
     console.warn('[apiKeyService] Appwrite credits fetch error:', err?.message || err);
   }
 
-  // 3. Fallback to AsyncStorage cache
-  try {
-    const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) return JSON.parse(cached);
-  } catch {}
-
-  return { balance: 0, transactions: [] };
+  // 3. Fallback to AES-256 Encrypted Cache
+  return await secureStorage.getEncryptedJson<ApiCreditsData>(cacheKey, { balance: 0, transactions: [] });
 }
 
 /**
@@ -486,7 +471,7 @@ export async function fetchApiUsage(idToken?: string): Promise<ApiUsageData> {
     if (res.ok) {
       const data = await res.json();
       if (data.analytics) {
-        AsyncStorage.setItem(API_USAGE_CACHE_PREFIX, JSON.stringify(data.analytics)).catch(() => {});
+        secureStorage.setEncryptedJson(API_USAGE_CACHE_PREFIX, data.analytics).catch(() => {});
         return data.analytics;
       }
     }
@@ -494,10 +479,5 @@ export async function fetchApiUsage(idToken?: string): Promise<ApiUsageData> {
     console.warn('[apiKeyService] Usage fetch error:', err);
   }
 
-  try {
-    const cached = await AsyncStorage.getItem(API_USAGE_CACHE_PREFIX);
-    if (cached) return JSON.parse(cached);
-  } catch {}
-
-  return defaultUsage;
+  return await secureStorage.getEncryptedJson<ApiUsageData>(API_USAGE_CACHE_PREFIX, defaultUsage);
 }

@@ -35,10 +35,6 @@ export const LOGIN_ACTIVITY_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_LOGIN_ACTIVITY_COLLECTION_ID || 'login_activity';
 export const STORAGE_BUCKET_ID =
   process.env.EXPO_PUBLIC_APPWRITE_STORAGE_BUCKET_ID || '';
-export const APPWRITE_API_KEY =
-  process.env.EXPO_PUBLIC_APPWRITE_API_KEY ||
-  process.env.APPWRITE_API_KEY ||
-  '';
 export const WEB_API_URL =
   process.env.EXPO_PUBLIC_WEB_API_URL ||
   'https://chatboxai.co.in';
@@ -46,10 +42,6 @@ export const WEB_API_URL =
 const client = new Client()
   .setEndpoint(APPWRITE_ENDPOINT)
   .setProject(APPWRITE_PROJECT_ID);
-
-if (APPWRITE_API_KEY) {
-  client.headers['x-appwrite-key'] = APPWRITE_API_KEY;
-}
 
 export const databases = new Databases(client);
 

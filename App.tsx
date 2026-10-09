@@ -17,11 +17,13 @@ LogBox.ignoreLogs([
   '[nvidia] API key failed',
   '[ChatboxAI] Auto fallback',
   'On iOS `VideoPlayer.replace` loads the asset data synchronously',
+  'Method getInfoAsync imported from',
 ]);
 
 import { useColorScheme } from 'react-native';
 import { useThemeColors } from '@/theme';
 import { usePreferencesStore } from '@/stores/usePreferencesStore';
+import { appIntegrityService } from '@/services/security/AppIntegrityService';
 
 function MainAppContent() {
   const colors = useThemeColors();
@@ -30,6 +32,11 @@ function MainAppContent() {
   const isDark = themeMode === 'system' ? systemScheme !== 'light' : themeMode !== 'light';
   const { currentUser, loading } = useAuth();
   const [hasStartupCompleted, setHasStartupCompleted] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    // Perform background device integrity and security assessment
+    appIntegrityService.checkIntegrity().catch(() => {});
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

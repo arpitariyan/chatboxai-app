@@ -30,6 +30,8 @@ import { logger } from './lib/logger';
 import { formatErrorResponse } from './lib/errors';
 import { ensureCollectionExists } from './lib/attachment-repository';
 
+import rateLimit from 'express-rate-limit';
+
 // Route modules
 import { healthRouter } from './routes/health';
 import { uploadRouter } from './routes/upload';
@@ -41,9 +43,22 @@ import { researchRouter } from './routes/research';
 import { searchRouter } from './routes/search';
 import { ttsRouter } from './routes/tts';
 import { voiceAiRouter } from './routes/voiceAi';
+import { chatRouter } from './routes/chat';
+import { emailRouter } from './routes/email';
+import { updateRouter } from './routes/update';
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.MOBILE_API_PORT || 3001);
+
+// Global IP rate limiter to protect backend against DDoS and credential stuffing
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 400, // 400 requests per 15 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.', code: 'RATE_LIMIT_EXCEEDED' },
+});
+app.use('/api', apiLimiter);
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
@@ -103,9 +118,15 @@ app.use('/api/mobile', researchRouter);
 app.use('/api/mobile', searchRouter);
 app.use('/api/mobile', ttsRouter);
 app.use('/api/mobile', voiceAiRouter);
+app.use('/api/mobile', chatRouter);
+app.use('/api/mobile', emailRouter);
+app.use('/api/mobile', updateRouter);
 // Also support root /api prefix for compatibility with website endpoints
 app.use('/api', ttsRouter);
 app.use('/api', voiceAiRouter);
+app.use('/api', chatRouter);
+app.use('/api', emailRouter);
+app.use('/api', updateRouter);
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

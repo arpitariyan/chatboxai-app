@@ -16,7 +16,7 @@ interface WindowRecord {
   bytesTransferred: number;
 }
 
-class SlidingWindowLimiter {
+export class SlidingWindowLimiter {
   private windows = new Map<string, WindowRecord>();
   private readonly config: RateLimitConfig;
 
@@ -97,3 +97,10 @@ export const imageGenerationLimiter = new SlidingWindowLimiter({
   windowMs: 10 * 60 * 1000,
   maxRequests: 20,
 });
+
+// 45 chat completions / minute per user (protects provider quota & prevents abuse)
+export const chatLimiter = new SlidingWindowLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 45,
+});
+

@@ -1,5 +1,9 @@
+import { resolveBackendBaseUrl } from '@/config/mobileApi';
+
 const RESEND_API_KEY =
-  process.env.EXPO_PUBLIC_RESEND_API_KEY || '';
+  typeof __DEV__ !== 'undefined' && __DEV__
+    ? (process.env.EXPO_PUBLIC_RESEND_API_KEY || '')
+    : '';
 
 const LOGO_URL = 'https://chatboxai.co.in/Chatboxai_logo_main.png';
 
@@ -70,6 +74,26 @@ export async function sendPasswordResetEmailViaResend(
   recipientEmail: string,
   otp: string
 ): Promise<{ success: boolean; message?: string }> {
+  // 1. Try secure backend route first (zero secret keys in mobile app)
+  try {
+    const backendUrl = `${resolveBackendBaseUrl()}/api/mobile/email/send-otp`;
+    const res = await fetch(backendUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipientEmail, otp, type: 'reset' }),
+    });
+    if (res.ok) {
+      return { success: true };
+    }
+  } catch (err: any) {
+    console.warn('[emailService] Backend email proxy unavailable:', err.message);
+  }
+
+  // 2. Development fallback only
+  if (!RESEND_API_KEY) {
+    return { success: false, message: 'Email service unavailable.' };
+  }
+
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -165,6 +189,26 @@ export async function sendSignupVerificationEmailViaResend(
   recipientEmail: string,
   otp: string
 ): Promise<{ success: boolean; message?: string }> {
+  // 1. Try secure backend route first (zero secret keys in mobile app)
+  try {
+    const backendUrl = `${resolveBackendBaseUrl()}/api/mobile/email/send-otp`;
+    const res = await fetch(backendUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipientEmail, otp, type: 'signup' }),
+    });
+    if (res.ok) {
+      return { success: true };
+    }
+  } catch (err: any) {
+    console.warn('[emailService] Backend email proxy unavailable:', err.message);
+  }
+
+  // 2. Development fallback only
+  if (!RESEND_API_KEY) {
+    return { success: false, message: 'Email service unavailable.' };
+  }
+
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
