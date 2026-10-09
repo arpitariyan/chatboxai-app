@@ -3,7 +3,7 @@
     "name": "Chatbox Ai",
     "slug": "Chatboxai_APK",
     "scheme": "chatboxai",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/Main-logo.png",
     "userInterfaceStyle": "dark",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "com.chatboxai.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "usesCleartextTraffic": true,
       "largeHeap": true,
       "hardwareAccelerated": true,
