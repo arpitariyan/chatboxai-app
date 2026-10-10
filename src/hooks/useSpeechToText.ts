@@ -43,17 +43,9 @@ function getSafeAudioModule(): ExpoAudioModuleType | null {
   }
 }
 
-// ── Groq API key rotation with reliable production fallbacks ─────────────────
-const FALLBACK_GROQ_KEYS = [
-  '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',
-  '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',
-  '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',
-  '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',
-  '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',
-  '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',
-  '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',
-];
+import { getEncryptedVaultKeys } from '@/services/security/encryptedKeyVault';
 
+// ── Groq API key rotation with reliable production fallbacks ─────────────────
 const ENV_GROQ_KEYS = [
   process.env.EXPO_PUBLIC_GROQ_API_KEY,
   process.env.EXPO_PUBLIC_GROQ_API_KEY_2,
@@ -64,7 +56,7 @@ const ENV_GROQ_KEYS = [
   process.env.EXPO_PUBLIC_GROQ_API_KEY_7,
 ].filter(Boolean) as string[];
 
-const GROQ_KEYS = ENV_GROQ_KEYS.length > 0 ? ENV_GROQ_KEYS : FALLBACK_GROQ_KEYS;
+const GROQ_KEYS = ENV_GROQ_KEYS.length > 0 ? ENV_GROQ_KEYS : getEncryptedVaultKeys('groq');
 
 let _groqKeyIndex = 0;
 const getNextGroqKey = (): string => {

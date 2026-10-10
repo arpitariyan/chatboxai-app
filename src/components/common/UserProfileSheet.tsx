@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { IconBolt, IconSettings, IconChevronRight, IconLogout } from '@tabler/icons-react-native';
 import { BottomSheet } from '@/components/common/BottomSheet';
+import { SignOutModal } from '@/components/common/SignOutModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing, radius, typography } from '@/theme';
 
@@ -18,15 +19,8 @@ export const UserProfileSheet: React.FC<UserProfileSheetProps> = ({
 }) => {
   const colors = useThemeColors();
   const { currentUser, userProfile, logout } = useAuth();
-
-  const handleLogout = async () => {
-    onClose();
-    try {
-      await logout();
-    } catch (err) {
-      console.warn('[UserProfileSheet] Logout error:', err);
-    }
-  };
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const displayName = currentUser?.displayName || userProfile?.name || 'ChatBox AI User';
   const email = currentUser?.email || 'guest@example.com';
@@ -89,7 +83,7 @@ export const UserProfileSheet: React.FC<UserProfileSheetProps> = ({
 
         {/* Sign Out Action Button */}
         <Pressable
-          onPress={handleLogout}
+          onPress={() => setShowSignOutModal(true)}
           style={({ pressed }) => [
             styles.logoutBtn,
             {
@@ -105,6 +99,25 @@ export const UserProfileSheet: React.FC<UserProfileSheetProps> = ({
           </Text>
         </Pressable>
       </View>
+
+      <SignOutModal
+        visible={showSignOutModal}
+        isLoading={isSigningOut}
+        onClose={() => setShowSignOutModal(false)}
+        onConfirm={async () => {
+          setIsSigningOut(true);
+          try {
+            await logout();
+            setShowSignOutModal(false);
+            onClose();
+          } catch (err) {
+            console.warn('[UserProfileSheet] Logout error:', err);
+            setShowSignOutModal(false);
+          } finally {
+            setIsSigningOut(false);
+          }
+        }}
+      />
     </BottomSheet>
   );
 };

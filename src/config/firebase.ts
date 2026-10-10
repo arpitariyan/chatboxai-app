@@ -9,13 +9,15 @@ import {
 } from 'firebase/auth';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
+import { getEncryptedVaultKeys } from '../services/security/encryptedKeyVault';
+
 // Require getReactNativePersistence dynamically to avoid TypeScript Web definition mismatch
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { getReactNativePersistence } = require('firebase/auth');
 
 // Firebase Project Credentials
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || 'AIzaSyC_-B_RZ43iw1Z4cHb-iGod44FLzxyWYdk',
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || getEncryptedVaultKeys('firebase')[0] || '',
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || 'craetionai.firebaseapp.com',
   projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || 'craetionai',
   storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || 'craetionai.firebasestorage.app',

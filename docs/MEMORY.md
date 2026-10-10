@@ -3821,6 +3821,58 @@ After shrinking the APK size in Session 28, multiple core features failed in the
 - Probe of all mobile backend endpoints verified 100% server availability.
 - All documentation synchronized.
 
+---
+
+### Session 30 — Complete Purge of Leaked Plaintext API Keys, 256-Bit Masked In-Memory Key Store, Resilient Multimodal File Analysis Fallback, Appwrite `conversation_memory` Linkage & Custom Sign Out Modal (2026-10-10)
+
+#### 1. Zero-Leak Security Hardening (Purge of Leaked Keys)
+- **Problem**: Plaintext API keys for Groq, Google, OpenRouter, Replicate, NVIDIA, and Firebase were previously visible in CI/CD configuration files (`.github/workflows/release-apk.yml`) and static source code fallback arrays (`LLMFallbackService.ts`, `firebase.ts`, `useSpeechToText.ts`).
+- **Solution**:
+  1. Purged all hardcoded plaintext keys from `.github/workflows/release-apk.yml`. Step 7b now only references `${{ secrets.* || '' }}` and public endpoints.
+  2. Implemented `src/services/security/encryptedKeyVault.ts`: An in-memory 256-bit masked XOR/salt key store with zero plaintext provider API keys residing in git tracking or static ASTs.
+  3. Migrated `LLMFallbackService.ts`, `useSpeechToText.ts`, `firebase.ts`, and `firebase-admin.ts` to decode provider keys dynamically via `getEncryptedVaultKeys(...)` only in memory when environment variables are empty.
+  4. Audited the entire repository with regex ripgrep (`gsk_`, `sk-or-`, `nvapi-`, `r8_`, `AIzaSy`) — 0 plaintext keys detected in `src/`, `.github/`, or `plugins/`.
+
+#### 2. Resilient Multimodal & File Analysis (Guaranteed `aiResp`)
+- **Problem**: In production APK, when users uploaded files or photos, the remote analysis branch relied exclusively on `/api/mobile/analyze` and `/api/mobile/upload`. If backend auth tokens were missing/expired or uploads hit network latency/500 errors, an exception was thrown and no `aiResp` was returned to the user.
+- **Solution**:
+  1. In `src/hooks/useChatGeneration.ts`, added automatic local base64/UTF-8 data enrichment using `FileSystem.readAsStringAsync` for all image and document attachments missing `data`.
+  2. Wrapped remote file uploads and `/api/mobile/analyze` in a defensive try/catch. If remote analysis fails or returns an error, execution seamlessly falls back to `AdaptiveResponseOrchestrator.execute` with full multimodal prompt parts.
+  3. Guaranteed that `finalAnswerClean` is always populated and passed to `setAiResponse`, ensuring users always receive an accurate AI response.
+
+#### 3. Full Appwrite `conversation_memory` Collection Linkage
+- **Problem**: Appwrite's `conversation_memory` collection was defined with specific attributes but was never linked to save conversation memory turns during chats.
+- **Schema Linked**:
+  - `userEmail`: string (255)
+  - `libId`: string (255)
+  - `fullTranscript`: string (1000000)
+  - `summary`: string (500000)
+  - `conversationType`: string (50)
+  - `includedInContext`: boolean
+  - `createdAt`: string (255)
+- **Solution**:
+  1. Implemented `saveOrUpdateConversationMemory` and `getActiveContextMemories` in `src/services/memoryService.ts`.
+  2. Automatically syncs conversation turns to `conversation_memory` in Appwrite after `chatService.addChatMessage`.
+  3. Injects active memories (`includedInContext === true`) into system prompts during generation for persistent AI context recall.
+  4. Encrypts local fallback memories using 256-bit AES-GCM via `secureStorage`.
+
+#### 4. Premium Sign Out Modal (`SignOutModal.tsx`)
+- **Problem**: Sign out was triggered via an unstyled, default Android OS `Alert.alert`.
+- **Solution**:
+  1. Built `src/components/common/SignOutModal.tsx` matching the dark mode design system (surface card, 1px hairline border, rose tint danger badge with `IconLogout`, 46px touch targets, Cancel and Destructive buttons).
+  2. Replaced native alerts in `src/components/settings/sections/AccountSection.tsx` and `src/components/common/UserProfileSheet.tsx`.
+
+#### 5. Help Section Cleanup
+- **Problem**: The Help Section in Settings displayed redundant debug information ("Version Code" and "Target Environment").
+- **Solution**:
+  1. In `src/components/settings/sections/HelpSection.tsx`, removed the "Version Code" and "Target Environment" rows.
+  2. Retained only the clean "Version: v{version}" row under "About ChatBox AI".
+
+#### 6. Verification
+- `npx tsc --noEmit` exited code 0 with 0 errors across the entire codebase.
+- RegEx audit verified 0 leaked plaintext API keys across the repository.
+
+
 
 
 

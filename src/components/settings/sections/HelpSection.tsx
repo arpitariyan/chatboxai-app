@@ -199,22 +199,6 @@ export const HelpSection: React.FC = () => {
           <Text style={[styles.specLabel, { color: colors.ink3 }]}>Version</Text>
           <Text style={[styles.specValue, { color: colors.ink }]}>v{currentApp.version}</Text>
         </View>
-
-        <View style={[styles.divider, { backgroundColor: colors.line, marginLeft: 16 }]} />
-
-        <View style={styles.specRow}>
-          <Text style={[styles.specLabel, { color: colors.ink3 }]}>Version Code</Text>
-          <Text style={[styles.specValue, { color: colors.ink }]}>{currentApp.versionCode}</Text>
-        </View>
-
-        <View style={[styles.divider, { backgroundColor: colors.line, marginLeft: 16 }]} />
-
-        <View style={styles.specRow}>
-          <Text style={[styles.specLabel, { color: colors.ink3 }]}>Target Environment</Text>
-          <Text style={[styles.specValue, { color: colors.ink }]}>
-            Android 7.0+ (API 24-36) Release APK
-          </Text>
-        </View>
       </View>
     </View>
   );

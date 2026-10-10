@@ -39,6 +39,7 @@ import {
   IconExternalLink,
 } from '@tabler/icons-react-native';
 import { BottomSheet } from '@/components/common/BottomSheet';
+import { SignOutModal } from '@/components/common/SignOutModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColors, spacing } from '@/theme';
 import { updateUserProfile } from '@/services/userService';
@@ -100,6 +101,8 @@ export const AccountSection: React.FC = () => {
   // Modals
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
@@ -474,12 +477,7 @@ export const AccountSection: React.FC = () => {
       <View style={[styles.groupCard, { backgroundColor: colors.surface, borderColor: 'rgba(239, 68, 68, 0.25)' }]}>
         {/* Sign Out */}
         <Pressable
-          onPress={() => {
-            Alert.alert('Sign Out', 'Are you sure you want to sign out of ChatBox AI?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Sign Out', style: 'destructive', onPress: logout },
-            ]);
-          }}
+          onPress={() => setShowSignOutModal(true)}
           style={({ pressed }) => [styles.actionRow, pressed && { backgroundColor: 'rgba(239, 68, 68, 0.08)' }]}
         >
           <View style={[styles.iconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
@@ -732,6 +730,22 @@ export const AccountSection: React.FC = () => {
           </Pressable>
         </View>
       </BottomSheet>
+
+      {/* ── CUSTOM SIGN OUT CONFIRMATION MODAL ────────────────────────────── */}
+      <SignOutModal
+        visible={showSignOutModal}
+        isLoading={isSigningOut}
+        onClose={() => setShowSignOutModal(false)}
+        onConfirm={async () => {
+          setIsSigningOut(true);
+          try {
+            await logout();
+          } finally {
+            setIsSigningOut(false);
+            setShowSignOutModal(false);
+          }
+        }}
+      />
     </View>
   );
 };

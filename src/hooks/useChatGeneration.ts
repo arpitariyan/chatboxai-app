@@ -19,6 +19,7 @@ import { toMobileUploadUrl, toMobileAnalyzeUrl, toMobileFileUrl } from '../confi
 import { checkModelEligibility, calculateChatCredits, deductUsageCredits } from '../services/creditEngine';
 import { UserProfile } from '../services/userService';
 import { AdaptiveResponseOrchestrator } from '../services/intelligence';
+import { saveOrUpdateConversationMemory, getActiveContextMemories } from '../services/memoryService';
 
 // ── Attachment type exposed from this hook ────────────────────────────────────
 export interface ChatAttachment {
@@ -397,172 +398,227 @@ export const useChatGeneration = ({
             throw researchErr;
           }
         } else if (attachments.length > 0) {
-          // --- REMOTE ANALYSIS BRANCH (Handles files securely) ---
-          const token = await auth.currentUser?.getIdToken();
-          if (!token) throw new Error("Authentication required for file analysis");
-
-          setIsFileAnalyzing(true);
-          setProgressMessage(`Uploading files (0/${attachments.length})...`);
-
-          // 1. Upload files with controlled concurrency (Max 4 parallel)
-          let uploadedCount = 0;
-          const uploadBatches = [];
-          for (let i = 0; i < attachments.length; i += 4) {
-            uploadBatches.push(attachments.slice(i, i + 4));
-          }
-
-          for (const batch of uploadBatches) {
-            const batchPromises = batch.map(async (attachment) => {
-              const uploadUrl = toMobileUploadUrl();
-              let data: any = null;
-
-              if (Platform.OS !== 'web' && typeof FileSystem?.uploadAsync === 'function' && (attachment.uri.startsWith('file://') || attachment.uri.startsWith('content://'))) {
+          // --- MULTIMODAL & FILE ANALYSIS BRANCH ---
+          // 1. Enrich local attachments with base64 data for image/file parsing if data is missing
+          const enrichedAttachments: ChatAttachment[] = await Promise.all(
+            attachments.map(async (att) => {
+              if (att.data) return att;
+              if (Platform.OS !== 'web' && att.uri && typeof FileSystem?.readAsStringAsync === 'function') {
                 try {
-                  const uploadRes = await FileSystem.uploadAsync(uploadUrl, attachment.uri, {
-                    httpMethod: 'POST',
-                    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-                    fieldName: 'file',
-                    headers: {
-                      'Authorization': `Bearer ${token}`,
-                      'Accept': 'application/json',
-                    },
+                  if (att.type === 'image' || att.mimeType?.startsWith('image/')) {
+                    const b64 = await FileSystem.readAsStringAsync(att.uri, {
+                      encoding: FileSystem.EncodingType.Base64,
+                    });
+                    const mime = att.mimeType || 'image/jpeg';
+                    return { ...att, data: `data:${mime};base64,${b64}`, type: 'image' as const };
+                  } else {
+                    const textContent = await FileSystem.readAsStringAsync(att.uri, {
+                      encoding: FileSystem.EncodingType.UTF8,
+                    });
+                    return { ...att, data: textContent.slice(0, 100000), type: 'file' as const };
+                  }
+                } catch (readErr) {
+                  console.warn('[useChatGeneration] Local attachment read error:', readErr);
+                }
+              }
+              return att;
+            })
+          );
+
+          let remoteAnalysisSuccess = false;
+          let token: string | undefined;
+          try {
+            token = await auth.currentUser?.getIdToken();
+          } catch {}
+
+          if (token) {
+            try {
+              setIsFileAnalyzing(true);
+              setProgressMessage(`Uploading files (0/${attachments.length})...`);
+
+              // Upload files with controlled concurrency (Max 4 parallel)
+              let uploadedCount = 0;
+              const uploadBatches = [];
+              for (let i = 0; i < attachments.length; i += 4) {
+                uploadBatches.push(attachments.slice(i, i + 4));
+              }
+
+              for (const batch of uploadBatches) {
+                const batchPromises = batch.map(async (attachment) => {
+                  const uploadUrl = toMobileUploadUrl();
+                  let data: any = null;
+
+                  if (Platform.OS !== 'web' && typeof FileSystem?.uploadAsync === 'function' && (attachment.uri.startsWith('file://') || attachment.uri.startsWith('content://'))) {
+                    try {
+                      const uploadRes = await FileSystem.uploadAsync(uploadUrl, attachment.uri, {
+                        httpMethod: 'POST',
+                        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+                        fieldName: 'file',
+                        headers: {
+                          'Authorization': `Bearer ${token}`,
+                          'Accept': 'application/json',
+                        },
+                      });
+                      data = JSON.parse(uploadRes.body);
+                    } catch (fsErr) {
+                      console.warn('FileSystem.uploadAsync failed, falling back to fetch FormData:', fsErr);
+                    }
+                  }
+
+                  if (!data) {
+                    const formData = new FormData();
+                    formData.append('file', {
+                      uri: attachment.uri,
+                      name: attachment.name || `file_${Date.now()}.bin`,
+                      type: attachment.mimeType || 'application/octet-stream',
+                    } as any);
+
+                    const fetchRes = await fetch(uploadUrl, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/json',
+                      },
+                      body: formData,
+                    });
+                    data = await fetchRes.json();
+                  }
+
+                  if (!data?.success || !data?.fileId) throw new Error(data?.error || 'Failed to upload file');
+
+                  const mobileFileUrl = toMobileFileUrl(data.fileId);
+
+                  const stored = toStoredAttachment({
+                    fileId: data.fileId,
+                    path: data.fileId,
+                    bucketId: data.bucketId || STORAGE_BUCKET_ID,
+                    publicUrl: mobileFileUrl,
+                    fileName: data.fileName || attachment.name,
+                    fileType: data.fileType || attachment.mimeType,
+                    fileSize: data.fileSize,
                   });
-                  data = JSON.parse(uploadRes.body);
-                } catch (fsErr) {
-                  console.warn('FileSystem.uploadAsync failed, falling back to fetch FormData:', fsErr);
+                  if (!stored) throw new Error('Upload response had no file id');
+                  return stored;
+                });
+
+                const results = await Promise.allSettled(batchPromises);
+                for (const res of results) {
+                  uploadedCount++;
+                  setProgressMessage(`Uploading files (${uploadedCount}/${attachments.length})...`);
+                  if (res.status === 'fulfilled') {
+                    filePaths.push(res.value);
+                  } else {
+                    console.warn('File upload warning:', res.reason);
+                  }
                 }
               }
 
-              if (!data) {
-                const formData = new FormData();
-                formData.append('file', {
-                  uri: attachment.uri,
-                  name: attachment.name || `file_${Date.now()}.bin`,
-                  type: attachment.mimeType || 'application/octet-stream',
-                } as any);
+              if (filePaths.length > 0) {
+                setProgressMessage('Analyzing files with backend AI engine...');
 
-                const fetchRes = await fetch(uploadUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/json',
-                  },
-                  body: formData,
-                });
-                data = await fetchRes.json();
+                const CHUNK_SIZE = 4;
+                const fileChunks = [];
+                for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+                  fileChunks.push(filePaths.slice(i, i + CHUNK_SIZE));
+                }
+
+                let aggregatedAiResponse = '';
+                let aggregatedThinking = '';
+                let actualModel = 'api/mobile/analyze';
+                let actualProvider = 'ChatBox Mobile API';
+
+                for (let i = 0; i < fileChunks.length; i++) {
+                  const chunk = fileChunks[i];
+                  setProgressMessage(`Analyzing files (Batch ${i + 1}/${fileChunks.length})...`);
+
+                  const isFinalChunk = (i === fileChunks.length - 1);
+                  const chunkPrompt = isFinalChunk ? query : 'Please extract all text, information, and context from these files. Provide a comprehensive summary so I can use it to answer the user\'s final question.';
+
+                  const finalPromptContext = (isFinalChunk && aggregatedAiResponse)
+                    ? `Previously Analyzed Context:\n${aggregatedAiResponse}\n\nCurrent Question: ${query}`
+                    : chunkPrompt;
+
+                  const analyzeRes = await fetch(toMobileAnalyzeUrl(), {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${token}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      prompt: finalPromptContext,
+                      fileIds: chunk.map((f: any) => f.fileId),
+                      conversationHistory: isFinalChunk ? history : [],
+                      memoryEnabled: isFinalChunk,
+                    }),
+                  });
+
+                  const analyzeData = await analyzeRes.json();
+                  if (!analyzeRes.ok || analyzeData.error) {
+                    console.warn(`Chunk ${i + 1} analysis warning:`, analyzeData?.error);
+                    continue;
+                  }
+
+                  if (isFinalChunk) {
+                    aggregatedAiResponse = analyzeData.aiResponse || aggregatedAiResponse;
+                    if (analyzeData.thinkingContent) aggregatedThinking += (aggregatedThinking ? '\n\n' : '') + analyzeData.thinkingContent;
+                  } else {
+                    aggregatedAiResponse += (aggregatedAiResponse ? '\n\n' : '') + (analyzeData.aiResponse || '');
+                  }
+                }
+
+                if (aggregatedAiResponse && aggregatedAiResponse.trim()) {
+                  finalAnswerClean = aggregatedAiResponse;
+                  finalThinking = currentThinkingMode ? (aggregatedThinking || '') : '';
+                  responseText = finalAnswerClean;
+                  remoteAnalysisSuccess = true;
+                  llmResult = {
+                    resolvedModel: { provider: actualProvider, modelApi: actualModel },
+                  };
+                }
               }
+            } catch (remoteErr: any) {
+              console.warn('[useChatGeneration] Remote analysis failed, falling back to local orchestrator:', remoteErr?.message || remoteErr);
+            } finally {
+              setIsFileAnalyzing(false);
+            }
+          }
 
-              if (!data?.success || !data?.fileId) throw new Error(data?.error || 'Failed to upload file');
+          // Fallback: If remote analysis failed or was bypassed, run AdaptiveResponseOrchestrator directly with enrichedAttachments
+          if (!remoteAnalysisSuccess) {
+            setIsFileAnalyzing(false);
+            setIsThinking(true);
+            setProgressMessage('Analyzing files with local multimodal AI engine...');
 
-              const mobileFileUrl = toMobileFileUrl(data.fileId);
+            const activeMemories = await getActiveContextMemories(normalizedEmail).catch(() => '');
 
-              const stored = toStoredAttachment({
-                fileId: data.fileId,
-                path: data.fileId,
-                bucketId: data.bucketId || STORAGE_BUCKET_ID,
-                publicUrl: mobileFileUrl,
-                fileName: data.fileName || attachment.name,
-                fileType: data.fileType || attachment.mimeType,
-                fileSize: data.fileSize,
-              });
-              if (!stored) throw new Error('Upload response had no file id');
-              return stored;
+            const orchestrated = await AdaptiveResponseOrchestrator.execute({
+              query: activeMemories ? `${query}\n\n[Active Memory Context:\n${activeMemories}]` : query,
+              modelId,
+              userEmail: normalizedEmail,
+              conversationHistory: history,
+              sources,
+              attachments: enrichedAttachments,
+              isIncognito: isIncognitoRef.current,
+              effortLevel: currentEffortLevel,
+              thinkingMode: currentThinkingMode,
+              onProgress: (stageMsg) => setProgressMessage(stageMsg),
             });
 
-            const results = await Promise.allSettled(batchPromises);
-            for (const res of results) {
-              uploadedCount++;
-              setProgressMessage(`Uploading files (${uploadedCount}/${attachments.length})...`);
-              if (res.status === 'fulfilled') {
-                filePaths.push(res.value);
-              } else {
-                console.warn('File upload failed:', res.reason);
-              }
-            }
+            finalAnswerClean = orchestrated.finalAnswer;
+            finalThinking = currentThinkingMode ? (orchestrated.finalThinking || '') : '';
+            responseText = finalAnswerClean;
+
+            llmResult = {
+              resolvedModel: { provider: orchestrated.modelUsed, modelApi: modelId },
+              orchestrated,
+            };
           }
-
-          if (filePaths.length === 0) {
-            throw new Error('All file uploads failed. Please try again.');
-          }
-
-          setProgressMessage('Analyzing files...');
-
-          // 2. Chunked Pre-Analysis to avoid backend timeouts (Chunk size: 4 files)
-          const CHUNK_SIZE = 4;
-          const fileChunks = [];
-          for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
-            fileChunks.push(filePaths.slice(i, i + CHUNK_SIZE));
-          }
-
-          let aggregatedAiResponse = '';
-          let aggregatedThinking = '';
-          let actualModel = 'api/mobile/analyze';
-          let actualProvider = 'ChatBox Mobile API';
-
-          for (let i = 0; i < fileChunks.length; i++) {
-            const chunk = fileChunks[i];
-            setProgressMessage(`Analyzing files (Batch ${i + 1}/${fileChunks.length})...`);
-
-            // The final chunk answers the user's question; previous chunks just summarize for context.
-            const isFinalChunk = (i === fileChunks.length - 1);
-            const chunkPrompt = isFinalChunk ? query : 'Please extract all text, information, and context from these files. Provide a comprehensive summary so I can use it to answer the user\'s final question.';
-
-            // Include aggregated context in the final chunk if we had previous batches
-            const finalPromptContext = (isFinalChunk && aggregatedAiResponse)
-              ? `Previously Analyzed Context:\n${aggregatedAiResponse}\n\nCurrent Question: ${query}`
-              : chunkPrompt;
-
-            const analyzeRes = await fetch(toMobileAnalyzeUrl(), {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                prompt: finalPromptContext,
-                fileIds: chunk.map((f: any) => f.fileId),
-                // To save tokens, only pass conversation history on the final chunk
-                conversationHistory: isFinalChunk ? history : [],
-                memoryEnabled: isFinalChunk,
-              }),
-            });
-
-            const analyzeData = await analyzeRes.json();
-            if (!analyzeRes.ok || analyzeData.error) {
-              if (isFinalChunk && !aggregatedAiResponse) {
-                if (analyzeRes.status === 429) throw new Error("Rate limit exceeded. Please try again later.");
-                if (analyzeRes.status === 402) throw new Error("Insufficient AI credits for document analysis.");
-                throw new Error(analyzeData.error || 'Analysis failed');
-              } else {
-                console.warn(`Chunk ${i + 1} analysis failed:`, analyzeData.error);
-                continue;
-              }
-            }
-
-            if (isFinalChunk) {
-              aggregatedAiResponse = analyzeData.aiResponse || aggregatedAiResponse;
-              if (analyzeData.thinkingContent) aggregatedThinking += (aggregatedThinking ? '\n\n' : '') + analyzeData.thinkingContent;
-            } else {
-              // Append summary to the running context
-              aggregatedAiResponse += (aggregatedAiResponse ? '\n\n' : '') + (analyzeData.aiResponse || '');
-            }
-          }
-
-          setIsFileAnalyzing(false);
-          setIsThinking(true);
-          setProgressMessage('Preparing answer...');
-
-          finalAnswerClean = aggregatedAiResponse || '';
-          finalThinking = currentThinkingMode ? (aggregatedThinking || '') : '';
-          responseText = finalAnswerClean; // For fallback
-
-          llmResult = {
-            resolvedModel: { provider: actualProvider, modelApi: actualModel },
-          };
         } else {
           // --- ADAPTIVE RESPONSE INTELLIGENCE PIPELINE ---
+          const activeMemories = await getActiveContextMemories(normalizedEmail).catch(() => '');
+
           const orchestrated = await AdaptiveResponseOrchestrator.execute({
-            query,
+            query: activeMemories ? `${query}\n\n[Active Memory Context:\n${activeMemories}]` : query,
             modelId,
             userEmail: normalizedEmail,
             conversationHistory: history,
@@ -678,6 +734,27 @@ export const useChatGeneration = ({
         });
 
         const dbId = chatRecord ? chatRecord.id : '';
+
+        // Sync to Appwrite 'conversation_memory' collection with exact schema
+        saveOrUpdateConversationMemory({
+          userEmail: normalizedEmail,
+          libId: libId!,
+          fullTranscript: [
+            ...(history || []),
+            { role: 'user', content: query },
+            { role: 'assistant', content: finalAnswerClean || responseText },
+          ],
+          summary: {
+            topic: query.slice(0, 60),
+            summary: (finalAnswerClean || responseText).slice(0, 300),
+          },
+          conversationType: isDeepResearch
+            ? 'research'
+            : (hasFiles || attachments.length > 0 ? 'file_analysis' : (sources.length > 0 ? 'search' : 'chat')),
+          includedInContext: true,
+        }).catch((memErr) => {
+          console.warn('[useChatGeneration] conversation_memory sync non-fatal:', memErr);
+        });
 
         // ── Step 7: Surface result to UI ──────────────────────────────────────
         // Set both before clearing isThinking so ChatScreen sees complete state.

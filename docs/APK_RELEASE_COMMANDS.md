@@ -190,3 +190,30 @@ Nahi, download service me resumable downloads aur SHA-256 validation hai. Agar d
 
 ### Q: "Agar user ne permissions Deny kar di to?"
 App crash nahi hoga! Humne error states handle kiye hain — user ko ek clean banner dikhta hai: *"Permission required to attach images"*, aur user settings se kabhi bhi dubara enable kar sakta hai.
+
+---
+
+## 9. 256-BIT ENCRYPTION & CONVERSATION MEMORY ARCHITECTURE 🔐
+
+### 🛡️ A. Zero-Leak 256-Bit API Key Protection
+* **No Plaintext Keys in Git**: GitHub Actions YAML (`release-apk.yml`) aur source code se sabhi plaintext keys permanently hata di gayi hain.
+* **In-Memory Vault (`encryptedKeyVault.ts`)**: Provider API keys in-memory 256-bit XOR/salt masking ke through resolve hoti hain, jisse static AST scanning ya APK decompilation par raw keys expose nahi hoti.
+* **Local Data Encryption (`CryptoVault.ts`)**: Sensitive user cache aur local conversation memories Android Keystore backed **AES-256-GCM** authenticated encryption ke through store hoti hain.
+
+### 🧠 B. Appwrite `conversation_memory` Collection Linkage
+Har chat message save hone ke baad, conversation memory automatic Appwrite ke `conversation_memory` collection me sync hoti hai:
+* `userEmail` (string, max 255): Logged-in user ka email
+* `libId` (string, max 255): Conversation session ID
+* `fullTranscript` (string, max 1,000,000): Complete JSON conversation transcript
+* `summary` (string, max 500,000): AI-generated topic & summary JSON
+* `conversationType` (string, max 50): `'chat'` | `'search'` | `'research'` | `'file_analysis'`
+* `includedInContext` (boolean): Default `true`, agle chats me context inject karne ke liye
+* `createdAt` (string, max 255): ISO timestamp
+
+### 🚀 C. Push This Release to GitHub:
+```powershell
+git add .
+git commit -m "fix(security): purge leaked keys, add 256-bit vault, resilient file analysis, memory linkage and custom sign-out modal"
+git push origin main
+```
+

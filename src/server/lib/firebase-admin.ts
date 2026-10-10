@@ -18,12 +18,15 @@ declare global {
   }
 }
 
+import { getEncryptedVaultKeys } from '../../services/security/encryptedKeyVault';
+
 const FIREBASE_LOOKUP_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 
 const apiKey =
   process.env.FIREBASE_API_KEY ||
   process.env.EXPO_PUBLIC_FIREBASE_API_KEY ||
-  'AIzaSyC_-B_RZ43iw1Z4cHb-iGod44FLzxyWYdk';
+  getEncryptedVaultKeys('firebase')[0] ||
+  '';
 
 /**
  * Extracts Bearer token from request Authorization header or custom header.
